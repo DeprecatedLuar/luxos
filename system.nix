@@ -6,7 +6,6 @@ in
 {
   imports = [
     /etc/nixos/hardware-configuration.nix  # Auto-generated filesystems
-    ./service-loader.nix                   # Dynamic service imports
   ];
 
      #──[Packages]──────────────────────────────────────────────────────────────
@@ -15,7 +14,7 @@ in
 
        environment.systemPackages = with pkgs; [
          # Self-healing nixos-rebuild wrapper
-          (pkgs.writeShellScriptBin "nixos-rebuild" (builtins.readFile ./scripts/nixos-rebuild.sh))
+          (pkgs.writeShellScriptBin "nixos-rebuild" (builtins.readFile ./bin/nixos-rebuild))
          # Dead man's switch for rebuilds
           (pkgs.writeShellScriptBin "meltdown" (builtins.readFile ./scripts/lib/meltdown))
 
