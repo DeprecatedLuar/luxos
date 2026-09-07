@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN="$BIN_DIR/lib/lux/main.sh"
+
+exec bash "$MAIN" "$@"
