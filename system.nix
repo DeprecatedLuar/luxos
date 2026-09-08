@@ -1,11 +1,8 @@
-{ config, pkgs, lib, mainUser, hostName, compositors, ... }:
+{ config, pkgs, lib, mainUser, hostName, inputs, ... }:
 
-let
-  hasDesktop = compositors != [];
-in
 {
   imports = [
-    /etc/nixos/hardware-configuration.nix  # Auto-generated filesystems
+    ../hardware-configuration.nix  # Auto-generated filesystems
   ];
 
      #──[Packages]──────────────────────────────────────────────────────────────
@@ -63,55 +60,17 @@ in
 
          kitty.terminfo
 
-       ] ++ lib.optionals hasDesktop [
-         xdotool
-         ydotool
-         evtest
-         mpv
        ];
 
        programs.nix-ld.enable = true;
-
-     #──[Audio & Bluetooth]─────────────────────────────────────────────────────
-
-       security.rtkit.enable = lib.mkIf hasDesktop true;
-
-       services.pulseaudio.enable = lib.mkIf hasDesktop false;
-
-       services.pipewire = lib.mkIf hasDesktop {
-         enable = true;
-         alsa.enable = true;
-         alsa.support32Bit = true;
-         pulse.enable = true;
-         wireplumber.extraConfig.bluetoothEnhancements = {
-           "monitor.bluez.properties" = {
-             "bluez5.enable-sbc-xq" = true;
-             "bluez5.enable-msbc" = true;
-             "bluez5.enable-hw-volume" = true;
-             "bluez5.roles" = [ "a2dp_sink" "a2dp_source" "hsp_hs" "hsp_ag" "hfp_hf" "hfp_ag" ];
-           };
-         };
-       };
-
-       hardware.bluetooth = lib.mkIf hasDesktop {
-         enable = true;
-         powerOnBoot = true;
-         settings.General.Experimental = true;
-       };
 
      #──[Users]─────────────────────────────────────────────────────────────────
 
        users.users.root.hashedPassword = "!"; # No password login for root; use sudo or SSH key
        services.openssh.settings.PermitRootLogin = "prohibit-password";
 
-     #──[Input Devices]─────────────────────────────────────────────────────────
-
-       boot.kernelModules = lib.optionals hasDesktop [ "uinput" ];
-       hardware.uinput.enable = lib.mkIf hasDesktop true;
-
      #──[Services]──────────────────────────────────────────────────────────────
 
-       services.upower.enable = lib.mkIf hasDesktop true;
        services.openssh.enable = true;
        services.atd.enable = true;
        services.cron.enable = true;
@@ -148,6 +107,8 @@ in
        systemd.settings.Manager.RuntimeWatchdogSec = "30s";
 
        nix.settings.experimental-features = [ "nix-command" "flakes" ];
+       nix.registry.nixpkgs.flake = inputs.nixpkgs;
+       nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
 
        # Self-cleanup: prune old generations weekly, dedupe the store.
        nix.gc = {

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRAMEWORK_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+FRAMEWORK_DIR="$(cd "$BIN_DIR/.." && pwd)"
 
-source "$FRAMEWORK_ROOT/internal/env.sh"
+source "$FRAMEWORK_DIR/internal/env.sh"
 source "$BIN_DIR/lib/setup/main.sh"
 
 setup::run "$@"

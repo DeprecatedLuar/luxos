@@ -9,13 +9,13 @@ set -euo pipefail
 SETUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$FRAMEWORK_DIR/internal/links/links.sh"
 source "$FRAMEWORK_DIR/internal/configgen/configgen.sh"
+source "$FRAMEWORK_DIR/internal/staging/staging.sh"
 
 SETUP_TEMPLATE_DIR="$SETUP_LIB_DIR/templates"
 
 # Defaults for scaffolded machines
 SETUP_DEFAULT_LOCALE="en_US.UTF-8"
 SETUP_DEFAULT_STATE_VERSION="25.05"
-SETUP_COMPOSITOR_OPTIONS="hyprland niri xfce i3 openbox"
 
 # Timezone menu (first entry is the default)
 SETUP_TIMEZONES=(
@@ -75,6 +75,7 @@ setup::_scaffold_config_dir() {
   local machines_dir="$2"
   echo "No config directory found at $CONFIG_DIR, creating it..."
   mkdir -p "$machines_dir" "$system_dir/users" "$system_dir/services" "$system_dir/modules"
+  cp "$SETUP_TEMPLATE_DIR/flake.nix" "$CONFIG_DIR/flake.nix"
 }
 
 # Scaffold a new user file, authored inside the machine that owns it.
@@ -129,17 +130,12 @@ setup::create_machine() {
   # hostName == machine name (dir name is the network hostname)
   local host_name="$machine"
 
-  mkdir -p "$dir/users" "$dir/services" "$dir/modules"
+  mkdir -p "$dir/users" "$dir/services" "$dir/modules" "$dir/local"
 
   # main user (scaffold if missing)
   read -rp "  Main user [$(whoami)]: " user_in
   local main_user="${user_in:-$(whoami)}"
   setup::resolve_user "$main_user" "$dir" "$CONFIG_DIR/.system"
-
-  # compositors (space-separated, empty = headless)
-  echo "  Compositors (space-separated, blank for headless)"
-  echo "    Options: $SETUP_COMPOSITOR_OPTIONS"
-  read -rp "  > " compositors_in
 
   # modules (space-separated, empty = none)
   local available_modules
@@ -163,9 +159,6 @@ timeZone = "$time_zone"
 locale = "$SETUP_DEFAULT_LOCALE"
 stateVersion = "$SETUP_DEFAULT_STATE_VERSION"
 
-# Desktop compositors
-compositors = [$(to_toml_array "$compositors_in")]
-
 # Modules to import
 modules = [$(to_toml_array "$modules_in")]
 
@@ -173,12 +166,13 @@ modules = [$(to_toml_array "$modules_in")]
 services = []
 EOF
 
-  # Static skeleton files (default / preferences / hardware)
-  cp "$SETUP_TEMPLATE_DIR"/{default,preferences,hardware}.nix "$dir/"
+  # Static skeleton files (preferences / hardware) — always-on, machine-private
+  cp "$SETUP_TEMPLATE_DIR"/{preferences,hardware}.nix "$dir/local/"
   links::build_all_pools
 
-  # Generate configuration.nix from the toml
+  # Generate configuration.nix from the toml, and default.nix from local/
   configgen::generate "$dir"
+  configgen::generate_default "$dir"
 
   echo "Machine '$machine' scaffolded."
 }
@@ -199,6 +193,9 @@ setup::run() {
 
   if [ ! -d "$CONFIG_DIR" ]; then
     setup::_scaffold_config_dir "$system_dir" "$machines_dir"
+  elif [ ! -f "$CONFIG_DIR/flake.nix" ]; then
+    echo "No $CONFIG_DIR/flake.nix found, scaffolding it..."
+    cp "$SETUP_TEMPLATE_DIR/flake.nix" "$CONFIG_DIR/flake.nix"
   fi
 
   links::build_all_pools
@@ -240,14 +237,16 @@ setup::run() {
   if [ -n "$dry_run" ]; then
     echo ""
     echo "[dry-run] Machine '$machine' resolved. Would apply (skipped):"
-    echo "  heal /etc/nixos -> $machines_dir/$machine/configuration.nix"
-    echo "  link machine *.nix (except default.nix, configuration.nix) + machine.toml into $CONFIG_DIR"
+    echo "  materialize $STAGING_DIR from $machines_dir/$machine/"
+    echo "  heal /etc/nixos (hardware-configuration.nix + env only)"
+    echo "  link machine *.nix (except default.nix, configuration.nix) + machine.toml + local/ + modules/ + services/ into $CONFIG_DIR"
     echo ""
     echo "[dry-run] Done. Only $system_dir was written."
     return 0
   fi
 
-  links::ensure_etc_nixos "$machines_dir/$machine/configuration.nix"
+  staging::materialize "$machines_dir/$machine"
+  links::ensure_etc_nixos
 
   links::link_machine_files "$machine"
   echo "  Linked machine files into $CONFIG_DIR"

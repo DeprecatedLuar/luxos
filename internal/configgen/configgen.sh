@@ -7,11 +7,13 @@ set -euo pipefail
 
 #──[Discovery]──────────────────────────────────────────────────────────────
 
-# List available basenames (e.g. "gaming gui") from a generated pool.
+# List available basenames (e.g. "gaming hyprland") from a generated pool,
+# searched recursively — modules/system/ and any other organizational
+# subfolder are transparent to discovery, only the basename matters.
 _configgen_discover_pool() {
     local pool="$CONFIG_DIR/.system/$1"
     if [[ -d "$pool" ]]; then
-        find -L "$pool" -maxdepth 1 -name "*.nix" -type f \
+        find -L "$pool" -name "*.nix" -type f \
             | xargs -r -I{} basename {} .nix \
             | sort
     fi
@@ -20,6 +22,51 @@ _configgen_discover_pool() {
 configgen::discover_modules() { _configgen_discover_pool modules; }
 configgen::discover_users() { _configgen_discover_pool users; }
 configgen::discover_services() { _configgen_discover_pool services; }
+
+# Resolve a module name: echoes "<origin> <path>". "framework" path is
+# relative to $STAGING_DIR/framework/modules/ (mirrored wholesale, always
+# flat). "machine" path is relative to $STAGING_DIR/config/machines/ (also
+# mirrored wholesale), preserving whatever subfolder it actually lives in —
+# staging::materialize copies both trees verbatim, so these paths are valid
+# in the source repos too, not just once staged.
+configgen::resolve_module() {
+    local name="$1"
+
+    local fw_match
+    fw_match=$(find "$FRAMEWORK_DIR/modules" -name "${name}.nix" -type f -print -quit 2>/dev/null)
+    if [[ -n "$fw_match" ]]; then
+        echo "framework $(basename "$fw_match")"
+        return
+    fi
+
+    local pool="$CONFIG_DIR/.system/modules"
+    local match
+    match=$(find -L "$pool" -name "${name}.nix" -type f -print -quit)
+    if [[ -z "$match" ]]; then
+        echo "Error: module '$name' not found under $FRAMEWORK_DIR/modules or $pool" >&2
+        exit 1
+    fi
+    match=$(readlink -f "$match")
+    echo "machine ${match/#$CONFIG_DIR\/.system\/machines\//}"
+}
+
+# Resolve a user/service name to its path relative to
+# $CONFIG_DIR/.system/machines/ (== $STAGING_DIR/config/machines/).
+_configgen_resolve_pool_entry() {
+    local kind="$1" name="$2"
+    local pool="$CONFIG_DIR/.system/$kind"
+    local match
+    match=$(find -L "$pool" -name "${name}.nix" -type f -print -quit)
+    if [[ -z "$match" ]]; then
+        echo "Error: $kind '$name' not found under $pool" >&2
+        exit 1
+    fi
+    match=$(readlink -f "$match")
+    echo "${match/#$CONFIG_DIR\/.system\/machines\//}"
+}
+
+configgen::resolve_user() { _configgen_resolve_pool_entry users "$1"; }
+configgen::resolve_service() { _configgen_resolve_pool_entry services "$1"; }
 
 #──[TOML parsing]───────────────────────────────────────────────────────────
 # Private helpers — only configgen.sh itself calls these.
@@ -55,7 +102,7 @@ to_nix_list() {
 # Validate TOML file structure
 validate_toml() {
     local file=$1
-    local required_keys=("hostName" "timeZone" "locale" "stateVersion" "compositors" "users" "modules" "services")
+    local required_keys=("hostName" "timeZone" "locale" "stateVersion" "users" "modules" "services")
     local errors=()
 
     # Check for required keys
@@ -119,10 +166,6 @@ timeZone = "America/Sao_Paulo"
 locale = "en_US.UTF-8"
 stateVersion = "25.05"
 
-# Desktop compositors (leave empty for headless)
-# Options: hyprland, niri, xfce, i3, openbox
-compositors = []
-
 EOF
 
     # Add available modules as comments
@@ -155,7 +198,6 @@ configgen::generate() {
     local machine_dir="${1:-.}"
     local machine_toml="$machine_dir/machine.toml"
     local output_file="$machine_dir/configuration.nix"
-    local pool_dir="$CONFIG_DIR/.system"
 
     # Check if machine.toml exists, create from template if not
     if [[ ! -f "$machine_toml" ]]; then
@@ -195,25 +237,36 @@ configgen::generate() {
     fi
 
     # Parse arrays and convert to Nix format
-    local compositors users modules
-    compositors=$(parse_array "$machine_toml" compositors | to_nix_list)
+    local users modules
     users=$(parse_array "$machine_toml" users | to_nix_list)
     modules=$(parse_array "$machine_toml" modules | to_nix_list)
 
-    # Generate imports from the pools: any machine may select any pooled name
+    # Paths are relative to $STAGING_DIR, which staging::materialize
+    # populates by mirroring FRAMEWORK_DIR to ./framework/ and
+    # CONFIG_DIR/.system/machines to ./config/machines/ verbatim — so these
+    # same relative paths are also valid against the source repos.
     local user_imports=()
     while IFS= read -r user; do
-        [[ -n "$user" ]] && user_imports+=("    $pool_dir/users/${user}.nix")
+        [[ -n "$user" ]] || continue
+        user_imports+=("    ./config/machines/$(configgen::resolve_user "$user")")
     done < <(parse_array "$machine_toml" users)
 
     local module_imports=()
     while IFS= read -r module; do
-        [[ -n "$module" ]] && module_imports+=("    $pool_dir/modules/${module}.nix")
+        [[ -n "$module" ]] || continue
+        local origin path
+        read -r origin path < <(configgen::resolve_module "$module")
+        if [[ "$origin" == "framework" ]]; then
+            module_imports+=("    ./framework/modules/$path")
+        else
+            module_imports+=("    ./config/machines/$path")
+        fi
     done < <(parse_array "$machine_toml" modules)
 
     local service_imports=()
     while IFS= read -r service; do
-        [[ -n "$service" ]] && service_imports+=("    $pool_dir/services/${service}.nix")
+        [[ -n "$service" ]] || continue
+        service_imports+=("    ./config/machines/$(configgen::resolve_service "$service")")
     done < <(parse_array "$machine_toml" services)
 
     # Combine all imports
@@ -223,14 +276,14 @@ configgen::generate() {
     # Generate configuration.nix
     cat > "$output_file" << EOF
 # Auto-generated from machine.toml - DO NOT EDIT
-# Edit machine.toml and run: sudo nixos-rebuild switch
+# Paths are relative to $STAGING_DIR, where self-heal copies this file.
+# Edit machine.toml instead and run: sudo nixos-rebuild switch
 
 { ... }:
 
 let
   mainUser = "$main_user";
   hostName = "$host_name";
-  compositors = [ $compositors ];
 in
 {
   time.timeZone = "$time_zone";
@@ -238,15 +291,65 @@ in
   system.stateVersion = "$state_version";
 
   imports = [
-    $FRAMEWORK_DIR/system.nix
-    ./default.nix
+    ./framework/system.nix
+    ./config/machines/$host_name/default.nix
 $all_imports
   ];
 
   networking.hostName = hostName;
-  _module.args = { inherit mainUser hostName compositors; };
+  _module.args = { inherit mainUser hostName; };
 }
 EOF
+
+    echo "✓ Generated: $output_file"
+}
+
+# Generate default.nix from a machine directory's local/*.nix files. Unlike
+# configgen::generate (machine.toml -> configuration.nix, declared imports),
+# this discovers whatever's actually sitting in local/ — machine-private,
+# always-on, undeclared config. Deterministically sorted so a rerun without
+# any local/ change produces byte-identical output (no git churn).
+configgen::generate_default() {
+    local machine_dir="${1:-.}"
+    local local_dir="$machine_dir/local"
+    local output_file="$machine_dir/default.nix"
+
+    local imports=()
+    if [[ -d "$local_dir" ]]; then
+        local file
+        while IFS= read -r file; do
+            [[ -n "$file" ]] || continue
+            imports+=("    ./local/$(basename "$file")")
+        done < <(find "$local_dir" -maxdepth 1 -type f -name '*.nix' -printf '%f\n' | LC_ALL=C sort)
+    fi
+
+    if [[ ${#imports[@]} -eq 0 ]]; then
+        cat > "$output_file" << EOF
+# Auto-generated from local/ - DO NOT EDIT
+# Drop a .nix file in local/ and run: sudo nixos-rebuild switch
+
+{ ... }:
+
+{
+  imports = [ ];
+}
+EOF
+    else
+        local imports_block
+        imports_block=$(printf '%s\n' "${imports[@]}")
+        cat > "$output_file" << EOF
+# Auto-generated from local/ - DO NOT EDIT
+# Drop a .nix file in local/ and run: sudo nixos-rebuild switch
+
+{ ... }:
+
+{
+  imports = [
+$imports_block
+  ];
+}
+EOF
+    fi
 
     echo "✓ Generated: $output_file"
 }
