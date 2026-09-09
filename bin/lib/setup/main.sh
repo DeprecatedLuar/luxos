@@ -75,7 +75,7 @@ setup::_scaffold_config_dir() {
   local machines_dir="$2"
   echo "No config directory found at $CONFIG_DIR, creating it..."
   mkdir -p "$machines_dir" "$system_dir/users" "$system_dir/services" "$system_dir/modules"
-  cp "$SETUP_TEMPLATE_DIR/flake.nix" "$CONFIG_DIR/flake.nix"
+  cp "$SETUP_TEMPLATE_DIR/$CONFIGGEN_CHANNELS_FILE" "$CONFIG_DIR/$CONFIGGEN_CHANNELS_FILE"
 }
 
 # Scaffold a new user file, authored inside the machine that owns it.
@@ -193,9 +193,9 @@ setup::run() {
 
   if [ ! -d "$CONFIG_DIR" ]; then
     setup::_scaffold_config_dir "$system_dir" "$machines_dir"
-  elif [ ! -f "$CONFIG_DIR/flake.nix" ]; then
-    echo "No $CONFIG_DIR/flake.nix found, scaffolding it..."
-    cp "$SETUP_TEMPLATE_DIR/flake.nix" "$CONFIG_DIR/flake.nix"
+  elif [ ! -f "$CONFIG_DIR/$CONFIGGEN_CHANNELS_FILE" ]; then
+    echo "No $CONFIG_DIR/$CONFIGGEN_CHANNELS_FILE found, scaffolding it..."
+    cp "$SETUP_TEMPLATE_DIR/$CONFIGGEN_CHANNELS_FILE" "$CONFIG_DIR/$CONFIGGEN_CHANNELS_FILE"
   fi
 
   links::build_all_pools
@@ -237,6 +237,7 @@ setup::run() {
   if [ -n "$dry_run" ]; then
     echo ""
     echo "[dry-run] Machine '$machine' resolved. Would apply (skipped):"
+    echo "  generate $CONFIG_DIR/flake.nix from $CONFIGGEN_CHANNELS_FILE"
     echo "  materialize $STAGING_DIR from $machines_dir/$machine/"
     echo "  heal /etc/nixos (hardware-configuration.nix + env only)"
     echo "  link machine *.nix (except default.nix, configuration.nix) + machine.toml + local/ + modules/ + services/ into $CONFIG_DIR"
@@ -244,6 +245,10 @@ setup::run() {
     echo "[dry-run] Done. Only $system_dir was written."
     return 0
   fi
+
+  # Regenerated here, not at scaffold time: a machine created above must
+  # appear in nixosConfigurations before staging copies flake.nix.
+  configgen::generate_flake
 
   staging::materialize "$machines_dir/$machine"
   links::ensure_etc_nixos

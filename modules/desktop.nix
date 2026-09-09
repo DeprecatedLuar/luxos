@@ -18,6 +18,7 @@
   xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
 
   services.gvfs.enable = true;
+  security.polkit.enable = true;  # auth agent for GVFS/udisks2, NetworkManager GUI, etc.
   # binfmt lets `./foo.AppImage` run directly; libxshmfence is missing from
   # appimage-run's FHS env and required by Electron AppImages.
   programs.appimage = {

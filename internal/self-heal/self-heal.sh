@@ -15,6 +15,10 @@ source "$SELF_HEAL_DIR/../staging/staging.sh"
 self_heal::run() {
     local machine_dir="$1"
 
+    # flake.nix must exist and list every machine before staging copies it
+    echo "Generating flake.nix from channels.toml..."
+    configgen::generate_flake
+
     # Rebuild the users/services/modules pools before anything reads them
     links::build_all_pools
 
