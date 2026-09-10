@@ -246,9 +246,9 @@ setup::run() {
     return 0
   fi
 
-  # Regenerated here, not at scaffold time: a machine created above must
-  # appear in nixosConfigurations before staging copies flake.nix.
-  configgen::generate_flake
+  # Regenerated here, not at scaffold time: a machine created above must be
+  # the one named in nixosConfigurations before staging copies flake.nix.
+  configgen::generate_flake "$machine"
 
   staging::materialize "$machines_dir/$machine"
   links::ensure_etc_nixos

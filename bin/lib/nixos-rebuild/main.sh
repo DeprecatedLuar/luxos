@@ -6,55 +6,58 @@ set -euo pipefail
 # the real nixos-rebuild binary.
 # Callers must source internal/env.sh first.
 
+# The nix attribute path to a flake's built nixos-rebuild, and the binary's
+# location inside that derivation's output — one constant, used by both
+# acquisition strategies below instead of being typed twice in two syntaxes.
+REBUILD_ATTR="config.system.build.nixos-rebuild"
+REBUILD_BIN_RELPATH="bin/nixos-rebuild"
+
+# Channel-based (--bypass) acquisition target: the classic <nixpkgs/nixos>
+# NIX_PATH entry, used only when staging itself is broken.
+REBUILD_CHANNEL_EXPR='<nixpkgs/nixos>'
+
+REBUILD_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$REBUILD_LIB_DIR/../flags.sh"
 source "$FRAMEWORK_DIR/internal/self-heal/self-heal.sh"
 
+# Escape hatch: build nixos-rebuild from the channel-based <nixpkgs/nixos>,
+# bypassing staging and the flake entirely.
+_rebuild_bin_from_channel() {
+    nix-build "$REBUILD_CHANNEL_EXPR" -A "$REBUILD_ATTR" --no-out-link
+}
+
+# The normal path: build nixos-rebuild out of the staged flake's own locked
+# nixpkgs, for the given host.
+_rebuild_bin_from_flake() {
+    local hostname="$1"
+    nix build "$STAGING_DIR#nixosConfigurations.$hostname.$REBUILD_ATTR" \
+        --no-link --print-out-paths
+}
+
 rebuild::run() {
-    # Parse flags
-    local args=()
-    local bypass=false
-    local meltdown=false
-    local update_lock=false
-    local arg
-    for arg; do
-        if [[ "$arg" == "--bypass" ]]; then
-            bypass=true
-        elif [[ "$arg" == "--meltdown" ]]; then
-            meltdown=true
-        elif [[ "$arg" == "--update-lock" ]]; then
-            update_lock=true
-        else
-            args+=("$arg")
-        fi
-    done
+    local -A opts=()
+    local -a args=()
+    flags::parse_passthrough opts args "bypass:bool meltdown:bool update-lock:bool" "$@"
+
+    local bypass=false meltdown=false update_lock=false
+    [[ -n "${opts[bypass]:-}" ]] && bypass=true
+    [[ -n "${opts[meltdown]:-}" ]] && meltdown=true
+    [[ -n "${opts[update-lock]:-}" ]] && update_lock=true
 
     if $bypass; then
-        local rebuild_bin
-        rebuild_bin=$(nix-build '<nixpkgs/nixos>' -A config.system.build.nixos-rebuild --no-out-link)/bin/nixos-rebuild
-        exec "$rebuild_bin" "${args[@]}"
+        exec "$(_rebuild_bin_from_channel)/$REBUILD_BIN_RELPATH" "${args[@]}"
     fi
 
-    local hostname machines_dir machine_dir
+    local hostname machine_dir
     hostname=$(hostname)
-    machines_dir="$CONFIG_DIR/.system/machines"
-    machine_dir="$machines_dir/$hostname"
-
-    # Check if machine config exists
-    if [[ ! -d "$machine_dir" ]]; then
-        echo "Error: Machine config not found: $machine_dir" >&2
-        exit 1
-    fi
+    machine_dir=$(configgen::resolve_machine "$hostname")
 
     self_heal::run "$machine_dir"
 
-    if $update_lock; then
-        sudo nix flake update --flake "$STAGING_DIR"
-        sudo install -m 644 -o "$(id -u)" -g "$(id -g)" \
-            "$STAGING_DIR/flake.lock" "$CONFIG_DIR/flake.lock"
-        echo "Updated $CONFIG_DIR/flake.lock — commit it."
-    fi
+    $update_lock && staging::update_lock
 
     local rebuild_bin
-    rebuild_bin=$(nix build "$STAGING_DIR#nixosConfigurations.$hostname.config.system.build.nixos-rebuild" --no-link --print-out-paths)/bin/nixos-rebuild
+    rebuild_bin="$(_rebuild_bin_from_flake "$hostname")/$REBUILD_BIN_RELPATH"
 
     local flake_args=(--flake "$STAGING_DIR#$hostname")
     $update_lock || flake_args+=(--no-write-lock-file)

@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # lux - application entrypoint/router. Sources commands/ and dispatches to them.
+# Callers must source internal/env.sh first.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMMANDS_DIR="$SCRIPT_DIR/commands"
+LUX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LUX_COMMANDS_DIR="$LUX_LIB_DIR/commands"
 
-source "$LIB_DIR/flags.sh"
-source "$COMMANDS_DIR/help.sh"
+source "$LUX_LIB_DIR/../flags.sh"
+source "$LUX_COMMANDS_DIR/help.sh"
 
-main() {
+lux::run() {
     local -A opts=()
     local -a rest=()
     flags::parse opts rest "help|h:bool" "$@"
@@ -34,5 +34,3 @@ main() {
             ;;
     esac
 }
-
-main "$@"

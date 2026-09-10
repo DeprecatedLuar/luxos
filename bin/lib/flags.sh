@@ -15,8 +15,23 @@
 #   [[ -n "${opts[verbose]:-}" ]] && echo "verbose on"
 #   echo "output = ${opts[output]:-}"
 #   echo "positionals: ${rest[*]:-}"
+#
+# Passthrough (for wrappers around a real binary, e.g. nixos-rebuild): call
+# flags::parse_passthrough instead. Same signature and behavior, except an
+# unrecognized flag is pushed onto rest verbatim instead of erroring — it
+# and everything after it belong to the wrapped binary, not to this parser.
 
 flags::parse() {
+    _flags_parse 0 "$@"
+}
+
+flags::parse_passthrough() {
+    _flags_parse 1 "$@"
+}
+
+_flags_parse() {
+    local passthrough=$1
+    shift
     local -n _flags_out=$1
     local -n _rest_out=$2
     local spec=$3
@@ -56,7 +71,15 @@ flags::parse() {
                     val=""
                 fi
                 resolved="${_long_to_name[$key]:-}"
-                [[ -z "$resolved" ]] && { echo "Error: unknown flag '--$key'" >&2; return 1; }
+                if [[ -z "$resolved" ]]; then
+                    if [[ "$passthrough" == 1 ]]; then
+                        _rest_out+=("$arg")
+                        shift
+                        continue
+                    fi
+                    echo "Error: unknown flag '--$key'" >&2
+                    return 1
+                fi
                 if [[ "${_type[$resolved]}" == "bool" ]]; then
                     _flags_out["$resolved"]=1
                 else
@@ -77,7 +100,15 @@ flags::parse() {
                     val=""
                 fi
                 resolved="${_short_to_name[$key]:-}"
-                [[ -z "$resolved" ]] && { echo "Error: unknown flag '-$key'" >&2; return 1; }
+                if [[ -z "$resolved" ]]; then
+                    if [[ "$passthrough" == 1 ]]; then
+                        _rest_out+=("$arg")
+                        shift
+                        continue
+                    fi
+                    echo "Error: unknown flag '-$key'" >&2
+                    return 1
+                fi
                 if [[ "${_type[$resolved]}" == "bool" ]]; then
                     _flags_out["$resolved"]=1
                 else

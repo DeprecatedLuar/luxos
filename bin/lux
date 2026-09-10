@@ -2,6 +2,9 @@
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAIN="$BIN_DIR/lib/lux/main.sh"
+FRAMEWORK_DIR="$(cd "$BIN_DIR/.." && pwd)"
 
-exec bash "$MAIN" "$@"
+source "$FRAMEWORK_DIR/internal/env.sh"
+source "$BIN_DIR/lib/lux/main.sh"
+
+lux::run "$@"
