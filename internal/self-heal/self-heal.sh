@@ -1,31 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Self-healing sequence: rebuilds the active machine's union folders,
-# regenerates every default.nix, materializes staging, generates flake.nix
-# and configuration.nix straight into it, then heals /etc/nixos to match.
+# Self-healing sequence: ensures the framework modules pool and the active
+# host's mirror exist, regenerates every default.nix, materializes staging,
+# generates flake.nix and configuration.nix straight into it, then heals
+# /etc/nixos to match.
 # Pure sequence — no flag parsing, no hostname resolution, no knowledge of the
-# real nixos-rebuild binary. That's rebuild's job. This is also the one place
-# that discovers peer machines and loops the declared kinds — links.sh and
-# configgen.sh both stay pure black boxes: given a kind and a peer list they
-# place files; they don't decide what those are.
+# real nixos-rebuild binary. That's rebuild's job. links.sh and configgen.sh
+# stay pure black boxes: given a host/kind they place or generate files; they
+# don't decide what those are.
 # Callers must source internal/env.sh first.
 
 SELF_HEAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SELF_HEAL_DIR/../links/links.sh"
 source "$SELF_HEAL_DIR/../configgen/configgen.sh"
 source "$SELF_HEAL_DIR/../staging/staging.sh"
-
-# Every other machine directory at CONFIG_DIR root, sorted, excluding the one
-# being healed. Union kinds (users/modules/services) fold each of these in.
-_self_heal_peer_dirs() {
-    local machine_name="$1"
-    local name
-    for name in $(configgen::discover_machines); do
-        [[ "$name" == "$machine_name" ]] && continue
-        echo "$CONFIG_DIR/$name"
-    done
-}
 
 self_heal::run() {
     local machine_dir="$1"
@@ -35,36 +24,44 @@ self_heal::run() {
 
     configgen::generate_root_gitignore
 
-    local -a peer_dirs=()
-    mapfile -t peer_dirs < <(_self_heal_peer_dirs "$machine_name")
+    echo "Ensuring framework modules pool..."
+    links::ensure_framework_pool
 
-    # Build the union before anything resolves names against it, then check
-    # every kind's names are unique before generating anything from them —
-    # a collision between a peer's file and the framework's is exactly the
-    # silent-wrong-file case this catches (implementation-plan.md §3).
+    # Scaffold any missing kind entrypoint as an empty { imports = []; }
+    # before ensure_mirror runs — otherwise the mirror symlink would dangle
+    # and staging's dangling-link check would hard-fail the rebuild.
     local kind
-    for kind in "${CONFIGGEN_KINDS[@]}"; do
-        echo "Building union folder $kind for $machine_name..."
-        links::build_union "$machine_dir" "$kind" ${peer_dirs[@]+"${peer_dirs[@]}"}
-        configgen::validate_unique_names "$machine_dir" "$kind"
+    for kind in $(configgen::discover_kinds); do
+        local entrypoint="$machine_dir/$kind/default.nix"
+        if [[ ! -f "$entrypoint" ]]; then
+            echo "Scaffolding empty $entrypoint..."
+            mkdir -p "$(dirname "$entrypoint")"
+            printf '{ ... }:\n{\n  imports = [];\n}\n' > "$entrypoint"
+        fi
     done
 
-    # Regenerate each kind's default.nix from machine.toml's declared names
-    local -a declared
-    for kind in "${CONFIGGEN_KINDS[@]}"; do
-        echo "Generating $kind/default.nix from machine.toml..."
-        mapfile -t declared < <(configgen::declared_names "$machine_toml" "$kind")
-        configgen::generate_folder_default "$machine_dir" "$kind" ${declared[@]+"${declared[@]}"}
-    done
+    # users is the one kind still selected from machine.toml (users owns
+    # that array; modules/services are each host's own hand-written
+    # entrypoint) — regenerate its entrypoint from the declared names.
+    echo "Generating users/default.nix from machine.toml..."
+    local -a declared_users
+    mapfile -t declared_users < <(parse_array "$machine_toml" users)
+    configgen::generate_folder_default "$machine_dir" users ${declared_users[@]+"${declared_users[@]}"}
 
-    # local/ has no declared names — always discovery mode
-    echo "Generating local/default.nix from local/..."
+    # machine_dir's own entrypoint (.local/<host>/default.nix) — discovery
+    # mode over whatever machine-private files are present, excluding the
+    # kind mirrors just ensured above and machine.toml itself.
+    echo "Generating $machine_name/default.nix from $machine_dir/..."
     configgen::generate_default "$machine_dir"
 
-    # Materialize the flake root, picking up every default.nix just
-    # generated along with everything else the union pulled in
-    echo "Materializing $STAGING_DIR from $machine_dir..."
-    staging::materialize "$machine_dir"
+    echo "Ensuring $machine_name's kind mirror..."
+    links::ensure_mirror "$machine_name"
+
+    # Materialize the flake root: the shared kind pools (dereferencing both
+    # modules/system and every entrypoint symlink) plus this host's own
+    # $LOCAL_DIR tree.
+    echo "Materializing $STAGING_DIR for $machine_name..."
+    staging::materialize "$machine_name"
 
     # flake.nix and configuration.nix are written last: their imports
     # (./configuration.nix, ./framework/..., ./config/...) only resolve at
