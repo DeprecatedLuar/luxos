@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Materializes the active machine's flake root at $STAGING_DIR: a real-file
-# copy of the machine's union (its own files plus every symlink it holds,
-# dereferenced) and a whitelisted slice of the framework, since a flake
-# evaluates a copy of its own directory and can't reach outside it. The union
-# (built by links::build_union) has already pulled in everything the active
-# machine can reach — peers and framework modules alike — so staging only
-# ever needs to copy that one machine, not every machine in CONFIG_DIR.
+# Materializes the active host's flake root at $STAGING_DIR: a real-file copy
+# of the shared kind pools (CONFIG_DIR/<kind>, each symlink dereferenced —
+# modules/system and every host's entrypoint alike) plus that host's own
+# $LOCAL_DIR/<host> tree, and a whitelisted slice of the framework, since a
+# flake evaluates a copy of its own directory and can't reach outside it.
+# There are now two roots to copy (the shared pools, and the one host's
+# private tree) instead of one machine directory holding everything, so a
+# plain `cp -rL $machine_dir $STAGING_DIR/config` no longer works — it would
+# also sweep up channels.toml, flake.lock, .git, and every other host's
+# $LOCAL_DIR entry.
 # flake.nix and configuration.nix are NOT copied here: configgen writes them
 # straight into $STAGING_DIR after materialize runs, since their imports
 # only resolve at that location (see internal/self-heal/self-heal.sh).
@@ -53,12 +56,13 @@ _staging_guard() {
 # culprit usefully, so catch it here first and report exactly which link
 # is broken. No error swallowing: a find failure (e.g. permission denied
 # partway through the tree) is a real error, not "no dangling links".
+# Takes one or more directories — the shared kind pools plus the active
+# host's own $LOCAL_DIR tree, now that materialize copies both roots.
 _staging_check_no_dangling_links() {
-    local machine_dir="$1"
     local dangling
-    dangling="$(find "$machine_dir" -xtype l)"
+    dangling="$(find "$@" -xtype l)"
     if [[ -n "$dangling" ]]; then
-        echo "Error: dangling symlink(s) under $machine_dir — cannot stage:" >&2
+        echo "Error: dangling symlink(s) — cannot stage:" >&2
         echo "$dangling" | while IFS= read -r line; do echo "  $line" >&2; done
         exit 1
     fi
@@ -83,23 +87,29 @@ _staging_copy_framework() {
 }
 
 staging::materialize() {
-    local machine_dir="$1"
+    local host="$1"
+    local host_dir="$LOCAL_DIR/$host"
+
+    local -a kinds
+    mapfile -t kinds < <(configgen::discover_kinds)
 
     _staging_guard
-    _staging_check_no_dangling_links "$machine_dir"
+    _staging_check_no_dangling_links "$host_dir" "${kinds[@]/#/$CONFIG_DIR/}"
 
     sudo rm -rf "$STAGING_DIR"
-    sudo mkdir -p "$STAGING_DIR/framework"
+    sudo mkdir -p "$STAGING_DIR/framework" "$STAGING_DIR/config"
     sudo touch "$STAGING_DIR/$STAGING_MARKER"
 
     _staging_copy_framework "$STAGING_DIR/framework"
 
-    # Active machine only, dereferenced — the union already holds real
-    # authored files plus symlinks to peers and to the framework modules
-    # link, so a plain `cp -rL` turns all of it into real files. $STAGING_DIR/config
-    # must not already exist: cp -r creates it as the copy of $machine_dir's
-    # contents rather than nesting $machine_dir's basename inside it.
-    sudo cp -rL "$machine_dir" "$STAGING_DIR/config"
+    # One pass per shared kind pool, dereferenced — this turns both
+    # modules/system (the framework link) and every host's entrypoint
+    # symlink into real files. Then the active host's own private tree.
+    local kind
+    for kind in "${kinds[@]}"; do
+        sudo cp -rL "$CONFIG_DIR/$kind" "$STAGING_DIR/config/$kind"
+    done
+    sudo cp -rL "$host_dir" "$STAGING_DIR/config/local"
 
     sudo cp "$STAGING_HARDWARE_CONFIG" "$STAGING_DIR/hardware-configuration.nix"
 

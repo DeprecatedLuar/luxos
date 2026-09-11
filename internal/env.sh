@@ -44,6 +44,11 @@ _env_resolve_framework_dir() {
 FRAMEWORK_DIR="$(_env_resolve_framework_dir)"
 CONFIG_DIR="$(_env_user_home)/.config/luxos"
 
+# Auto-generated per-host mirror of CONFIG_DIR's shared kind pools (see
+# internal/links/links.sh, internal/configgen/configgen.sh). The only file
+# permitted to define this path — nothing else may recompute it.
+LOCAL_DIR="$CONFIG_DIR/.local"
+
 # Materialized, non-git flake root the active machine's config is built from
 # (see internal/staging/staging.sh). Not a git repo on purpose — a flake
 # copies only git-tracked files, and this directory must not be subject to
