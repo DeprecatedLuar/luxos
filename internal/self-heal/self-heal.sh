@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Self-healing sequence: ensures the framework modules pool and the active
-# host's mirror exist, regenerates every default.nix, materializes staging,
-# generates flake.nix and configuration.nix straight into it, then heals
-# /etc/nixos to match.
+# Self-healing sequence: ensures the framework modules pool, the active
+# host's kind mirror, and its root local link exist, regenerates every
+# default.nix, materializes staging, generates flake.nix and
+# configuration.nix straight into it, then heals /etc/nixos to match.
 # Pure sequence — no flag parsing, no hostname resolution, no knowledge of the
 # real nixos-rebuild binary. That's rebuild's job. links.sh and configgen.sh
 # stay pure black boxes: given a host/kind they place or generate files; they
@@ -56,6 +56,9 @@ self_heal::run() {
 
     echo "Ensuring $machine_name's kind mirror..."
     links::ensure_mirror "$machine_name"
+
+    echo "Ensuring local -> .local/$machine_name link..."
+    links::ensure_local_link "$machine_name"
 
     # Materialize the flake root: the shared kind pools (dereferencing both
     # modules/system and every entrypoint symlink) plus this host's own

@@ -2,9 +2,11 @@
 set -euo pipefail
 
 # Symlink management: /etc/nixos healing, the framework modules pool
-# (modules/system -> $FRAMEWORK_DIR/modules), and each host's per-kind mirror
+# (modules/system -> $FRAMEWORK_DIR/modules), each host's per-kind mirror
 # under $LOCAL_DIR (its entrypoint symlinks into the shared kind pools at
-# CONFIG_DIR root).
+# CONFIG_DIR root), and the CONFIG_DIR/local -> $LOCAL_DIR/<host> link that
+# makes the active host's private tree visible at root alongside the kind
+# pools.
 # Callers must source internal/env.sh (FRAMEWORK_DIR, CONFIG_DIR, LOCAL_DIR)
 # first. Every function here aborts the process (exit 1) on error rather than
 # returning non-zero — callers do not check return codes.
@@ -15,6 +17,10 @@ LINKS_ETC_NIXOS_ENV_MODE="600"
 # Reserved name for the framework's own modules link
 # (modules/system -> $FRAMEWORK_DIR/modules). No machine may author it.
 LINKS_FRAMEWORK_MODULE_NAME="system"
+
+# Reserved name for CONFIG_DIR/local -> $LOCAL_DIR/<host>. Not a kind; no
+# machine may author a real "local" at CONFIG_DIR root.
+LINKS_LOCAL_LINK_NAME="local"
 
 #──[/etc/nixos healing]────────────────────────────────────────────────────────
 
@@ -100,4 +106,21 @@ links::ensure_mirror() {
 
         ln -sfn "../.local/$host/$kind/default.nix" "$pool_default"
     done
+}
+
+# Ensure CONFIG_DIR/local -> $LOCAL_DIR/<host>: the active host's whole
+# private tree, visible at root alongside the shared kind pools. Errors if a
+# real file/dir already occupies that name. Idempotent; rebuilt on every
+# self-heal, so it always points at whichever host is currently active.
+links::ensure_local_link() {
+    local host="$1"
+    local link="$CONFIG_DIR/$LINKS_LOCAL_LINK_NAME"
+
+    if [[ -e "$link" && ! -L "$link" ]]; then
+        echo "Error: '$link' is a real file/dir." >&2
+        echo "  '$LINKS_LOCAL_LINK_NAME' is reserved for the link to the active host's $LOCAL_DIR/$host; nothing else may claim it." >&2
+        exit 1
+    fi
+
+    ln -sfn "$LOCAL_DIR/$host" "$link"
 }
