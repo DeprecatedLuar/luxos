@@ -37,11 +37,10 @@ _rebuild_bin_from_flake() {
 rebuild::run() {
     local -A opts=()
     local -a args=()
-    flags::parse_passthrough opts args "bypass:bool meltdown:bool update-lock:bool" "$@"
+    flags::parse_passthrough opts args "bypass:bool update-lock:bool" "$@"
 
-    local bypass=false meltdown=false update_lock=false
+    local bypass=false update_lock=false
     [[ -n "${opts[bypass]:-}" ]] && bypass=true
-    [[ -n "${opts[meltdown]:-}" ]] && meltdown=true
     [[ -n "${opts[update-lock]:-}" ]] && update_lock=true
 
     if $bypass; then
@@ -63,9 +62,5 @@ rebuild::run() {
     $update_lock || flake_args+=(--no-write-lock-file)
     flake_args+=("${args[@]}")
 
-    if $meltdown; then
-        exec meltdown "$rebuild_bin" "${flake_args[@]}"
-    else
-        exec "$rebuild_bin" "${flake_args[@]}"
-    fi
+    exec "$rebuild_bin" "${flake_args[@]}"
 }

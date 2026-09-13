@@ -27,9 +27,6 @@
 
             exec "$FRAMEWORK_DIR/bin/nixos-rebuild" "$@"
           '')
-         # Dead man's switch for rebuilds
-          (pkgs.writeShellScriptBin "meltdown" (builtins.readFile ./scripts/lib/meltdown))
-
          micro
          ncdu
          tailscale

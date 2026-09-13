@@ -29,7 +29,6 @@ STAGING_MARKER=".luxos-staging"
 STAGING_FRAMEWORK_PATHS=(
     system.nix            # imported by every generated configuration.nix
     internal/env.sh       # readFile'd into the nixos-rebuild bootstrap
-    scripts/lib/meltdown   # readFile'd into the meltdown binary
 )
 
 # The one file staging pulls from /etc/nixos rather than from either repo.
