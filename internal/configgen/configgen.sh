@@ -67,6 +67,7 @@ configgen::resolve_machine() {
     local dir="$LOCAL_DIR/$name"
     if [[ ! -f "$dir/machine.toml" ]]; then
         echo "Error: no machine.toml under $dir" >&2
+        echo "  Pass --machine <name> if this machine was renamed or isn't named after \$(hostname)." >&2
         exit 1
     fi
     echo "$dir"
@@ -229,7 +230,7 @@ _configgen_parse_section() {
 # about yet, and hard-erroring on it would actively block schema changes.
 validate_toml() {
     local file=$1
-    local required_keys=("hostName" "timeZone" "locale" "stateVersion")
+    local required_keys=("timeZone" "locale" "stateVersion")
     # Extend here as optional keys are added to machine.toml's schema.
     local allowed_keys=("${required_keys[@]}")
     local errors=()
@@ -251,11 +252,20 @@ validate_toml() {
         errors+=("'users' is no longer a machine.toml key: remove users; select users in modules/default.nix")
     fi
 
+    # "hostName" was machine.toml's second source of the machine's identity
+    # (implementation-plan.md #16) — the .local/<name> directory name is now
+    # the only one. A stale hostName must not silently keep applying, so it's
+    # a hard error naming the fix rather than the generic unknown-key warning
+    # below.
+    if grep -qE "^hostName[[:space:]]*=" "$file"; then
+        errors+=("'hostName' is no longer a machine.toml key: remove hostName; the directory name sets it")
+    fi
+
     # Warn on unexpected keys (non-comment, non-empty lines). Column-0
     # anchored like the rest of machine.toml's parsing, so an indented or
     # continuation line is skipped rather than misread as a new key. "users"
-    # already has its own specific error above, so it's skipped here to
-    # avoid a redundant generic warning alongside it.
+    # and "hostName" already have their own specific errors above, so they're
+    # skipped here to avoid a redundant generic warning alongside them.
     local line
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -263,7 +273,7 @@ validate_toml() {
         [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*= ]] || continue
 
         key="${BASH_REMATCH[1]}"
-        [[ "$key" == "users" ]] && continue
+        [[ "$key" == "users" || "$key" == "hostName" ]] && continue
         if [[ ! " ${allowed_keys[*]} " =~ " $key " ]]; then
             echo "Warning: unknown key '$key' in $file" >&2
         fi
@@ -305,19 +315,16 @@ configgen::generate() {
     # Validate TOML structure
     validate_toml "$machine_toml"
 
-    # Parse variables
+    # The machine directory's basename is the machine's identity and its
+    # hostname (implementation-plan.md #16) — machine.toml no longer carries
+    # one, so there's nothing to drift out of sync with it.
     local host_name time_zone locale state_version
-    host_name=$(parse_string "$machine_toml" hostName)
+    host_name=$(basename "$machine_dir")
     time_zone=$(parse_string "$machine_toml" timeZone)
     locale=$(parse_string "$machine_toml" locale)
     state_version=$(parse_string "$machine_toml" stateVersion)
 
     # Validate required fields
-    if [[ -z "$host_name" ]]; then
-        echo "Error: hostName is required in $machine_toml" >&2
-        exit 1
-    fi
-
     if [[ -z "$state_version" ]]; then
         echo "Error: stateVersion is required in $machine_toml" >&2
         exit 1
@@ -604,11 +611,10 @@ $overlay_block
     # (a link to \$FRAMEWORK_DIR/modules, dereferenced by staging),
     # so no specialArg carries a framework path across the repo boundary.
     mkHost = hostName: $CONFIGGEN_BASE_INPUT_NAME.lib.nixosSystem {
-      inherit system;
       specialArgs = { inherit inputs hostName; };
       modules = [
         ./configuration.nix
-        { nixpkgs.overlays = [ channelOverlay ]; }
+        { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ channelOverlay ]; }
       ];
     };
   in {

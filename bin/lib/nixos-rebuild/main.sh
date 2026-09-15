@@ -49,7 +49,7 @@ rebuild::run() {
 
     local -A opts=()
     local -a args=()
-    flags::parse_passthrough opts args "bypass:bool update-lock:bool prune:bool" "$@"
+    flags::parse_passthrough opts args "bypass:bool update-lock:bool prune:bool machine:value" "$@"
 
     local bypass=false update_lock=false prune=false
     [[ -n "${opts[bypass]:-}" ]] && bypass=true
@@ -57,11 +57,18 @@ rebuild::run() {
     [[ -n "${opts[prune]:-}" ]] && prune=true
 
     if $bypass; then
+        # --bypass never reads .local (channel-based escape hatch, no
+        # staging, no flake), so --machine would silently do nothing —
+        # hard error rather than let the flag look like it took effect.
+        if [[ -n "${opts[machine]:-}" ]]; then
+            echo "Error: --bypass and --machine cannot be combined — --bypass never reads .local" >&2
+            exit 1
+        fi
         exec "$(_rebuild_bin_from_channel)/$REBUILD_BIN_RELPATH" "${args[@]}"
     fi
 
     local hostname machine_dir
-    hostname=$(hostname)
+    hostname="${opts[machine]:-$(hostname)}"
     machine_dir=$(configgen::resolve_machine "$hostname")
 
     self_heal::run "$machine_dir" "$prune"

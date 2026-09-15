@@ -5,8 +5,9 @@ set -euo pipefail
 # missing (prompting for main user and timezone), then hands off to
 # self_heal::run — the one sequence that links, generates and stages. Setup
 # never re-implements any part of it.
-# The machine is always named after `hostname`, because that's what
-# nixos-rebuild resolves on every later run.
+# The machine is named after `hostname` by default, because that's what a
+# plain nixos-rebuild resolves on every later run — pass --machine to
+# scaffold (or target) a machine under a different name.
 # Callers must source internal/env.sh first.
 
 SETUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,7 +140,6 @@ _setup_create_machine() {
     cat > "$dir/machine.toml" << EOF
 # NixOS Machine Configuration - $host
 
-hostName = "$host"
 timeZone = "$time_zone"
 locale = "$SETUP_DEFAULT_LOCALE"
 stateVersion = "$SETUP_DEFAULT_STATE_VERSION"
@@ -163,10 +163,10 @@ EOF
 setup::run() {
     local -A opts=()
     local -a rest=()
-    flags::parse opts rest "dry-run:bool" "$@"
+    flags::parse opts rest "dry-run:bool machine:value" "$@"
 
     local host machine_toml
-    host="$(hostname)"
+    host="${opts[machine]:-$(hostname)}"
     machine_toml="$LOCAL_DIR/$host/machine.toml"
 
     if [[ -n "${opts[dry-run]:-}" ]]; then
@@ -182,11 +182,11 @@ setup::run() {
     _setup_scaffold_config_dir
 
     if [[ ! -f "$machine_toml" ]]; then
-        echo "No machine config for hostname '$host'."
+        echo "No machine config for '$host'."
         local reply
         read -rp "Create one? [Y/n] " reply
         if [[ "$reply" =~ ^[Nn]$ ]]; then
-            echo "Error: nixos-rebuild resolves the machine from hostname; '$host' must exist." >&2
+            echo "Error: a plain nixos-rebuild resolves the machine from hostname; '$host' must exist (or pass --machine <name> on every later run)." >&2
             exit 1
         fi
         _setup_create_machine "$host"
