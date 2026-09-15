@@ -75,6 +75,13 @@
 
   programs.nix-ld.enable = true;
 
+  # Truth source for `lux module`/`lux user`'s state markers
+  # (implementation-plan.md #23, Phase 5): the running generation's copy of
+  # the staged entrypoint, read at /run/current-system/etc/luxos/modules.nix.
+  # $STAGING_DIR is rewritten by dry-build and by failed builds, so it can't
+  # say what's actually running — this file only updates on a real switch.
+  environment.etc."luxos/modules.nix".source = ../config/modules/default.nix;
+
   #──[Users]─────────────────────────────────────────────────────────────────
 
   users.users.root.hashedPassword = "!"; # No password login for root; use sudo or SSH key

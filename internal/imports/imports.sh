@@ -175,6 +175,14 @@ _imports_write() {
 
 #──[Public API]─────────────────────────────────────────────────────────────
 
+# Name from a bare import path (implementation-plan.md §3 "Name from an
+# import line") — public wrapper around the private helper of the same
+# logic, for callers outside this file that need it too (e.g. `lux module`'s
+# state markers, which compare enabled/running import lines by name).
+imports::name_from_path() {
+    _imports_name_from_path "$1"
+}
+
 # Active import paths in $1, one per line, bare (no leading "./"). Hard
 # error if $1 doesn't have exactly one recognizable imports block.
 imports::list() {

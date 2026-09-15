@@ -9,11 +9,17 @@ LUX_COMMANDS_DIR="$LUX_LIB_DIR/commands"
 
 source "$LUX_LIB_DIR/../flags.sh"
 source "$LUX_COMMANDS_DIR/help.sh"
+source "$LUX_COMMANDS_DIR/module.sh"
+source "$LUX_COMMANDS_DIR/user.sh"
 
 lux::run() {
     local -A opts=()
     local -a rest=()
-    flags::parse opts rest "help|h:bool" "$@"
+    # Passthrough: subcommands own their own flags (e.g. `module add
+    # --enable`), which this top-level parser doesn't know about. A plain
+    # flags::parse would hard-error on those as unrecognized before the
+    # subcommand ever sees them.
+    flags::parse_passthrough opts rest "help|h:bool" "$@"
 
     if [[ -n "${opts[help]:-}" ]]; then
         cmd_help
@@ -26,6 +32,12 @@ lux::run() {
     case "$cmd" in
         help|h)
             cmd_help
+            ;;
+        module)
+            cmd_module "${rest[@]}"
+            ;;
+        user)
+            cmd_user "${rest[@]}"
             ;;
         *)
             echo "Error: unknown command '$cmd'" >&2
