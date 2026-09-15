@@ -91,9 +91,8 @@ _configgen_walk_units_dir() {
         [[ -e "$entry" ]] || continue
         base=$(basename "$entry")
 
-        # Skip the root's own entrypoint and anything starting with _.
+        # Skip the root's own entrypoint.
         [[ "$dir" == "$root" && "$base" == "default.nix" ]] && continue
-        [[ "$base" == _* ]] && continue
 
         if [[ -d "$entry" ]]; then
             # Directory with its own default.nix is a unit named after
