@@ -13,6 +13,7 @@ set -euo pipefail
 # matching bin/lib/nixos-rebuild/main.sh's pattern.
 
 source "$FRAMEWORK_DIR/internal/imports/imports.sh"
+source "$FRAMEWORK_DIR/internal/refs/refs.sh"
 
 MODULE_CMD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -389,12 +390,26 @@ module::remove() {
         echo "'$name' is not imported by any host."
     fi
 
+    local dependents
+    dependents=$(refs::dependents "$name")
+    if [[ -n "$dependents" ]]; then
+        echo "'$name' is referenced by:"
+        while IFS= read -r f; do
+            [[ -n "$f" ]] && echo "  $f"
+        done <<< "$dependents"
+    fi
+
     if [[ -z "${opts[y]:-}" ]]; then
         local reply
-        read -rp "Remove modules/$path and the import line(s) above? [y/N] " reply
+        read -rp "Remove modules/$path and the import line(s)/reference(s) above? [y/N] " reply
         [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; return 0; }
     fi
 
+    # refs::retarget first: it validates every dependent's call shape
+    # (refs::names) before writing anything and refuses the whole operation
+    # on a bad shape (#30 item 20) — doing it before imports::retarget/rm
+    # means a refusal here leaves the tree completely untouched.
+    refs::retarget "$name"
     imports::retarget "$name"
     rm -rf -- "$CONFIG_DIR/$CONFIGGEN_MODULES_DIR/$path"
     echo "Removed modules/$path"
@@ -402,13 +417,20 @@ module::remove() {
 
 #──[rename]───────────────────────────────────────────────────────────────
 
-# `lux module rename|rn <old> <new>`: moves the unit (same category, new
-# basename — renaming is identity, not relocation, #21) then
-# imports::retarget <old> <new-path> across every host.
+# `lux module rename|rn <old> <new> [-y]`: moves the unit (same category,
+# new basename — renaming is identity, not relocation, #21) then
+# imports::retarget <old> <new-path> across every host. When any module file
+# references <old> via luxos.modules (refs::dependents), prompts listing
+# them first (-y skips, same convention as `remove`'s skip flag) — no
+# dependents means no prompt, behavior unchanged from before this existed.
 module::rename() {
-    local old="${1:-}" new="${2:-}"
+    local -A opts=()
+    local -a rest=()
+    flags::parse opts rest "y|y:bool" "$@"
+
+    local old="${rest[0]:-}" new="${rest[1]:-}"
     if [[ -z "$old" || -z "$new" ]]; then
-        echo "Error: usage: lux module rename <old> <new>" >&2
+        echo "Error: usage: lux module rename <old> <new> [-y]" >&2
         exit 1
     fi
 
@@ -427,6 +449,21 @@ module::rename() {
         exit 1
     fi
 
+    local dependents
+    dependents=$(refs::dependents "$old")
+    if [[ -n "$dependents" ]]; then
+        echo "'$old' is referenced by:"
+        while IFS= read -r f; do
+            [[ -n "$f" ]] && echo "  $f"
+        done <<< "$dependents"
+
+        if [[ -z "${opts[y]:-}" ]]; then
+            local reply
+            read -rp "Rename '$old' to '$new' and update the reference(s) above? [y/N] " reply
+            [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; return 0; }
+        fi
+    fi
+
     local modules_root="$CONFIG_DIR/$CONFIGGEN_MODULES_DIR"
     local old_full="$modules_root/$old_path"
     local category
@@ -440,6 +477,12 @@ module::rename() {
         new_path="${category:+$category/}$new.nix"
     fi
 
+    # refs::retarget first (validates every dependent's call shape before
+    # writing anything, and refuses the whole operation on a bad shape — #30
+    # item 20): a refusal here leaves the unit unmoved and every host
+    # entrypoint untouched, rather than moving the file first and finding
+    # out afterward that a dependent couldn't be rewritten.
+    refs::retarget "$old" "$new"
     mv -- "$old_full" "$modules_root/$new_path"
     imports::retarget "$old" "$new_path"
 
