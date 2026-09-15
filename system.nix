@@ -1,4 +1,4 @@
-{ pkgs, lib, inputs, ... }:
+{ pkgs, lib, inputs, config, ... }:
 
 {
   imports = [
@@ -79,6 +79,30 @@
 
   users.users.root.hashedPassword = "!"; # No password login for root; use sudo or SSH key
   services.openssh.settings.PermitRootLogin = "prohibit-password";
+
+  # Lockout guard (implementation-plan.md #20): root is locked above, and
+  # NixOS' own lockout assertion only fires when users.mutableUsers = false.
+  # With mutableUsers = true (luxos' default) a host whose selection forgets
+  # every ./users/<name> import would otherwise build and lock you out. This
+  # is an existence check only — a wheel user or a root SSH key must be
+  # declared — never a password check: mutable passwords live in /etc/shadow
+  # (set with `passwd`), invisible to the build, so checking them would
+  # reject perfectly valid setups.
+  assertions = [
+    {
+      assertion = !config.users.mutableUsers || (
+        lib.any (u: lib.elem "wheel" u.extraGroups) (lib.attrValues config.users.users)
+        || (config.users.users.root.openssh.authorizedKeys.keys or []) != []
+      );
+      message = ''
+        luxos lockout guard: users.mutableUsers is true, but no declared user has
+        "wheel" in extraGroups and root has no SSH authorized key. Building this
+        would lock you out. Select a user module (modules/users/<name>) with a
+        wheel user, give root an SSH key, or set users.allowNoPasswordLogin = true
+        to bypass (NixOS' own escape hatch).
+      '';
+    }
+  ];
 
   #──[Services]──────────────────────────────────────────────────────────────
 

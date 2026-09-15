@@ -15,13 +15,13 @@ source "$FRAMEWORK_DIR/internal/self-heal/self-heal.sh"
 
 SETUP_TEMPLATE_DIR="$SETUP_LIB_DIR/templates"
 
-# Attribute in templates/user.nix whose "user" is replaced with the user's
-# name. The template stays valid Nix on its own.
+# Attribute in templates/user/account.nix whose "user" is replaced with the
+# user's name. The template stays valid Nix on its own.
 SETUP_USER_PLACEHOLDER="users.users.user ="
 
-# Kind folders created in a fresh CONFIG_DIR. Kinds are discovered from
-# whatever directories exist, so this is only the starting skeleton.
-SETUP_INITIAL_KINDS=(users modules)
+# Directory scaffolded in a fresh CONFIG_DIR. modules is the only shared
+# folder at CONFIG_DIR root (implementation-plan.md #24).
+SETUP_INITIAL_KINDS=(modules)
 
 # Machine-private files every new host starts with, copied from templates/.
 SETUP_MACHINE_TEMPLATES=(preferences.nix hardware.nix)
@@ -81,11 +81,16 @@ _setup_scaffold_config_dir() {
     fi
 }
 
-# Ensure a shared user unit exists (<name>.nix or <name>/default.nix under
-# CONFIG_DIR/users), offering to scaffold one from the template if not.
+# Ensure a user module exists (<name>.nix or <name>/default.nix under
+# CONFIG_DIR/modules/users), offering to scaffold one from the template if
+# not. Per implementation-plan.md #19, the scaffolded shape is a folder unit
+# whose default.nix only imports ./account.nix, which declares a literal
+# users.users.<name> — the name is filled in at creation time, not derived
+# from the folder, so renaming the folder later can't silently orphan the
+# account.
 _setup_ensure_user() {
     local name="$1"
-    local users_dir="$CONFIG_DIR/users"
+    local users_dir="$CONFIG_DIR/$CONFIGGEN_MODULES_DIR/users"
 
     if [[ -f "$users_dir/$name.nix" || -f "$users_dir/$name/default.nix" ]]; then
         return 0
@@ -98,18 +103,24 @@ _setup_ensure_user() {
         exit 1
     fi
 
-    local template dest="$users_dir/$name.nix"
-    template="$(< "$SETUP_TEMPLATE_DIR/user.nix")"
+    local dest="$users_dir/$name"
+    mkdir -p "$dest"
+    cp "$SETUP_TEMPLATE_DIR/user/default.nix" "$dest/default.nix"
+
+    local template
+    template="$(< "$SETUP_TEMPLATE_DIR/user/account.nix")"
     if [[ "$template" != *"$SETUP_USER_PLACEHOLDER"* ]]; then
-        echo "Error: $SETUP_TEMPLATE_DIR/user.nix has no '$SETUP_USER_PLACEHOLDER' to fill in" >&2
+        echo "Error: $SETUP_TEMPLATE_DIR/user/account.nix has no '$SETUP_USER_PLACEHOLDER' to fill in" >&2
         exit 1
     fi
-    printf '%s\n' "${template//"$SETUP_USER_PLACEHOLDER"/users.users.$name =}" > "$dest"
-    echo "  Created $dest (edit groups / packages / ssh keys before building)"
+    printf '%s\n' "${template//"$SETUP_USER_PLACEHOLDER"/users.users.$name =}" > "$dest/account.nix"
+    echo "  Created $dest/{default.nix,account.nix} (edit groups / packages / ssh keys before building)"
 }
 
-# Scaffold .local/<host>: machine.toml plus the machine-private templates.
-# Kind entrypoints are left to self_heal::run, which scaffolds any missing one.
+# Scaffold .local/<host>: machine.toml plus the machine-private templates,
+# and a modules/default.nix that already selects the main user (self_heal::
+# run would otherwise scaffold it empty, and a plain kind-loop can't append a
+# selection — this host's entrypoint has to exist first).
 _setup_create_machine() {
     local host="$1"
     local dir="$LOCAL_DIR/$host"
@@ -128,8 +139,6 @@ _setup_create_machine() {
     cat > "$dir/machine.toml" << EOF
 # NixOS Machine Configuration - $host
 
-# Users to import (first user is main user)
-users = ["$main_user"]
 hostName = "$host"
 timeZone = "$time_zone"
 locale = "$SETUP_DEFAULT_LOCALE"
@@ -140,6 +149,11 @@ EOF
     for file in "${SETUP_MACHINE_TEMPLATES[@]}"; do
         cp "$SETUP_TEMPLATE_DIR/$file" "$dir/$file"
     done
+
+    local modules_entry="$dir/$CONFIGGEN_MODULES_DIR/default.nix"
+    mkdir -p "$(dirname "$modules_entry")"
+    printf '{ ... }:\n{\n  imports = [];\n}\n' > "$modules_entry"
+    imports::add "$modules_entry" "users/$main_user"
 
     echo "  Machine '$host' scaffolded at $dir"
 }

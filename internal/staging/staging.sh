@@ -2,13 +2,12 @@
 set -euo pipefail
 
 # Materializes the active host's flake root at $STAGING_DIR: a real-file copy
-# of the shared kind folders (CONFIG_DIR/<kind>, each symlink dereferenced —
-# modules/system and the active host's entrypoint links alike) plus that
-# host's own $LOCAL_DIR/<host> tree, and a whitelisted slice of the
-# framework, since a flake evaluates a copy of its own directory and can't
-# reach outside it. The two roots are copied separately rather than
-# `cp -rL $CONFIG_DIR` wholesale, which would also sweep up channels.toml,
-# .git, and every other host's $LOCAL_DIR entry.
+# of CONFIG_DIR/modules (symlinks dereferenced — modules/system and the
+# active host's entrypoint link alike) plus that host's own $LOCAL_DIR/<host>
+# tree, and a whitelisted slice of the framework, since a flake evaluates a
+# copy of its own directory and can't reach outside it. The two roots are
+# copied separately rather than `cp -rL $CONFIG_DIR` wholesale, which would
+# also sweep up channels.toml, .git, and every other host's $LOCAL_DIR entry.
 # flake.nix and configuration.nix are NOT copied here: configgen writes them
 # straight into $STAGING_DIR after materialize runs, since their imports
 # only resolve at that location (see internal/self-heal/self-heal.sh).
@@ -86,12 +85,10 @@ _staging_copy_framework() {
 staging::materialize() {
     local host="$1"
     local host_dir="$LOCAL_DIR/$host"
-
-    local -a kinds
-    mapfile -t kinds < <(configgen::discover_kinds)
+    local modules_dir="$CONFIG_DIR/$CONFIGGEN_MODULES_DIR"
 
     _staging_guard
-    _staging_check_no_dangling_links "$host_dir" "${kinds[@]/#/$CONFIG_DIR/}"
+    _staging_check_no_dangling_links "$host_dir" "$modules_dir"
 
     sudo rm -rf "$STAGING_DIR"
     sudo mkdir -p "$STAGING_DIR/framework" "$STAGING_DIR/config"
@@ -99,13 +96,10 @@ staging::materialize() {
 
     _staging_copy_framework "$STAGING_DIR/framework"
 
-    # One pass per shared kind folder, dereferenced — this turns both
-    # modules/system (the framework link) and every host's entrypoint
-    # symlink into real files. Then the active host's own private tree.
-    local kind
-    for kind in "${kinds[@]}"; do
-        sudo cp -rL "$CONFIG_DIR/$kind" "$STAGING_DIR/config/$kind"
-    done
+    # Dereferenced — this turns both modules/system (the framework link) and
+    # the active host's entrypoint symlink into real files. Then the active
+    # host's own private tree.
+    sudo cp -rL "$modules_dir" "$STAGING_DIR/config/$CONFIGGEN_MODULES_DIR"
     sudo cp -rL "$host_dir" "$STAGING_DIR/config/local"
 
     sudo cp "$STAGING_HARDWARE_CONFIG" "$STAGING_DIR/hardware-configuration.nix"

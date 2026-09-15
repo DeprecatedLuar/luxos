@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # Self-healing sequence: ensures the framework modules link, the active
-# host's kind mirror, and its root local link exist, regenerates every
+# host's modules mirror, and its root local link exist, regenerates every
 # default.nix, materializes staging, generates flake.nix and
 # configuration.nix straight into it, then heals /etc/nixos to match.
 # Pure sequence — no flag parsing, no hostname resolution, no knowledge of the
 # real nixos-rebuild binary. That's rebuild's job. links.sh and configgen.sh
-# stay pure black boxes: given a host/kind they place or generate files; they
+# stay pure black boxes: given a host they place or generate files; they
 # don't decide what those are.
 # Callers must source internal/env.sh first.
 
@@ -20,7 +20,6 @@ source "$SELF_HEAL_DIR/../imports/imports.sh"
 self_heal::run() {
     local machine_dir="$1"
     local prune="${2:-false}"
-    local machine_toml="$machine_dir/machine.toml"
     local machine_name
     machine_name=$(basename "$machine_dir")
 
@@ -29,34 +28,23 @@ self_heal::run() {
     echo "Ensuring framework modules link..."
     links::ensure_framework_link
 
-    # Scaffold any missing kind entrypoint as an empty { imports = []; }
+    # Scaffold a missing modules entrypoint as an empty { imports = []; }
     # before ensure_mirror runs — otherwise the mirror symlink would dangle
     # and staging's dangling-link check would hard-fail the rebuild.
-    local kind
-    for kind in $(configgen::discover_kinds); do
-        local entrypoint="$machine_dir/$kind/default.nix"
-        if [[ ! -f "$entrypoint" ]]; then
-            echo "Scaffolding empty $entrypoint..."
-            mkdir -p "$(dirname "$entrypoint")"
-            printf '{ ... }:\n{\n  imports = [];\n}\n' > "$entrypoint"
-        fi
-    done
-
-    # users is the one kind still selected from machine.toml (users owns
-    # that array; modules/services are each host's own hand-written
-    # entrypoint) — regenerate its entrypoint from the declared names.
-    echo "Generating users/default.nix from machine.toml..."
-    local -a declared_users
-    mapfile -t declared_users < <(parse_array "$machine_toml" users)
-    configgen::generate_folder_default "$machine_dir" users ${declared_users[@]+"${declared_users[@]}"}
+    local entrypoint="$machine_dir/$CONFIGGEN_MODULES_DIR/default.nix"
+    if [[ ! -f "$entrypoint" ]]; then
+        echo "Scaffolding empty $entrypoint..."
+        mkdir -p "$(dirname "$entrypoint")"
+        printf '{ ... }:\n{\n  imports = [];\n}\n' > "$entrypoint"
+    fi
 
     # machine_dir's own entrypoint (.local/<host>/default.nix) — discovery
     # mode over whatever machine-private files are present, excluding the
-    # kind mirrors just ensured above and machine.toml itself.
+    # modules mirror just ensured above and machine.toml itself.
     echo "Generating $machine_name/default.nix from $machine_dir/..."
     configgen::generate_default "$machine_dir"
 
-    echo "Ensuring $machine_name's kind mirror..."
+    echo "Ensuring $machine_name's modules mirror..."
     links::ensure_mirror "$machine_name"
 
     # Heal every host's modules import lines now that the active host's
@@ -68,8 +56,8 @@ self_heal::run() {
     echo "Ensuring local -> .local/$machine_name link..."
     links::ensure_local_link "$machine_name"
 
-    # Materialize the flake root: the shared kind folders (dereferencing both
-    # modules/system and every entrypoint symlink) plus this host's own
+    # Materialize the flake root: CONFIG_DIR/modules (dereferencing both
+    # modules/system and the entrypoint symlink) plus this host's own
     # $LOCAL_DIR tree.
     echo "Materializing $STAGING_DIR for $machine_name..."
     staging::materialize "$machine_name"

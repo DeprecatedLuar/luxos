@@ -2,11 +2,10 @@
 set -euo pipefail
 
 # Symlink management: /etc/nixos healing, the framework modules link
-# (modules/system -> $FRAMEWORK_DIR/modules), each host's per-kind mirror
-# under $LOCAL_DIR (its entrypoint symlinks into the shared kind folders at
-# CONFIG_DIR root), and the CONFIG_DIR/local -> $LOCAL_DIR/<host> link that
-# makes the active host's private tree visible at root alongside the kind
-# folders.
+# (modules/system -> $FRAMEWORK_DIR/modules), the active host's modules
+# mirror under $LOCAL_DIR (its entrypoint symlinks into CONFIG_DIR/modules),
+# and the CONFIG_DIR/local -> $LOCAL_DIR/<host> link that makes the active
+# host's private tree visible at root alongside modules/.
 # Callers must source internal/env.sh (FRAMEWORK_DIR, CONFIG_DIR, LOCAL_DIR)
 # first. Every function here aborts the process (exit 1) on error rather than
 # returning non-zero — callers do not check return codes.
@@ -83,30 +82,25 @@ links::ensure_framework_link() {
 
 #──[Per-host mirror]────────────────────────────────────────────────────────
 
-# For each discovered kind, ensure $LOCAL_DIR/<host>/<kind>/ exists and its
-# entrypoint (default.nix, hand-written for modules/services, generated for
-# users — see configgen::generate_folder_default) is symlinked into the
-# shared kind folder at CONFIG_DIR/<kind>/default.nix. Errors if a real file
-# already occupies that path — the shared folder's own default.nix is always
-# the generated mirror link, never hand-authored. Idempotent; rebuilt on
-# every self-heal.
+# Ensure $LOCAL_DIR/<host>/modules/ exists and its entrypoint (hand-written)
+# is symlinked into CONFIG_DIR/modules/default.nix. Errors if a real file
+# already occupies that path — CONFIG_DIR/modules/default.nix is always the
+# generated mirror link, never hand-authored. Idempotent; rebuilt on every
+# self-heal.
 links::ensure_mirror() {
     local host="$1"
-    local kind
-    for kind in $(configgen::discover_kinds); do
-        local host_kind_dir="$LOCAL_DIR/$host/$kind"
-        local shared_default="$CONFIG_DIR/$kind/default.nix"
+    local host_modules_dir="$LOCAL_DIR/$host/$CONFIGGEN_MODULES_DIR"
+    local shared_default="$CONFIG_DIR/$CONFIGGEN_MODULES_DIR/default.nix"
 
-        mkdir -p "$host_kind_dir"
+    mkdir -p "$host_modules_dir"
 
-        if [[ -e "$shared_default" && ! -L "$shared_default" ]]; then
-            echo "Error: '$shared_default' is a real file." >&2
-            echo "  It's reserved for the generated mirror link to $host_kind_dir/default.nix." >&2
-            exit 1
-        fi
+    if [[ -e "$shared_default" && ! -L "$shared_default" ]]; then
+        echo "Error: '$shared_default' is a real file." >&2
+        echo "  It's reserved for the generated mirror link to $host_modules_dir/default.nix." >&2
+        exit 1
+    fi
 
-        ln -sfn "../.local/$host/$kind/default.nix" "$shared_default"
-    done
+    ln -sfn "../.local/$host/$CONFIGGEN_MODULES_DIR/default.nix" "$shared_default"
 }
 
 # Ensure CONFIG_DIR/local -> $LOCAL_DIR/<host>: the active host's whole
