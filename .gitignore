@@ -18,7 +18,6 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
-*.local
 .wrangler/
 .dev.vars
 

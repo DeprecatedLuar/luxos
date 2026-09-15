@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Self-healing sequence: ensures the framework modules pool, the active
+# Self-healing sequence: ensures the framework modules link, the active
 # host's kind mirror, and its root local link exist, regenerates every
 # default.nix, materializes staging, generates flake.nix and
 # configuration.nix straight into it, then heals /etc/nixos to match.
@@ -24,8 +24,8 @@ self_heal::run() {
 
     configgen::generate_root_gitignore
 
-    echo "Ensuring framework modules pool..."
-    links::ensure_framework_pool
+    echo "Ensuring framework modules link..."
+    links::ensure_framework_link
 
     # Scaffold any missing kind entrypoint as an empty { imports = []; }
     # before ensure_mirror runs — otherwise the mirror symlink would dangle
@@ -60,7 +60,7 @@ self_heal::run() {
     echo "Ensuring local -> .local/$machine_name link..."
     links::ensure_local_link "$machine_name"
 
-    # Materialize the flake root: the shared kind pools (dereferencing both
+    # Materialize the flake root: the shared kind folders (dereferencing both
     # modules/system and every entrypoint symlink) plus this host's own
     # $LOCAL_DIR tree.
     echo "Materializing $STAGING_DIR for $machine_name..."

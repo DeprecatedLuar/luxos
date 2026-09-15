@@ -16,6 +16,16 @@ REBUILD_BIN_RELPATH="bin/nixos-rebuild"
 # NIX_PATH entry, used only when staging itself is broken.
 REBUILD_CHANNEL_EXPR='<nixpkgs/nixos>'
 
+REBUILD_HEADER='
+██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗
+██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝
+██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗
+██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║
+███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║
+╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+                          made by me <3 (luar)
+'
+
 REBUILD_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$REBUILD_LIB_DIR/../flags.sh"
 source "$FRAMEWORK_DIR/internal/self-heal/self-heal.sh"
@@ -35,6 +45,8 @@ _rebuild_bin_from_flake() {
 }
 
 rebuild::run() {
+    printf '%s\n' "$REBUILD_HEADER"
+
     local -A opts=()
     local -a args=()
     flags::parse_passthrough opts args "bypass:bool update-lock:bool" "$@"

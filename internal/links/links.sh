@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Symlink management: /etc/nixos healing, the framework modules pool
+# Symlink management: /etc/nixos healing, the framework modules link
 # (modules/system -> $FRAMEWORK_DIR/modules), each host's per-kind mirror
-# under $LOCAL_DIR (its entrypoint symlinks into the shared kind pools at
+# under $LOCAL_DIR (its entrypoint symlinks into the shared kind folders at
 # CONFIG_DIR root), and the CONFIG_DIR/local -> $LOCAL_DIR/<host> link that
 # makes the active host's private tree visible at root alongside the kind
-# pools.
+# folders.
 # Callers must source internal/env.sh (FRAMEWORK_DIR, CONFIG_DIR, LOCAL_DIR)
 # first. Every function here aborts the process (exit 1) on error rather than
 # returning non-zero — callers do not check return codes.
@@ -54,14 +54,14 @@ links::ensure_etc_nixos() {
     fi
 }
 
-#──[Framework modules pool]─────────────────────────────────────────────────
+#──[Framework modules link]─────────────────────────────────────────────────
 
 # Ensure modules/system -> $FRAMEWORK_DIR/modules at CONFIG_DIR root: the
-# framework's shipped modules pool, reached by every host via the same
-# reserved name. Errors if a real file/dir already occupies that name (a
-# machine may not author "system"), or if the framework modules directory
-# itself is missing. Idempotent.
-links::ensure_framework_pool() {
+# framework's shipped modules, reached by every host via the same reserved
+# name. Errors if a real file/dir already occupies that name (a machine may
+# not author "system"), or if the framework modules directory itself is
+# missing. Idempotent.
+links::ensure_framework_link() {
     local target_dir="$CONFIG_DIR/modules"
     local system_link="$target_dir/$LINKS_FRAMEWORK_MODULE_NAME"
 
@@ -86,30 +86,31 @@ links::ensure_framework_pool() {
 # For each discovered kind, ensure $LOCAL_DIR/<host>/<kind>/ exists and its
 # entrypoint (default.nix, hand-written for modules/services, generated for
 # users — see configgen::generate_folder_default) is symlinked into the
-# shared pool at CONFIG_DIR/<kind>/default.nix. Errors if a real file already
-# occupies that path — the pool's own default.nix is always the generated
-# mirror link, never hand-authored. Idempotent; rebuilt on every self-heal.
+# shared kind folder at CONFIG_DIR/<kind>/default.nix. Errors if a real file
+# already occupies that path — the shared folder's own default.nix is always
+# the generated mirror link, never hand-authored. Idempotent; rebuilt on
+# every self-heal.
 links::ensure_mirror() {
     local host="$1"
     local kind
     for kind in $(configgen::discover_kinds); do
         local host_kind_dir="$LOCAL_DIR/$host/$kind"
-        local pool_default="$CONFIG_DIR/$kind/default.nix"
+        local shared_default="$CONFIG_DIR/$kind/default.nix"
 
         mkdir -p "$host_kind_dir"
 
-        if [[ -e "$pool_default" && ! -L "$pool_default" ]]; then
-            echo "Error: '$pool_default' is a real file." >&2
+        if [[ -e "$shared_default" && ! -L "$shared_default" ]]; then
+            echo "Error: '$shared_default' is a real file." >&2
             echo "  It's reserved for the generated mirror link to $host_kind_dir/default.nix." >&2
             exit 1
         fi
 
-        ln -sfn "../.local/$host/$kind/default.nix" "$pool_default"
+        ln -sfn "../.local/$host/$kind/default.nix" "$shared_default"
     done
 }
 
 # Ensure CONFIG_DIR/local -> $LOCAL_DIR/<host>: the active host's whole
-# private tree, visible at root alongside the shared kind pools. Errors if a
+# private tree, visible at root alongside the shared kind folders. Errors if a
 # real file/dir already occupies that name. Idempotent; rebuilt on every
 # self-heal, so it always points at whichever host is currently active.
 links::ensure_local_link() {

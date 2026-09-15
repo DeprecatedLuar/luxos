@@ -2,15 +2,13 @@
 set -euo pipefail
 
 # Materializes the active host's flake root at $STAGING_DIR: a real-file copy
-# of the shared kind pools (CONFIG_DIR/<kind>, each symlink dereferenced —
-# modules/system and every host's entrypoint alike) plus that host's own
-# $LOCAL_DIR/<host> tree, and a whitelisted slice of the framework, since a
-# flake evaluates a copy of its own directory and can't reach outside it.
-# There are now two roots to copy (the shared pools, and the one host's
-# private tree) instead of one machine directory holding everything, so a
-# plain `cp -rL $machine_dir $STAGING_DIR/config` no longer works — it would
-# also sweep up channels.toml, flake.lock, .git, and every other host's
-# $LOCAL_DIR entry.
+# of the shared kind folders (CONFIG_DIR/<kind>, each symlink dereferenced —
+# modules/system and the active host's entrypoint links alike) plus that
+# host's own $LOCAL_DIR/<host> tree, and a whitelisted slice of the
+# framework, since a flake evaluates a copy of its own directory and can't
+# reach outside it. The two roots are copied separately rather than
+# `cp -rL $CONFIG_DIR` wholesale, which would also sweep up channels.toml,
+# .git, and every other host's $LOCAL_DIR entry.
 # flake.nix and configuration.nix are NOT copied here: configgen writes them
 # straight into $STAGING_DIR after materialize runs, since their imports
 # only resolve at that location (see internal/self-heal/self-heal.sh).
@@ -23,9 +21,9 @@ STAGING_MARKER=".luxos-staging"
 
 # The only paths Nix reads out of the framework tree, relative to FRAMEWORK_DIR.
 # Anything not listed never reaches the staging flake root. "modules" isn't
-# here: framework modules arrive through the active machine's own union
-# (modules/system -> $FRAMEWORK_DIR/modules, dereferenced by the cp -rL
-# below), not through a separate framework-side copy.
+# here: framework modules arrive through modules/system
+# (-> $FRAMEWORK_DIR/modules, dereferenced by the cp -rL below), not through
+# a separate framework-side copy.
 STAGING_FRAMEWORK_PATHS=(
     system.nix            # imported by every generated configuration.nix
     internal/env.sh       # readFile'd into the nixos-rebuild bootstrap
@@ -55,8 +53,8 @@ _staging_guard() {
 # culprit usefully, so catch it here first and report exactly which link
 # is broken. No error swallowing: a find failure (e.g. permission denied
 # partway through the tree) is a real error, not "no dangling links".
-# Takes one or more directories — the shared kind pools plus the active
-# host's own $LOCAL_DIR tree, now that materialize copies both roots.
+# Takes one or more directories — the shared kind folders plus the active
+# host's own $LOCAL_DIR tree.
 _staging_check_no_dangling_links() {
     local dangling
     dangling="$(find "$@" -xtype l)"
@@ -101,7 +99,7 @@ staging::materialize() {
 
     _staging_copy_framework "$STAGING_DIR/framework"
 
-    # One pass per shared kind pool, dereferenced — this turns both
+    # One pass per shared kind folder, dereferenced — this turns both
     # modules/system (the framework link) and every host's entrypoint
     # symlink into real files. Then the active host's own private tree.
     local kind
