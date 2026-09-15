@@ -16,6 +16,7 @@ source "$SELF_HEAL_DIR/../links/links.sh"
 source "$SELF_HEAL_DIR/../configgen/configgen.sh"
 source "$SELF_HEAL_DIR/../staging/staging.sh"
 source "$SELF_HEAL_DIR/../imports/imports.sh"
+source "$SELF_HEAL_DIR/../refs/refs.sh"
 
 self_heal::run() {
     local machine_dir="$1"
@@ -52,6 +53,13 @@ self_heal::run() {
     # entrypoint) exists, and before materialize copies it into staging.
     echo "Healing modules imports..."
     imports::heal "$CONFIG_DIR/$CONFIGGEN_MODULES_DIR/default.nix" "$prune"
+
+    # Module boundary + luxos.modules validation (implementation-plan.md
+    # #25, #27, #28, §5 Phase C): every module file's paths and luxos.modules
+    # calls, across the whole tree. Runs before materialize so a violation
+    # blocks the rebuild rather than shipping a staged tree that breaks eval.
+    echo "Validating module boundaries..."
+    refs::validate
 
     echo "Ensuring local -> .local/$machine_name link..."
     links::ensure_local_link "$machine_name"
