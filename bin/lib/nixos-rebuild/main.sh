@@ -49,11 +49,12 @@ rebuild::run() {
 
     local -A opts=()
     local -a args=()
-    flags::parse_passthrough opts args "bypass:bool update-lock:bool" "$@"
+    flags::parse_passthrough opts args "bypass:bool update-lock:bool prune:bool" "$@"
 
-    local bypass=false update_lock=false
+    local bypass=false update_lock=false prune=false
     [[ -n "${opts[bypass]:-}" ]] && bypass=true
     [[ -n "${opts[update-lock]:-}" ]] && update_lock=true
+    [[ -n "${opts[prune]:-}" ]] && prune=true
 
     if $bypass; then
         exec "$(_rebuild_bin_from_channel)/$REBUILD_BIN_RELPATH" "${args[@]}"
@@ -63,7 +64,7 @@ rebuild::run() {
     hostname=$(hostname)
     machine_dir=$(configgen::resolve_machine "$hostname")
 
-    self_heal::run "$machine_dir"
+    self_heal::run "$machine_dir" "$prune"
 
     $update_lock && staging::update_lock
 

@@ -15,9 +15,11 @@ SELF_HEAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SELF_HEAL_DIR/../links/links.sh"
 source "$SELF_HEAL_DIR/../configgen/configgen.sh"
 source "$SELF_HEAL_DIR/../staging/staging.sh"
+source "$SELF_HEAL_DIR/../imports/imports.sh"
 
 self_heal::run() {
     local machine_dir="$1"
+    local prune="${2:-false}"
     local machine_toml="$machine_dir/machine.toml"
     local machine_name
     machine_name=$(basename "$machine_dir")
@@ -56,6 +58,12 @@ self_heal::run() {
 
     echo "Ensuring $machine_name's kind mirror..."
     links::ensure_mirror "$machine_name"
+
+    # Heal every host's modules import lines now that the active host's
+    # mirror link (CONFIG_DIR/modules/default.nix -> this host's real
+    # entrypoint) exists, and before materialize copies it into staging.
+    echo "Healing modules imports..."
+    imports::heal "$CONFIG_DIR/$CONFIGGEN_MODULES_DIR/default.nix" "$prune"
 
     echo "Ensuring local -> .local/$machine_name link..."
     links::ensure_local_link "$machine_name"
