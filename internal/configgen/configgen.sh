@@ -33,6 +33,12 @@ CONFIGGEN_NAME_REGEX='^[a-zA-Z_][a-zA-Z0-9_-]*$'
 # cross-file reference.
 CONFIGGEN_LOCAL_LINK_NAME="local"
 
+# Root of the tree walked by configgen::walk_units / configgen::resolve_name
+# (implementation-plan.md, Phase 1, §3). "modules" is one kind among several
+# today; Phase 3 removes kinds and makes this the only tree there is, but the
+# walk rules don't change, so it's hardcoded ahead of that.
+CONFIGGEN_MODULES_DIR="modules"
+
 # Generated paths at CONFIG_DIR root, ignored by the generated root
 # .gitignore. flake.nix and configuration.nix are written straight into
 # $STAGING_DIR (see configgen::generate/generate_flake) and never land in
@@ -85,6 +91,92 @@ configgen::resolve_machine() {
         exit 1
     fi
     echo "$dir"
+}
+
+#──[Module walk]────────────────────────────────────────────────────────────
+# Phase 1 of implementation-plan.md: name resolution over CONFIG_DIR/modules,
+# per §3. Consumed later by the imports package (heal) and `lux module`/
+# `lux user`; independent of the kind discovery above, which Phase 3 removes.
+
+# Recursive helper for configgen::walk_units. $1 is the walk root
+# (CONFIG_DIR/modules, fixed across the recursion so a relative path can be
+# computed at any depth); $2 is the directory currently being visited. Emits
+# "name<TAB>relative-path" per unit found under $2, unsorted and with
+# duplicates left in — configgen::walk_units is the one that sorts and checks
+# uniqueness, once, over the whole tree.
+_configgen_walk_units_dir() {
+    local root="$1" dir="$2"
+    local entry base relpath
+    for entry in "$dir"/*; do
+        [[ -e "$entry" ]] || continue
+        base=$(basename "$entry")
+
+        # Skip the root's own entrypoint and anything starting with _.
+        [[ "$dir" == "$root" && "$base" == "default.nix" ]] && continue
+        [[ "$base" == _* ]] && continue
+
+        if [[ -d "$entry" ]]; then
+            # Directory with its own default.nix is a unit named after
+            # itself — never descend into it. Without one, it's a
+            # transparent category: descend. "-d" follows symlinks, so this
+            # also walks into modules/system (framework modules participate
+            # in names and uniqueness, per §3) without special-casing it.
+            if [[ -f "$entry/default.nix" ]]; then
+                relpath="${entry#"$root"/}"
+                printf '%s\t%s\n' "$base" "$relpath"
+            else
+                _configgen_walk_units_dir "$root" "$entry"
+            fi
+        elif [[ "$base" == *.nix ]]; then
+            relpath="${entry#"$root"/}"
+            printf '%s\t%s\n' "${base%.nix}" "$relpath"
+        fi
+    done
+}
+
+# Walk CONFIG_DIR/modules per §3 and emit "name<TAB>relative-path" for every
+# unit found, LC_ALL=C sorted. A name claimed by more than one unit is a hard
+# error naming every path that claims it (the name-is-identity rule, #2/#10
+# in implementation-plan.md) — every caller past this point may assume names
+# are unique.
+configgen::walk_units() {
+    local root="$CONFIG_DIR/$CONFIGGEN_MODULES_DIR"
+    local raw
+    raw=$(_configgen_walk_units_dir "$root" "$root")
+
+    local dupes
+    dupes=$(cut -f1 <<< "$raw" | LC_ALL=C sort | uniq -d)
+    if [[ -n "$dupes" ]]; then
+        local name
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            echo "Error: duplicate module name '$name':" >&2
+            awk -F'\t' -v n="$name" '$1==n{print "  - "$2}' <<< "$raw" >&2
+        done <<< "$dupes"
+        exit 1
+    fi
+
+    LC_ALL=C sort <<< "$raw"
+}
+
+# Resolve a unit name to its path, relative to CONFIG_DIR/modules (an import
+# line should read "./<result>" — see "Name from an import line" in
+# implementation-plan.md §3). Prints the path and returns 0 when found.
+#
+# When no unit under CONFIG_DIR/modules has that name, prints nothing and
+# returns 1 instead of aborting — the documented exception to this file's
+# "abort the process on error" convention (§ Phase 1). "Resolves to nothing"
+# is an expected answer here; it's the caller's job to decide what that means
+# (heal errors only on the active host's entrypoint, warns on others; --prune
+# removes the line; the CLI reports "unknown name"). A name claimed by more
+# than one unit still hard-errors — raised by walk_units before this function
+# ever sees the ambiguity.
+configgen::resolve_name() {
+    local name="$1"
+    local path
+    path=$(configgen::walk_units | awk -F'\t' -v n="$name" '$1==n{print $2; exit}')
+    [[ -n "$path" ]] || return 1
+    echo "$path"
 }
 
 #──[TOML parsing]───────────────────────────────────────────────────────────
