@@ -581,6 +581,21 @@ configgen::generate_flake() {
     inputs_block="${inputs_block%$'\n'}"
     overlay_block="${overlay_block%$'\n'}"
 
+    # luxos.modules (implementation-plan.md #26, §3 "luxos.modules"): a
+    # name -> path attrset built straight from configgen::walk_units, so the
+    # bash walk stays the one registry. Paths are the staged spelling
+    # (./config/modules/...), matching staging::materialize's cp -rL of
+    # CONFIG_DIR/modules into $STAGING_DIR/config/modules — the module system
+    # dedupes an import by path string, so any other spelling of the same
+    # file would silently run it twice.
+    local units_block=""
+    local unit_name unit_path
+    while IFS=$'\t' read -r unit_name unit_path; do
+        [[ -n "$unit_name" ]] || continue
+        units_block+="      \"$unit_name\" = ./config/$CONFIGGEN_MODULES_DIR/$unit_path;"$'\n'
+    done < <(configgen::walk_units)
+    units_block="${units_block%$'\n'}"
+
     mkdir -p "$(dirname "$output_file")"
     { _configgen_header "$CONFIGGEN_CHANNELS_FILE" \
         "Edit $CONFIGGEN_CHANNELS_FILE and run: sudo nixos-rebuild switch"
@@ -607,10 +622,20 @@ $overlay_block
     };
 
     # Machine modules reach the framework's through modules/system
-    # (a link to \$FRAMEWORK_DIR/modules, dereferenced by staging),
-    # so no specialArg carries a framework path across the repo boundary.
+    # (a link to \$FRAMEWORK_DIR/modules, dereferenced by staging). luxos
+    # carries staged config paths (implementation-plan.md #26), not
+    # \$FRAMEWORK_DIR/\$CONFIG_DIR paths, so this still crosses nothing over
+    # the repo boundary.
+    luxos = let
+      units = {
+$units_block
+      };
+    in {
+      modules = names: map (n: units.\${n} or (throw "luxos.modules: '\${n}' does not resolve to any module under modules/")) names;
+    };
+
     mkHost = hostName: $CONFIGGEN_BASE_INPUT_NAME.lib.nixosSystem {
-      specialArgs = { inherit inputs hostName; };
+      specialArgs = { inherit inputs hostName luxos; };
       modules = [
         ./configuration.nix
         { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ channelOverlay ]; }

@@ -1,7 +1,7 @@
-{ pkgs, ... }:
+{ pkgs, luxos, ... }:
 
 {
-  imports = [ ./desktop.nix ];
+  imports = luxos.modules [ "desktop" ];
 
   environment.systemPackages = with pkgs; [
     wl-clipboard
