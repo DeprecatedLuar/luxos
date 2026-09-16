@@ -1,0 +1,224 @@
+// Package staging materializes the active host's flake root: a real-file
+// copy of the shared modules tree and the active host's own tree (symlinks
+// dereferenced), plus the whitelisted slice of the framework a flake needs
+// to evaluate itself. Every directory is a parameter (implementation-plan.md
+// G10, G11); nothing here calls sudo (it runs as root already).
+package staging
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/DeprecatedLuar/luxos/internal/framework"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
+)
+
+// Marker marks a directory as a staging tree this package created and may
+// wipe.
+const Marker = ".luxos-staging"
+
+const (
+	dirMode  = 0755
+	fileMode = 0644
+
+	frameworkDir = "framework"
+	configDir    = "config"
+
+	systemNix = "system.nix"
+	shadowSh  = "shadow.sh"
+
+	stagedModulesDir = "modules"
+	stagedLocalDir   = "local"
+
+	hardwareConfigName = "hardware-configuration.nix"
+	lockFileName       = "flake.lock"
+)
+
+// Materialize wipes and rebuilds stagingDir: framework/system.nix,
+// framework/shadow.sh, config/modules (from modulesDir), config/local (from
+// hostDir), hardware-configuration.nix, and flake.lock if lockFile exists.
+// Every symlink under modulesDir and hostDir is dereferenced. Refuses to
+// touch stagingDir unless it is empty or a tree this package created
+// (marked with Marker), and refuses a dangling symlink under modulesDir or
+// hostDir, naming it.
+func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile string) error {
+	if err := guard(stagingDir); err != nil {
+		return err
+	}
+	if err := checkNoDanglingLinks(modulesDir); err != nil {
+		return err
+	}
+	if err := checkNoDanglingLinks(hostDir); err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(stagingDir); err != nil {
+		return err
+	}
+
+	fwDir := filepath.Join(stagingDir, frameworkDir)
+	cfgDir := filepath.Join(stagingDir, configDir)
+	if err := os.MkdirAll(fwDir, dirMode); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cfgDir, dirMode); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(stagingDir, Marker), nil, fileMode); err != nil {
+		return err
+	}
+
+	if err := writeFrameworkFile(fwDir, systemNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, shadowSh); err != nil {
+		return err
+	}
+
+	if err := copyDeref(modulesDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
+		return err
+	}
+	if err := copyDeref(hostDir, filepath.Join(cfgDir, stagedLocalDir)); err != nil {
+		return err
+	}
+
+	if err := copyFile(hardwareConfig, filepath.Join(stagingDir, hardwareConfigName)); err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(lockFile); err == nil {
+		if err := copyFile(lockFile, filepath.Join(stagingDir, lockFileName)); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	return nil
+}
+
+// Install writes content as stagingDir/rel, creating parent directories as
+// needed.
+func Install(stagingDir, rel string, content []byte) error {
+	dest := filepath.Join(stagingDir, rel)
+	if err := os.MkdirAll(filepath.Dir(dest), dirMode); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dest, content, fileMode); err != nil {
+		return err
+	}
+	return os.Chmod(dest, fileMode)
+}
+
+// UpdateLock re-locks the staged flake and copies the result back to
+// configLock, owned by uid:gid, to be committed. Not exercised by unit
+// tests: it requires real network/nix flake access.
+func UpdateLock(stagingDir, configLock string, uid, gid int) error {
+	if err := nix.FlakeUpdate(stagingDir); err != nil {
+		return err
+	}
+
+	if err := copyFile(filepath.Join(stagingDir, lockFileName), configLock); err != nil {
+		return err
+	}
+	if err := os.Chmod(configLock, fileMode); err != nil {
+		return err
+	}
+	return os.Chown(configLock, uid, gid)
+}
+
+func guard(stagingDir string) error {
+	if _, err := os.Lstat(stagingDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(stagingDir, Marker)); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s exists but isn't a luxos-managed staging tree; remove it manually first if that's intended", stagingDir)
+		}
+		return err
+	}
+	return nil
+}
+
+// checkNoDanglingLinks walks root and errors, naming the culprit, on the
+// first symlink whose target does not exist.
+func checkNoDanglingLinks(root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink == 0 {
+			return nil
+		}
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("dangling symlink, cannot stage: %s", path)
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+func writeFrameworkFile(dst, name string) error {
+	data, err := framework.File(name)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dst, name), data, fileMode)
+}
+
+// copyDeref copies src into dst, dereferencing every symlink it walks
+// through (a symlink to a directory is copied as that directory's
+// contents; a symlink to a file is copied as that file). No symlink
+// survives under dst.
+func copyDeref(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		if d.Type()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return err
+			}
+			info, err := os.Stat(resolved)
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return copyDeref(resolved, target)
+			}
+			return copyFile(resolved, target)
+		}
+
+		if d.IsDir() {
+			return os.MkdirAll(target, dirMode)
+		}
+
+		return copyFile(path, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), dirMode); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, fileMode)
+}

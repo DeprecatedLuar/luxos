@@ -6,12 +6,16 @@ package nix
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 )
 
 // instantiateBin is the binary used to parse Nix source.
 const instantiateBin = "nix-instantiate"
+
+// flakeBin is the binary used to operate on flakes.
+const flakeBin = "nix"
 
 // Parse runs `nix-instantiate --parse <absPath>` and returns its stdout.
 // absPath must be an absolute path; the binary must be on PATH. On failure
@@ -36,4 +40,13 @@ func Parse(absPath string) (string, error) {
 	}
 
 	return string(out), nil
+}
+
+// FlakeUpdate runs `nix flake update --flake <flakeDir>`, passing stdout
+// and stderr through to the caller's.
+func FlakeUpdate(flakeDir string) error {
+	cmd := exec.Command(flakeBin, "flake", "update", "--flake", flakeDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

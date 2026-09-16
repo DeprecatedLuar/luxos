@@ -1,0 +1,196 @@
+package staging
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// fixture builds a modulesDir and hostDir tree, the latter containing a
+// symlink into the former (like the generated mirror link), plus a
+// hardware-configuration.nix and flake.lock. Returns their paths.
+func fixture(t *testing.T) (modulesDir, hostDir, hardwareConfig, lockFile string) {
+	t.Helper()
+	root := t.TempDir()
+
+	modulesDir = filepath.Join(root, "modules")
+	if err := os.MkdirAll(filepath.Join(modulesDir, "system"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modulesDir, "system", "desktop.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hostDir = filepath.Join(root, "host1")
+	if err := os.MkdirAll(filepath.Join(hostDir, "modules"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Real file the mirror symlink would otherwise point at.
+	if err := os.WriteFile(filepath.Join(hostDir, "modules", "default.nix"), []byte("{ imports = [ ./system/desktop.nix ]; }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror symlink under modulesDir, like links.EnsureMirror creates.
+	if err := os.Symlink(filepath.Join(hostDir, "modules", "default.nix"), filepath.Join(modulesDir, "default.nix")); err != nil {
+		t.Fatal(err)
+	}
+
+	hardwareConfig = filepath.Join(root, "hardware-configuration.nix")
+	if err := os.WriteFile(hardwareConfig, []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lockFile = filepath.Join(root, "flake.lock")
+	if err := os.WriteFile(lockFile, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return modulesDir, hostDir, hardwareConfig, lockFile
+}
+
+func TestMaterialize_Basic(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	mustExist := []string{
+		filepath.Join(stagingDir, Marker),
+		filepath.Join(stagingDir, "framework", "system.nix"),
+		filepath.Join(stagingDir, "framework", "shadow.sh"),
+		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
+		filepath.Join(stagingDir, "config", "modules", "default.nix"),
+		filepath.Join(stagingDir, "config", "local", "modules", "default.nix"),
+		filepath.Join(stagingDir, "hardware-configuration.nix"),
+		filepath.Join(stagingDir, "flake.lock"),
+	}
+	for _, p := range mustExist {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s to exist: %v", p, err)
+		}
+	}
+
+	// No symlinks anywhere under stagingDir.
+	err := filepath.WalkDir(stagingDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			t.Errorf("symlink found under staging: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+
+	// The dereferenced mirror link should now be a real file with the
+	// host default.nix's content, not the host tree's own copy again.
+	data, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", "default.nix"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "{ imports = [ ./system/desktop.nix ]; }" {
+		t.Fatalf("mirror content = %q", data)
+	}
+}
+
+func TestMaterialize_LockOptional(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, hardwareConfig, _ := fixture(t)
+	missingLock := filepath.Join(t.TempDir(), "flake.lock")
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, missingLock); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stagingDir, "flake.lock")); !os.IsNotExist(err) {
+		t.Fatalf("flake.lock should not exist, err=%v", err)
+	}
+}
+
+func TestMaterialize_GuardRefusesForeignDir(t *testing.T) {
+	stagingDir := t.TempDir()
+	// stagingDir exists (created by t.TempDir) but has no Marker file, and
+	// contains an unrelated file, simulating a non-luxos directory.
+	if err := os.WriteFile(filepath.Join(stagingDir, "not-ours.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err == nil {
+		t.Fatalf("expected guard error for foreign staging dir")
+	}
+
+	if _, err := os.Stat(filepath.Join(stagingDir, "not-ours.txt")); err != nil {
+		t.Fatalf("foreign dir should be untouched: %v", err)
+	}
+}
+
+func TestMaterialize_GuardAllowsOwnTree(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+		t.Fatalf("first Materialize: %v", err)
+	}
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+		t.Fatalf("second Materialize (re-run on own tree): %v", err)
+	}
+}
+
+func TestMaterialize_DanglingLinkRefused(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+
+	dangling := filepath.Join(modulesDir, "broken.nix")
+	if err := os.Symlink(filepath.Join(modulesDir, "does-not-exist.nix"), dangling); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile)
+	if err == nil {
+		t.Fatalf("expected dangling symlink error")
+	}
+	if _, statErr := os.Stat(stagingDir); !os.IsNotExist(statErr) {
+		t.Fatalf("staging dir should not have been created on dangling-link error")
+	}
+}
+
+func TestInstall(t *testing.T) {
+	stagingDir := t.TempDir()
+
+	if err := Install(stagingDir, "flake.nix", []byte("{ }")); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	path := filepath.Join(stagingDir, "flake.nix")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Mode().Perm() != 0644 {
+		t.Fatalf("mode = %o, want 0644", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "{ }" {
+		t.Fatalf("content = %q", data)
+	}
+}
+
+func TestInstall_NestedRel(t *testing.T) {
+	stagingDir := t.TempDir()
+
+	if err := Install(stagingDir, filepath.Join("sub", "dir", "file.nix"), []byte("x")); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(stagingDir, "sub", "dir", "file.nix")); err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+}
