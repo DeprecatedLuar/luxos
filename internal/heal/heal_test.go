@@ -1,0 +1,179 @@
+package heal
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/paths"
+)
+
+func skipIfNoNix(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("nix-instantiate"); err != nil {
+		t.Skip("nix-instantiate not on PATH")
+	}
+}
+
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func write(t *testing.T, path, content string) {
+	t.Helper()
+	mustMkdirAll(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// fixture builds a config tree at root with two hosts: host1 (active),
+// whose entrypoint references a module by a stale path (the module has
+// since moved to modules/misc/foo.nix), and host2, whose entrypoint
+// already references the module correctly. Returns Paths with every field
+// under root and the active host's name.
+func fixture(t *testing.T) (paths.Paths, string) {
+	t.Helper()
+	root := t.TempDir()
+
+	config := filepath.Join(root, "config")
+	local := filepath.Join(config, ".local")
+	modules := filepath.Join(config, "modules")
+	staging := filepath.Join(root, "staging")
+	etcNixos := filepath.Join(root, "etc-nixos")
+	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
+
+	// The module that host1's entrypoint refers to by a now-stale path;
+	// units.Resolve finds it by name ("foo") and imports.Heal rewrites the
+	// broken line to point here.
+	write(t, filepath.Join(modules, "misc", "foo.nix"), "{ }\n")
+
+	// host1: active host, stale import to heal.
+	write(t, filepath.Join(local, "host1", "modules", "default.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(local, "host1", "machine.toml"),
+		"timeZone = \"UTC\"\nlocale = \"en_US.UTF-8\"\nstateVersion = \"25.11\"\n")
+
+	// host2: other host, already correct - imports.Heal must leave it be.
+	write(t, filepath.Join(local, "host2", "modules", "default.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(local, "host2", "machine.toml"),
+		"timeZone = \"UTC\"\nlocale = \"en_US.UTF-8\"\nstateVersion = \"25.11\"\n")
+
+	channelsToml := mustReadFile(t, "../framework/files/templates/channels.toml")
+	write(t, filepath.Join(config, "channels.toml"), channelsToml)
+
+	write(t, hardwareConfig, "{ }\n")
+
+	p := paths.Paths{
+		Home:           root,
+		User:           "test",
+		Config:         config,
+		Local:          local,
+		Modules:        modules,
+		Staging:        staging,
+		EtcNixos:       etcNixos,
+		HardwareConfig: hardwareConfig,
+		RunningModules: filepath.Join(root, "run-modules.nix"),
+		LuxLink:        filepath.Join(root, "lux"),
+	}
+	return p, "host1"
+}
+
+func TestRun_EndToEnd(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	exe := "/etc/luxos/bin/luxos"
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, exe, false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+
+	mustExist := []string{
+		filepath.Join(p.Staging, "flake.nix"),
+		filepath.Join(p.Staging, "configuration.nix"),
+		filepath.Join(p.Staging, "framework", "system.nix"),
+		filepath.Join(p.Staging, "config", "modules", "system", "desktop.nix"),
+	}
+	for _, f := range mustExist {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("expected %s to exist: %v", f, err)
+		}
+	}
+
+	// The moved import was rewritten in host1's real entrypoint.
+	entrypoint := filepath.Join(p.Local, host, "modules", "default.nix")
+	content := mustReadFile(t, entrypoint)
+	if strings.Contains(content, "old/foo.nix") {
+		t.Errorf("entrypoint %s still references old/foo.nix:\n%s", entrypoint, content)
+	}
+	if !strings.Contains(content, "misc/foo.nix") {
+		t.Errorf("entrypoint %s was not rewritten to misc/foo.nix:\n%s", entrypoint, content)
+	}
+	if !strings.Contains(out.String(), "./old/foo.nix -> ./misc/foo.nix") {
+		t.Errorf("output did not report the heal, got:\n%s", out.String())
+	}
+
+	// .gitignore contains every required line.
+	gitignoreContent := mustReadFile(t, filepath.Join(p.Config, ".gitignore"))
+	for _, line := range gitignoreLines {
+		if !strings.Contains(gitignoreContent, line) {
+			t.Errorf(".gitignore missing line %q, got:\n%s", line, gitignoreContent)
+		}
+	}
+
+	// A second run finds nothing left to heal.
+	var out2 bytes.Buffer
+	if err := Run(&out2, p, host, exe, false); err != nil {
+		t.Fatalf("second Run: %v\noutput:\n%s", err, out2.String())
+	}
+	for _, marker := range []string{"-> ./", "Warning:", "scaffolded:", "added:", "created:", "removed ./"} {
+		if strings.Contains(out2.String(), marker) {
+			t.Errorf("second run reported a heal change (found %q), got:\n%s", marker, out2.String())
+		}
+	}
+}
+
+func TestRun_BoundaryViolation(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	exe := "/etc/luxos/bin/luxos"
+
+	// A module referencing a path outside its own module - a boundary
+	// violation refs.Validate must catch before anything is staged.
+	write(t, filepath.Join(p.Modules, "bad.nix"), "{ imports = [ ../outside.nix ]; }\n")
+
+	var out bytes.Buffer
+	err := Run(&out, p, host, exe, false)
+	if err == nil {
+		t.Fatal("expected an error for the boundary violation, got nil")
+	}
+	if !strings.Contains(err.Error(), "module boundary violations") {
+		t.Errorf("error = %q, want mention of module boundary violations", err.Error())
+	}
+	if !strings.Contains(out.String(), "Error: ") {
+		t.Errorf("output did not report the violation, got:\n%s", out.String())
+	}
+
+	if _, statErr := os.Stat(p.Staging); !os.IsNotExist(statErr) {
+		t.Errorf("staging dir %s should not exist after a boundary violation", p.Staging)
+	}
+}
