@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	configDirEnv = "LUXOS_CONFIG_DIR"
-	sudoUserEnv  = "SUDO_USER"
+	configDirEnv     = "LUXOS_CONFIG_DIR"
+	sudoUserEnv      = "SUDO_USER"
+	homeEnv          = "HOME"
+	xdgConfigHomeEnv = "XDG_CONFIG_HOME"
 
+	configDirName   = "luxos"
 	configRelToHome = ".config/luxos"
 	localRel        = ".local"
 	modulesRel      = "modules"
@@ -26,8 +29,8 @@ const (
 
 // Paths holds every directory luxos needs, resolved once per invocation.
 type Paths struct {
-	Home, User     string // invoking user: $SUDO_USER's passwd entry when set, else current user
-	Config         string // $LUXOS_CONFIG_DIR, else <Home>/.config/luxos
+	Home, User     string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
+	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
 	Local          string // <Config>/.local
 	Modules        string // <Config>/modules
 	Staging        string // /etc/nixos/luxos
@@ -47,7 +50,11 @@ func Resolve() (Paths, error) {
 
 	config := os.Getenv(configDirEnv)
 	if config == "" {
-		config = filepath.Join(u.HomeDir, configRelToHome)
+		if xdgConfigHome := os.Getenv(xdgConfigHomeEnv); xdgConfigHome != "" {
+			config = filepath.Join(xdgConfigHome, configDirName)
+		} else {
+			config = filepath.Join(u.HomeDir, configRelToHome)
+		}
 	}
 
 	return Paths{
@@ -66,7 +73,19 @@ func Resolve() (Paths, error) {
 
 func invokingUser() (*user.User, error) {
 	if sudoUser := os.Getenv(sudoUserEnv); sudoUser != "" {
+		// $HOME is unreliable under sudo (typically reset to /root without
+		// -E), so the sudo user's passwd entry is authoritative here.
 		return user.Lookup(sudoUser)
 	}
-	return user.Current()
+
+	u, err := user.Current()
+	if err != nil {
+		return nil, err
+	}
+	if home := os.Getenv(homeEnv); home != "" {
+		userCopy := *u
+		userCopy.HomeDir = home
+		u = &userCopy
+	}
+	return u, nil
 }
