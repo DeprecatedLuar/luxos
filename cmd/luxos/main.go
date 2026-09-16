@@ -1,18 +1,38 @@
+// Command luxos routes argv[1] to the matching internal/commands function.
+// It is the only place that prints top-level errors or exits
+// (implementation-plan.md G10).
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"github.com/DeprecatedLuar/luxos/internal/commands"
 )
 
-const usage = "luxos <command> [args]\n\nno commands yet"
-
 func main() {
-	if len(os.Args) < 2 || os.Args[1] == "help" {
-		fmt.Println(usage)
-		return
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
+	if len(args) == 0 {
+		commands.Help(os.Stdout)
+		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Error: unknown command '%s'\n", os.Args[1])
-	os.Exit(1)
+	cmd, rest := args[0], args[1:]
+
+	switch cmd {
+	case "help", "-h", "--help":
+		commands.Help(os.Stdout)
+		return nil
+	case "rebuild":
+		return commands.Rebuild(rest)
+	default:
+		commands.Help(os.Stderr)
+		return fmt.Errorf("unknown command '%s'", cmd)
+	}
 }
