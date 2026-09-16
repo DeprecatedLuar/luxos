@@ -10,23 +10,6 @@
   nixpkgs.config.allowUnfree = true;
 
   environment.systemPackages = with pkgs; [
-    # Self-healing nixos-rebuild wrapper. The store copy is only a
-    # bootstrap: bin/nixos-rebuild resolves its own tree from BASH_SOURCE,
-    # which points into /run/current-system/sw here, so it can't be
-    # embedded verbatim. Embedding internal/env.sh instead keeps
-    # FRAMEWORK_DIR defined in exactly one place and hands off to the
-    # real entrypoint in the framework repo.
-    (pkgs.writeShellScriptBin "nixos-rebuild" ''
-      ${builtins.readFile ./internal/env.sh}
-
-      if [[ ! -x "$FRAMEWORK_DIR/bin/nixos-rebuild" ]]; then
-          echo "Error: luxos framework not found at $FRAMEWORK_DIR" >&2
-          echo "Clone it there, or run the real nixos-rebuild directly." >&2
-          exit 1
-      fi
-
-      exec "$FRAMEWORK_DIR/bin/nixos-rebuild" "$@"
-    '')
     micro
     ncdu
     tailscale

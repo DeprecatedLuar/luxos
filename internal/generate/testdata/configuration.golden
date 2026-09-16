@@ -1,0 +1,33 @@
+# Auto-generated from machine.toml - DO NOT EDIT
+# Edit machine.toml instead and run: luxos rebuild switch
+# Written by self-heal into $STAGING_DIR — its imports below only resolve there.
+
+{ config, pkgs, ... }:
+
+{
+  time.timeZone = "America/Sao_Paulo";
+  i18n.defaultLocale = "en_US.UTF-8";
+  system.stateVersion = "24.05";
+
+  imports = [
+    ./framework/system.nix
+    ./config/modules
+    ./config/local
+  ];
+
+  networking.hostName = "paraloid";
+
+  environment.etc."luxos/bin".source = "/etc/luxos/bin/luxos";
+  environment.systemPackages = [
+    (pkgs.writeShellScriptBin "nixos-rebuild" ''
+      LUXOS_ARGS=(rebuild)
+      REAL="${config.system.build.nixos-rebuild}/bin/nixos-rebuild"
+      ${builtins.readFile ./framework/shadow.sh}
+    '')
+    (pkgs.writeShellScriptBin "nixos" ''
+      LUXOS_ARGS=()
+      REAL=""
+      ${builtins.readFile ./framework/shadow.sh}
+    '')
+  ];
+}

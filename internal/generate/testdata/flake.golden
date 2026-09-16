@@ -1,0 +1,54 @@
+# Auto-generated from channels.toml - DO NOT EDIT
+# Edit channels.toml and run: luxos rebuild switch
+
+{
+  description = "luxos machine configurations";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";  # base channel: stable
+    unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+    home-manager.url = "github:nix-community/home-manager";
+  };
+
+  outputs = { self, nixpkgs, unstable, ... }@inputs:
+  let
+    system = "x86_64-linux";
+
+    # Exposes every declared channel as pkgs.<channel>.<package>, so a package
+    # reference always states which channel it came from. The base channel
+    # aliases prev instead of re-importing itself (pkgs already is that
+    # channel); the others inherit config so allowUnfree and friends carry
+    # over rather than being restated here.
+    channelOverlay = final: prev: {
+      stable = prev;
+      unstable = import unstable { inherit (prev.stdenv.hostPlatform) system; inherit (prev) config; };
+    };
+
+    # Machine modules reach the framework's through modules/system
+    # (a link to $FRAMEWORK_DIR/modules, dereferenced by staging). luxos
+    # carries staged config paths (implementation-plan.md #26), not
+    # $FRAMEWORK_DIR/$CONFIG_DIR paths, so this still crosses nothing over
+    # the repo boundary.
+    luxos = let
+      units = {
+      "hyprland" = ./config/modules/desktop/hyprland.nix;
+      "user1" = ./config/modules/users/user1;
+      "wayland" = ./config/modules/system/wayland.nix;
+      };
+    in {
+      modules = names: map (n: units.${n} or (throw "luxos.modules: '${n}' does not resolve to any module under modules/")) names;
+    };
+
+    mkHost = hostName: nixpkgs.lib.nixosSystem {
+      specialArgs = { inherit inputs hostName luxos; };
+      modules = [
+        ./configuration.nix
+        { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ channelOverlay ]; }
+      ];
+    };
+  in {
+    # The staged flake root holds exactly one machine's configuration.nix, so
+    # it exposes exactly one host. Regenerated per machine on every run.
+    nixosConfigurations.paraloid = mkHost "paraloid";
+  };
+}

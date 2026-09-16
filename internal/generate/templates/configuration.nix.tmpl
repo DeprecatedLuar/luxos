@@ -1,0 +1,28 @@
+# Auto-generated from machine.toml - DO NOT EDIT
+# Edit machine.toml instead and run: luxos rebuild switch
+# Written by self-heal into $STAGING_DIR — its imports below only resolve there.
+
+{ config, pkgs, ... }:
+
+{
+  time.timeZone = "{{.TimeZone}}";
+  i18n.defaultLocale = "{{.Locale}}";
+  system.stateVersion = "{{.StateVersion}}";
+
+  imports = [
+    ./framework/system.nix
+    ./config/modules
+    ./config/local
+  ];
+
+  networking.hostName = "{{.Host}}";
+
+  environment.etc."luxos/bin".source = "{{.Exe}}";
+  environment.systemPackages = [
+{{range .HardShadows}}    (pkgs.writeShellScriptBin "{{.Name}}" ''
+      LUXOS_ARGS=({{.Args}})
+      REAL="{{.Real}}"
+      ${builtins.readFile ./framework/shadow.sh}
+    '')
+{{end}}  ];
+}
