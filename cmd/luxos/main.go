@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands"
+	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 )
 
 func main() {
@@ -19,20 +20,24 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		commands.Help(os.Stdout)
-		return nil
+		return help.Run(nil)
 	}
 
 	cmd, rest := args[0], args[1:]
 
 	switch cmd {
 	case "help", "-h", "--help":
-		commands.Help(os.Stdout)
-		return nil
+		return help.Run(args)
 	case "rebuild":
 		return commands.Rebuild(rest)
+	case "module":
+		return commands.Module(rest)
+	case "user":
+		return commands.User(rest)
 	default:
-		commands.Help(os.Stderr)
-		return fmt.Errorf("unknown command '%s'", cmd)
+		fmt.Fprintln(os.Stderr, "Error: unknown command")
+		_ = help.Run(nil)
+		os.Exit(1)
+		return nil
 	}
 }

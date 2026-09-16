@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
@@ -36,6 +37,10 @@ const flakeLockName = "flake.lock"
 // Rebuild implements `luxos rebuild`, escalating to root and delegating to
 // heal.Run before exec'ing the real nixos-rebuild.
 func Rebuild(args []string) error {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+		return help.Run([]string{"help", "rebuild"})
+	}
+
 	if err := shared.EnsureRoot(append([]string{"rebuild"}, args...)); err != nil {
 		return err
 	}
