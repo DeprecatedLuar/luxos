@@ -114,7 +114,7 @@ func TestValidate_Boundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("units.Walk(%s): %v", modulesDir, err)
 		}
-		vs, err := Validate(modulesDir, us)
+		vs, err := Validate(modulesDir, us, allUnitPaths(us))
 		if err != nil {
 			t.Fatalf("Validate(%s): %v", modulesDir, err)
 		}
@@ -183,7 +183,7 @@ func TestValidate_Boundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		vs, err := Validate(mods, us)
+		vs, err := Validate(mods, us, []string{"a.nix"})
 		if err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -191,6 +191,47 @@ func TestValidate_Boundary(t *testing.T) {
 			t.Errorf("clean tree: got violations %v, want none", vs)
 		}
 	})
+}
+
+// allUnitPaths selects every unit, so Validate's closure is the whole tree.
+func allUnitPaths(us []units.Unit) []string {
+	out := make([]string, len(us))
+	for i, u := range us {
+		out[i] = u.Path
+	}
+	return out
+}
+
+func TestValidate_OnlyImportedClosure(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "host.nix"), `{ luxos, ... }: { imports = luxos.modules [ "dep" ]; }`)
+	write(t, filepath.Join(mods, "dep", "default.nix"), `{ imports = [ ./inner.nix ]; }`)
+	write(t, filepath.Join(mods, "dep", "inner.nix"), `{ imports = [ ../../outside.nix ]; }`)
+	write(t, filepath.Join(mods, "unused.nix"), `let n = "x"; in { imports = [ ./${n}.nix ../elsewhere.nix ]; }`)
+
+	us, err := units.Walk(mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := Validate(mods, us, []string{"host.nix"})
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	flagged := make(map[string]bool)
+	for _, v := range vs {
+		flagged[v.File] = true
+	}
+	if !flagged["dep/inner.nix"] {
+		t.Errorf("dep/inner.nix (reached through luxos.modules) not flagged, got %v", vs)
+	}
+	if flagged["unused.nix"] {
+		t.Errorf("unused.nix is imported by nothing but was flagged: %v", vs)
+	}
+
+	if _, err := Validate(mods, us, []string{"missing.nix"}); err == nil {
+		t.Error("Validate with an unresolvable root: want error, got nil")
+	}
 }
 
 //============================================================================
@@ -704,7 +745,7 @@ func TestVerification_UnresolvedNameNamesFileAndName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	violations, err := Validate(mods, us)
+	violations, err := Validate(mods, us, []string{"a.nix"})
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}

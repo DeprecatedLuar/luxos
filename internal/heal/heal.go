@@ -120,7 +120,11 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	if err != nil {
 		return err
 	}
-	violations, err := refs.Validate(p.Modules, us)
+	selection, err := imports.List(entrypoint)
+	if err != nil {
+		return err
+	}
+	violations, err := refs.Validate(p.Modules, us, selection)
 	if err != nil {
 		return err
 	}

@@ -26,8 +26,8 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// entrypointName is the host-selection mirror file, exempt from Validate,
-// Dependents and Retarget (it isn't a module file).
+// entrypointName is the host-selection mirror file, exempt from Dependents
+// and Retarget (it isn't a module file).
 const entrypointName = "default.nix"
 
 // modulesDirName is the fixed name Validate's "does not resolve" message
@@ -149,66 +149,91 @@ func Names(file string) ([]string, error) {
 	return names, nil
 }
 
-// Validate walks every *.nix file under modulesDir (following symlinks),
-// skipping modulesDir/default.nix, and collects every boundary,
-// dynamic-path, call-shape and unresolved-name violation across the whole
-// tree — not just the first. err is returned only for I/O or parser-lookup
-// failure (e.g. nix-instantiate missing); a file that itself fails to parse
-// is reported as a Violation instead.
-func Validate(modulesDir string, us []units.Unit) ([]Violation, error) {
+// Validate checks only what the host actually builds: starting from roots
+// (the host entrypoint's import paths, relative to modulesDir), it follows
+// every luxos.modules name to its unit, transitively, and collects every
+// boundary, dynamic-path, call-shape and unresolved-name violation in that
+// closure — not just the first. A unit nothing reaches is never checked:
+// importing it makes it part of the closure on the next run. A file unit
+// contributes itself, a folder unit every *.nix beneath it. err is returned
+// for a root that resolves to no unit, or for I/O or parser-lookup failure
+// (e.g. nix-instantiate missing); a file that itself fails to parse is
+// reported as a Violation instead.
+func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
-	files, err := findAllNix(root)
-	if err != nil {
-		return nil, err
+
+	var queue []string
+	seen := make(map[string]bool)
+	enqueue := func(unitPath string) {
+		if !seen[unitPath] {
+			seen[unitPath] = true
+			queue = append(queue, unitPath)
+		}
+	}
+	for _, r := range roots {
+		unitPath, ok := units.Resolve(us, units.NameFromPath(r))
+		if !ok {
+			return nil, fmt.Errorf("import ./%s does not resolve to any module under %s/", r, modulesDirName)
+		}
+		enqueue(unitPath)
 	}
 
-	rootDefault := filepath.Join(root, entrypointName)
 	var violations []Violation
+	for len(queue) > 0 {
+		unitPath := queue[0]
+		queue = queue[1:]
 
-	for _, file := range files {
-		if file == rootDefault {
-			continue
-		}
-		rel, err := filepath.Rel(root, file)
+		files, err := unitFiles(filepath.Join(root, unitPath))
 		if err != nil {
 			return nil, err
 		}
 
-		parsed, perr := parse(file)
-		if perr != nil {
-			violations = append(violations, Violation{File: rel, Message: "failed to parse"})
-			continue
-		}
+		for _, file := range files {
+			rel, err := filepath.Rel(root, file)
+			if err != nil {
+				return nil, err
+			}
 
-		owner := Owner(root, file)
-		stripped := stripStrings(parsed)
-
-		for _, p := range pathRe.FindAllString(stripped, -1) {
-			if owner != "" && (p == owner || strings.HasPrefix(p, owner+"/")) {
+			parsed, perr := parse(file)
+			if perr != nil {
+				violations = append(violations, Violation{File: rel, Message: "failed to parse"})
 				continue
 			}
-			violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
-		}
 
-		for _, p := range extractDynamicPaths(stripped) {
-			violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("uses a dynamic path (%s)", p)})
-		}
+			owner := Owner(root, file)
+			stripped := stripStrings(parsed)
 
-		body := stripFormals(parsed)
-		names, callViolations := scanLuxosUses(body)
-		for _, v := range callViolations {
-			violations = append(violations, Violation{File: rel, Message: v})
-		}
-		for _, name := range names {
-			if _, ok := units.Resolve(us, name); !ok {
-				violations = append(violations, Violation{
-					File:    rel,
-					Message: fmt.Sprintf("luxos.modules: '%s' does not resolve to any module under %s/", name, modulesDirName),
-				})
+			for _, p := range pathRe.FindAllString(stripped, -1) {
+				if owner != "" && (p == owner || strings.HasPrefix(p, owner+"/")) {
+					continue
+				}
+				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
+			}
+
+			for _, p := range extractDynamicPaths(stripped) {
+				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("uses a dynamic path (%s)", p)})
+			}
+
+			body := stripFormals(parsed)
+			names, callViolations := scanLuxosUses(body)
+			for _, v := range callViolations {
+				violations = append(violations, Violation{File: rel, Message: v})
+			}
+			for _, name := range names {
+				dep, ok := units.Resolve(us, name)
+				if !ok {
+					violations = append(violations, Violation{
+						File:    rel,
+						Message: fmt.Sprintf("luxos.modules: '%s' does not resolve to any module under %s/", name, modulesDirName),
+					})
+					continue
+				}
+				enqueue(dep)
 			}
 		}
 	}
 
+	sort.SliceStable(violations, func(i, j int) bool { return violations[i].File < violations[j].File })
 	return violations, nil
 }
 
@@ -440,6 +465,19 @@ func lastLine(s string) string {
 }
 
 //──[private: tree walk]──────────────────────────────────────────────────────
+
+// unitFiles returns the *.nix files a unit consists of: the file itself for
+// a file unit, every *.nix beneath it (sorted) for a folder unit.
+func unitFiles(unit string) ([]string, error) {
+	info, err := os.Stat(unit)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return []string{unit}, nil
+	}
+	return findAllNix(unit)
+}
 
 // findAllNix returns every *.nix file under root (following symlinks, like
 // `find -L root -type f -name '*.nix'`), sorted in byte order. A broken

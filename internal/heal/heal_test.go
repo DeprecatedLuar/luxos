@@ -151,6 +151,21 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestRun_UnimportedViolationIgnored(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	exe := "/etc/luxos/bin/luxos"
+
+	// Broken, but no host imports it: it is never built, so never checked.
+	write(t, filepath.Join(p.Modules, "unused.nix"), "{ imports = [ ../outside.nix ]; }\n")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, exe, false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+}
+
 func TestRun_BoundaryViolation(t *testing.T) {
 	skipIfNoNix(t)
 
@@ -160,6 +175,8 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.
 	write(t, filepath.Join(p.Modules, "bad.nix"), "{ imports = [ ../outside.nix ]; }\n")
+	write(t, filepath.Join(p.Local, host, "modules", "default.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
 	err := Run(&out, p, host, exe, false)
