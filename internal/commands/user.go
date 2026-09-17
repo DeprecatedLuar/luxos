@@ -92,11 +92,20 @@ func userCategory(sub string) string {
 	return "users/" + sub
 }
 
-// userList implements `user list [subpath]` == `module list users[/subpath]`.
+// userList implements `user list [subpath] [flags]` ==
+// `module list users[/subpath] [flags]`. Flags (--flat, --raw, ...) are
+// forwarded untouched; the first non-flag argument, if any, is the subpath.
 func userList(p paths.Paths, args []string) error {
 	var sub string
-	if len(args) > 0 {
-		sub = args[0]
+	var flags []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+			continue
+		}
+		if sub == "" {
+			sub = a
+		}
 	}
-	return moduleList(p, []string{userCategory(sub)})
+	return moduleList(p, append([]string{userCategory(sub)}, flags...))
 }

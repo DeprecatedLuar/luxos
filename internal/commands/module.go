@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/units"
@@ -21,6 +23,11 @@ import (
 // active host's selection (implementation-plan.md #18) — the file
 // list/enable/disable act on.
 const entrypointName = "default.nix"
+
+// accountFileName is the file moduleAddUser writes the account definition
+// to; `edit` prefers it over entrypointName for a directory unit that has
+// one, since that's where a user module's actual content lives.
+const accountFileName = "account.nix"
 
 // moduleSimpleTemplate is the minimal scaffold `module add` writes for a
 // non-user module, ported verbatim from bash's MODULE_SIMPLE_TEMPLATE.
@@ -343,6 +350,41 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 	}
 }
 
+// moduleRenderFlat writes rows to w as a flat, colored list: one
+// "marker name" per line (name only, no category path), no headers, no tree
+// connectors — sorted by full path so entries still group by category, even
+// though the path itself isn't printed. pal's color fields are empty
+// strings to render with no ANSI codes (NO_COLOR, or a non-color TTY).
+func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
+	if len(rows) == 0 {
+		w.WriteString("(no modules)\n")
+		return
+	}
+
+	type line struct {
+		path string
+		row  moduleRow
+	}
+	lines := make([]line, 0, len(rows))
+	for _, r := range rows {
+		path := r.name
+		if len(r.category) > 0 {
+			path = strings.Join(r.category, "/") + "/" + r.name
+		}
+		lines = append(lines, line{path: path, row: r})
+	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
+
+	for _, l := range lines {
+		mc := markerColor(pal, l.row.marker)
+		fmt.Fprintf(w, "%s%s %s%s", mc, l.row.marker, l.row.name, pal.reset)
+		if len(l.row.pulledBy) > 0 {
+			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(l.row.pulledBy, ", "), pal.reset)
+		}
+		w.WriteString("\n")
+	}
+}
+
 // moduleRenderPlain writes rows to w in piped form: one "category/name" per
 // line ("name" for root units), no headers, no markers, byte-sorted.
 func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
@@ -365,9 +407,23 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 
 // moduleList implements `module list [category-path]`.
 func moduleList(p paths.Paths, args []string) error {
+	var flat, raw bool
+	var positional []string
+	for _, a := range args {
+		switch a {
+		case "--flat":
+			flat = true
+			continue
+		case "--raw":
+			raw = true
+			continue
+		}
+		positional = append(positional, a)
+	}
+
 	var categoryPath string
-	if len(args) > 0 {
-		categoryPath = args[0]
+	if len(positional) > 0 {
+		categoryPath = positional[0]
 	}
 	categoryPath = strings.TrimSuffix(categoryPath, "/")
 
@@ -426,27 +482,129 @@ func moduleList(p paths.Paths, args []string) error {
 		rootLabel = categoryPath + "/"
 	}
 
+	pal := treePalette{}
+	if colorsEnabled(tty) {
+		pal = colorTreePalette
+	}
+
 	var out strings.Builder
-	if tty {
-		pal := treePalette{}
-		if colorsEnabled(tty) {
-			pal = colorTreePalette
-		}
+	switch {
+	case raw:
+		moduleRenderPlain(&out, rows)
+	case flat:
+		moduleRenderFlat(&out, rows, pal)
+	case tty:
 		moduleRenderTTY(&out, rows, rootLabel, pal)
-	} else {
+	default:
 		moduleRenderPlain(&out, rows)
 	}
 	fmt.Print(out.String())
 	return nil
 }
 
+//──[editing]──────────────────────────────────────────────────────────────
+
+// editScratch writes initial to a scratch .nix file, opens it in $EDITOR,
+// waits for the editor to exit, and returns the result once it parses.
+// Shared by `add` (editing content that isn't written anywhere yet) and
+// `edit` (editing an existing file's content) so the spawn-validate step
+// lives in exactly one place.
+func editScratch(initial []byte) ([]byte, error) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		return nil, fmt.Errorf("$EDITOR is not set")
+	}
+
+	tmp, err := os.CreateTemp("", "luxos-edit-*.nix")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(initial); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command(editor, tmpPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("$EDITOR exited with error: %w", err)
+	}
+
+	edited, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := nix.Parse(tmpPath); err != nil {
+		return nil, fmt.Errorf("edited file would fail to parse: %w", err)
+	}
+	return edited, nil
+}
+
+// editNixFileInPlace opens path's current content in $EDITOR via
+// editScratch, then writes back a version that parses using the write
+// discipline for hand-owned files: resolve the symlink, validate off to
+// the side, then O_WRONLY|O_TRUNC in place (never rename), so ownership
+// and mode survive running as root. A no-op edit or an aborted/non-parsing
+// edit leaves path untouched.
+func editNixFileInPlace(path string) error {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+
+	original, err := os.ReadFile(real)
+	if err != nil {
+		return err
+	}
+
+	edited, err := editScratch(original)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(edited, original) {
+		return nil
+	}
+
+	f, err := os.OpenFile(real, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(edited)
+	return err
+}
+
 //──[add]──────────────────────────────────────────────────────────────────
 
 // moduleAddUser scaffolds modules/<target> from the embedded user template,
-// filling in the literal account name.
+// filling in the literal account name. Before anything is written under
+// modulesRoot, account.nix is opened in $EDITOR as a scratch file so the
+// user can flesh it out; only a version that parses is kept.
 func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
 	dest := filepath.Join(modulesRoot, target)
+
+	account, err := framework.File("templates/user/account.nix")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(account), moduleUserPlaceholder) {
+		return fmt.Errorf("embedded templates/user/account.nix has no '%s' to fill in", moduleUserPlaceholder)
+	}
+	filled := strings.ReplaceAll(string(account), moduleUserPlaceholder, "users.users."+name+" =")
+
+	edited, err := editScratch([]byte(filled))
+	if err != nil {
+		return err
+	}
 
 	if err := os.MkdirAll(dest, 0755); err != nil {
 		return err
@@ -459,16 +617,7 @@ func moduleAddUser(modulesRoot, target string) error {
 	if err := os.WriteFile(filepath.Join(dest, "default.nix"), defaultNix, 0644); err != nil {
 		return err
 	}
-
-	account, err := framework.File("templates/user/account.nix")
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(string(account), moduleUserPlaceholder) {
-		return fmt.Errorf("embedded templates/user/account.nix has no '%s' to fill in", moduleUserPlaceholder)
-	}
-	filled := strings.ReplaceAll(string(account), moduleUserPlaceholder, "users.users."+name+" =")
-	if err := os.WriteFile(filepath.Join(dest, "account.nix"), []byte(filled), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dest, accountFileName), edited, 0644); err != nil {
 		return err
 	}
 
@@ -517,7 +666,11 @@ func moduleAdd(p paths.Paths, args []string) error {
 			return err
 		}
 	} else {
-		if err := os.WriteFile(filepath.Join(p.Modules, target+".nix"), []byte(moduleSimpleTemplate), 0644); err != nil {
+		edited, err := editScratch([]byte(moduleSimpleTemplate))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(p.Modules, target+".nix"), edited, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Created modules/%s.nix\n", target)
@@ -541,30 +694,44 @@ func moduleEdit(p paths.Paths, args []string) error {
 		return fmt.Errorf("usage: luxos module edit <name>")
 	}
 
-	path, found, err := resolveUnitPath(p.Modules, name)
+	file, err := moduleEditTarget(p.Modules, name)
 	if err != nil {
 		return err
 	}
+	return editNixFileInPlace(file)
+}
+
+// moduleEditTarget resolves the file `edit` should open for name: the file
+// itself for a single-file unit; account.nix for a directory unit that has
+// one (the file moduleAddUser actually fills in); entrypointName otherwise.
+func moduleEditTarget(modulesRoot, name string) (string, error) {
+	path, found, err := resolveUnitPath(modulesRoot, name)
+	if err != nil {
+		return "", err
+	}
 	if !found {
-		return fmt.Errorf("unknown module '%s'", name)
+		return "", fmt.Errorf("unknown module '%s'", name)
 	}
 
-	target := filepath.Join(p.Modules, path)
-	file := target
-	if fi, err := os.Stat(target); err == nil && fi.IsDir() {
-		file = filepath.Join(target, entrypointName)
+	target := filepath.Join(modulesRoot, path)
+	fi, err := os.Stat(target)
+	if err != nil {
+		return "", err
+	}
+	if !fi.IsDir() {
+		return target, nil
 	}
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		return fmt.Errorf("$EDITOR is not set")
+	if account := filepath.Join(target, accountFileName); fileExists(account) {
+		return account, nil
 	}
+	return filepath.Join(target, entrypointName), nil
+}
 
-	cmd := exec.Command(editor, file)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+// fileExists reports whether path exists and is a regular file.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 //──[enable/disable]─────────────────────────────────────────────────────────
@@ -628,25 +795,27 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 }
 
 func moduleEnable(p paths.Paths, args []string) error {
-	var name string
-	if len(args) > 0 {
-		name = args[0]
+	if len(args) == 0 {
+		return fmt.Errorf("usage: luxos module enable <name>...")
 	}
-	if name == "" {
-		return fmt.Errorf("usage: luxos module enable <name>")
+	for _, name := range args {
+		if err := toggleModule(p, name, true); err != nil {
+			return err
+		}
 	}
-	return toggleModule(p, name, true)
+	return nil
 }
 
 func moduleDisable(p paths.Paths, args []string) error {
-	var name string
-	if len(args) > 0 {
-		name = args[0]
+	if len(args) == 0 {
+		return fmt.Errorf("usage: luxos module disable <name>...")
 	}
-	if name == "" {
-		return fmt.Errorf("usage: luxos module disable <name>")
+	for _, name := range args {
+		if err := toggleModule(p, name, false); err != nil {
+			return err
+		}
 	}
-	return toggleModule(p, name, false)
+	return nil
 }
 
 //──[remove]───────────────────────────────────────────────────────────────

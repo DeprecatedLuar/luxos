@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands"
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
@@ -54,6 +55,17 @@ func ensureLuxLink() {
 	}
 }
 
+// withDefaultVerb prepends verb to args unless args already starts with a
+// verb — i.e. unless args is non-empty and its first element isn't a flag.
+// It lets `luxos modules`/`luxos users` shortcuts accept flags in place of
+// an explicit "list" ("luxos users --flat") the same way they accept none.
+func withDefaultVerb(args []string, verb string) []string {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args
+	}
+	return append([]string{verb}, args...)
+}
+
 func run(args []string) error {
 	if len(args) == 0 {
 		return help.Run(nil)
@@ -66,10 +78,20 @@ func run(args []string) error {
 		return help.Run(args)
 	case "rebuild":
 		return commands.Rebuild(rest)
-	case "module", "modules":
+	case "module":
 		return commands.Module(rest)
-	case "user", "users":
+	case "modules":
+		return commands.Module(withDefaultVerb(rest, "list"))
+	case "list", "ls":
+		return commands.Module(append([]string{"list"}, rest...))
+	case "enable":
+		return commands.Module(append([]string{"enable"}, rest...))
+	case "disable":
+		return commands.Module(append([]string{"disable"}, rest...))
+	case "user":
 		return commands.User(rest)
+	case "users":
+		return commands.User(withDefaultVerb(rest, "list"))
 	case "shell":
 		return commands.Shell(rest)
 	default:
