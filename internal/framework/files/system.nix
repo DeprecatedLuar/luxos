@@ -10,19 +10,9 @@
   nixpkgs.config.allowUnfree = true;
 
   environment.systemPackages = with pkgs; [
-    micro
     ncdu
-    tailscale
-    ranger
-    zoxide
-    starship
-    btop
-    gh
-    cmatrix
     fastfetch
 
-    sshfs
-    mosh
     ripgrep
     git
     wget
@@ -44,14 +34,6 @@
     entr
     tree
     squashfsTools
-
-    go
-    python3
-    nodejs
-    cargo
-    rustc
-    gcc
-    # claude-code
 
     kitty.terminfo
   ];
@@ -99,13 +81,6 @@
   services.openssh.enable = true;
   services.atd.enable = true;
   services.cron.enable = true;
-  virtualisation.docker.enable = true;
-  virtualisation.docker.package = pkgs.docker_29;
-
-  # Firewall configuration
-  networking.firewall.allowedUDPPortRanges = [
-    { from = 60000; to = 61000; }  # mosh
-  ];
 
   # Strict rpfilter drops a full-tunnel VPN's own encrypted replies once the
   # default route moves onto the tunnel (Tailscale exit node, wg-quick 0.0.0.0/0).

@@ -15,6 +15,5 @@
   environment.systemPackages = with pkgs; [
     xorg.xinit
     xdotool
-    feh
   ];
 }

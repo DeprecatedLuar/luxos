@@ -11,6 +11,14 @@
     xorg.libXrender
     xorg.libXtst
     xorg.libXi
+
+    # Audio & Bluetooth GUI companions (pipewire/bluetooth enabled below)
+    pavucontrol
+    blueman
+
+    # Input device tooling (hardware.uinput enabled below)
+    evtest
+    brightnessctl
   ];
 
   services.flatpak.enable = true;

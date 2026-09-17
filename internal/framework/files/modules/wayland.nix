@@ -5,7 +5,8 @@
 
   environment.systemPackages = with pkgs; [
     wl-clipboard
-    swaybg
     wtype
+    qt6Packages.qt6ct
+    ydotool
   ];
 }
