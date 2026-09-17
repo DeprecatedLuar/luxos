@@ -27,14 +27,14 @@ func rootPage() *gohelp.Page {
 		Section("Commands",
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
-			gohelp.Item("module list [category-path]", "List modules (grouped by category)"),
-			gohelp.Item("module add <category/name> [--enable]", "Scaffold a module"),
-			gohelp.Item("module edit <name>", "Open a module in $EDITOR"),
-			gohelp.Item("module enable <name>", "Enable a module on this host"),
-			gohelp.Item("module disable <name>", "Disable a module on this host"),
-			gohelp.Item("module remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
-			gohelp.Item("module rename|rn <old> <new>", "Rename a module's identity"),
-			gohelp.Item("user ...", "Same verbs as module, fixed to modules/users"),
+			gohelp.Item("module|modules list|ls [category-path]", "List modules (grouped by category)"),
+			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module"),
+			gohelp.Item("module|modules edit|e <name>", "Open a module in $EDITOR"),
+			gohelp.Item("module|modules enable <name>", "Enable a module on this host"),
+			gohelp.Item("module|modules disable <name>", "Disable a module on this host"),
+			gohelp.Item("module|modules remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
+			gohelp.Item("module|modules rename|rn <old> <new>", "Rename a module's identity"),
+			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 		)
 }
@@ -56,9 +56,9 @@ func modulePage() *gohelp.Page {
 	return gohelp.NewPage("module", moduleDescription).
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
-			gohelp.Item("list [category-path]", "List modules (grouped by category)"),
-			gohelp.Item("add <category/name> [--enable]", "Scaffold a module"),
-			gohelp.Item("edit <name>", "Open a module in $EDITOR"),
+			gohelp.Item("list|ls [category-path]", "List modules (grouped by category)"),
+			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module"),
+			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("enable <name>", "Enable a module on this host"),
 			gohelp.Item("disable <name>", "Disable a module on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
@@ -72,9 +72,9 @@ func userPage() *gohelp.Page {
 	return gohelp.NewPage("user", userDescription).
 		Usage(binaryName+" user <verb> ...").
 		Section("Commands",
-			gohelp.Item("add <name> [--enable]", "Scaffold modules/users/<name>"),
-			gohelp.Item("list [subpath]", "List users (or a users/ subcategory)"),
-			gohelp.Item("edit <name>", "Open a user module in $EDITOR"),
+			gohelp.Item("add|a <name> [--enable]", "Scaffold modules/users/<name>"),
+			gohelp.Item("list|ls [subpath]", "List users (or a users/ subcategory)"),
+			gohelp.Item("edit|e <name>", "Open a user module in $EDITOR"),
 			gohelp.Item("enable <name>", "Enable a user on this host"),
 			gohelp.Item("disable <name>", "Disable a user on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),

@@ -235,6 +235,81 @@ func TestValidate_OnlyImportedClosure(t *testing.T) {
 }
 
 //============================================================================
+// Suite: refs.Closure — the display-only, best-effort walk `module`/`user
+// list` uses to mark a module as pulled in without directly selecting it.
+//============================================================================
+
+func TestClosure(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "b" ]; }`)
+	write(t, filepath.Join(mods, "b.nix"), `{ }`)
+	write(t, filepath.Join(mods, "c.nix"), `{ }`) // unreferenced, never a key
+
+	us, err := units.Walk(mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Closure(mods, us, []string{"a.nix"})
+	if err != nil {
+		t.Fatalf("Closure: %v", err)
+	}
+	if want := []string{"a"}; !equalStrings(got["b"], want) {
+		t.Errorf("pullers[b] = %v, want %v", got["b"], want)
+	}
+	if _, ok := got["c"]; ok {
+		t.Errorf("c is never referenced but got a pullers entry: %v", got["c"])
+	}
+	if _, ok := got["a"]; ok {
+		t.Errorf("a is a root, referenced by nothing, but got a pullers entry: %v", got["a"])
+	}
+}
+
+func TestClosure_UnresolvableNameSkipped(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "missing" ]; }`)
+
+	us, err := units.Walk(mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Closure(mods, us, []string{"a.nix"})
+	if err != nil {
+		t.Fatalf("Closure: want no error for an unresolvable name (display-only, best-effort), got %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Closure = %v, want empty", got)
+	}
+}
+
+func TestClosure_UnparseableFileSkipped(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ...`) // unterminated, fails to parse
+
+	us, err := units.Walk(mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Closure(mods, us, []string{"a.nix"}); err != nil {
+		t.Fatalf("Closure: want no error for a file that fails to parse (display-only, best-effort), got %v", err)
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+//============================================================================
 // Suite: tests/parse.sh — refs.Paths / refs.DynamicPaths, what
 // nix-instantiate --parse exposes about paths.
 //============================================================================

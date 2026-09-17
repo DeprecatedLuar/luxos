@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
@@ -15,17 +16,61 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 )
 
-// rebuildHeader is printed at the start of every rebuild, ported verbatim
-// from bin/lib/nixos-rebuild/main.sh's REBUILD_HEADER.
-const rebuildHeader = `
-██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗
-██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝
-██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗
-██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║
-███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║
-╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-                          made by me <3 (luar)
-`
+// rebuildLogoLines is the ASCII-art logo printed at the start of every
+// rebuild, ported verbatim from bin/lib/nixos-rebuild/main.sh's
+// REBUILD_HEADER.
+var rebuildLogoLines = []string{
+	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗",
+	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝",
+	"██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗",
+	"██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║",
+	"███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║",
+	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝",
+}
+
+// rebuildFooter is the logo's signature line.
+const rebuildFooter = "                          made by me <3 (luar)"
+
+// rebuildHeader is the plain (non-color) header, for a non-TTY or
+// NO_COLOR — the logo lines and footer, unchanged from the original.
+const rebuildHeader = "\n" +
+	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗\n" +
+	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝\n" +
+	"██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗\n" +
+	"██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║\n" +
+	"███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║\n" +
+	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n" +
+	rebuildFooter + "\n\n"
+
+// rebuildLogoFrom/To are the gradient's endpoints — green (#CCF391) to
+// purple (#B5A6FA), matching module list's palette.
+var (
+	rebuildLogoFrom = [3]int{0xCC, 0xF3, 0x91}
+	rebuildLogoTo   = [3]int{0xB5, 0xA6, 0xFA}
+)
+
+// gradientLogo renders rebuildLogoLines as a flat-per-row, top-to-bottom
+// green-to-purple gradient, footer in the tree's connector tone.
+func gradientLogo() string {
+	rows := len(rebuildLogoLines)
+
+	var b strings.Builder
+	b.WriteByte('\n')
+	for y, line := range rebuildLogoLines {
+		t := y
+		span := rows - 1
+		if span <= 0 {
+			span = 1
+		}
+		r := rebuildLogoFrom[0] + (rebuildLogoTo[0]-rebuildLogoFrom[0])*t/span
+		g := rebuildLogoFrom[1] + (rebuildLogoTo[1]-rebuildLogoFrom[1])*t/span
+		bl := rebuildLogoFrom[2] + (rebuildLogoTo[2]-rebuildLogoFrom[2])*t/span
+		fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm%s", r, g, bl, line)
+		b.WriteString(colorReset + "\n")
+	}
+	b.WriteString(colorLine + rebuildFooter + colorReset + "\n\n")
+	return b.String()
+}
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
@@ -45,7 +90,15 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	fmt.Print(rebuildHeader)
+	tty := false
+	if fi, err := os.Stdout.Stat(); err == nil {
+		tty = fi.Mode()&os.ModeCharDevice != 0
+	}
+	if colorsEnabled(tty) {
+		fmt.Print(gradientLogo())
+	} else {
+		fmt.Print(rebuildHeader)
+	}
 
 	opts, rest, err := shared.ParsePassthrough(rebuildFlagSpec, args)
 	if err != nil {

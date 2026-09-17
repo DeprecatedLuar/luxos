@@ -27,7 +27,8 @@ func TestModuleMarkerRank(t *testing.T) {
 		{markerEnabledOnly, 0},
 		{markerEnabledBoth, 1},
 		{markerRunningOnly, 2},
-		{markerNeither, 3},
+		{markerPulled, 3},
+		{markerNeither, 4},
 	}
 	for _, c := range cases {
 		if got := moduleMarkerRank(c.marker); got != c.want {
@@ -38,14 +39,15 @@ func TestModuleMarkerRank(t *testing.T) {
 
 func TestModuleSortRows(t *testing.T) {
 	rows := []moduleRow{
-		{name: "zeta", marker: markerNeither, rank: 3},
+		{name: "zeta", marker: markerNeither, rank: 4},
+		{name: "delta", marker: markerPulled, rank: 3},
 		{name: "alpha", marker: markerEnabledOnly, rank: 0},
 		{name: "beta", marker: markerEnabledOnly, rank: 0},
 		{name: "gamma", marker: markerEnabledBoth, rank: 1},
 	}
 	moduleSortRows(rows)
 
-	want := []string{"alpha", "beta", "gamma", "zeta"}
+	want := []string{"alpha", "beta", "gamma", "delta", "zeta"}
 	for i, name := range want {
 		if rows[i].name != name {
 			t.Fatalf("rows[%d].name = %q, want %q (order: %+v)", i, rows[i].name, name, rows)

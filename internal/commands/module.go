@@ -37,13 +37,51 @@ const moduleUserPlaceholder = "users.users.user ="
 const moduleFrameworkCategory = "system"
 
 // State markers for `module list`, per implementation-plan.md Phase 5's
-// state table.
+// state table, plus the pulled-by-dependency marker: a module reached
+// transitively through another's "luxos.modules [ ... ]" call (refs.Closure)
+// without being directly selected itself.
 const (
 	markerEnabledOnly = "⊕" // enabled, not running
 	markerEnabledBoth = "◉" // enabled and running
 	markerRunningOnly = "⊘" // running, not enabled
+	markerPulled      = "◍" // not enabled, but pulled in by an enabled module
 	markerNeither     = "○" // neither
 )
+
+// Tree palette (TTY only, disabled by NO_COLOR): drawn from the user's
+// Moonlight-inspired swatches, confirmed against an ANSI scratchpad preview.
+// Markers keep the state colors from the old flat view; the tree adds three
+// neutrals, ordered darkest to lightest: connectors, then category names,
+// then the off state — never white, so ○ stays visibly the quietest color
+// on screen while remaining legible.
+const (
+	colorGreen  = "\x1b[38;2;204;243;145m"        // #CCF391 — ◉ running
+	colorTeal   = "\x1b[1m\x1b[38;2;125;250;206m" // #7DFACE bold — ⊕ staged
+	colorRed    = "\x1b[38;2;237;112;122m"        // #ED707A — ⊘ leftover
+	colorPurple = "\x1b[38;2;181;166;250m"        // #B5A6FA — ◍ pulled
+	colorLine   = "\x1b[38;2;74;79;115m"          // #212436 lightened — tree connectors
+	colorTitle  = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold — category names
+	colorOff    = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
+	colorReset  = "\x1b[0m"
+)
+
+// treePalette is the set of color codes moduleRenderTTY tints with; an
+// empty treePalette{} renders the same tree shape with no ANSI codes at
+// all, for a non-color TTY (NO_COLOR) or for tests.
+type treePalette struct {
+	green, teal, red, purple, line, title, off, reset string
+}
+
+var colorTreePalette = treePalette{
+	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple,
+	line: colorLine, title: colorTitle, off: colorOff, reset: colorReset,
+}
+
+// colorsEnabled reports whether moduleList should tint its tree: only on a
+// real TTY, and only when the user hasn't set NO_COLOR.
+func colorsEnabled(tty bool) bool {
+	return tty && os.Getenv("NO_COLOR") == ""
+}
 
 // Module implements `luxos module`, dispatching to one unexported function
 // per verb over CONFIG_DIR/modules, ported from
@@ -65,11 +103,11 @@ func Module(args []string) error {
 	}
 
 	switch verb {
-	case "list":
+	case "list", "ls":
 		return moduleList(p, rest)
-	case "add":
+	case "add", "a":
 		return moduleAdd(p, rest)
-	case "edit":
+	case "edit", "e":
 		return moduleEdit(p, rest)
 	case "enable":
 		return moduleEnable(p, rest)
@@ -80,7 +118,7 @@ func Module(args []string) error {
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		return fmt.Errorf("unknown module command '%s'\n  Usage: luxos module <list|add|edit|enable|disable|remove|rename> ...", verb)
+		return fmt.Errorf("unknown module command '%s'\n  Usage: luxos module <list|ls|add|a|edit|e|enable|disable|remove|rename> ...", verb)
 	}
 }
 
@@ -102,7 +140,8 @@ func moduleMarker(enabled, running bool) string {
 }
 
 // moduleMarkerRank returns the sort rank for a marker (lower sorts first),
-// per Phase 5's "ordered by that state order" (⊕, ◉, ⊘, ○). Pure.
+// per Phase 5's "ordered by that state order" (⊕, ◉, ⊘, ◍, ○) — pulled sorts
+// after the three enabled states and before plain off. Pure.
 func moduleMarkerRank(marker string) int {
 	switch marker {
 	case markerEnabledOnly:
@@ -111,17 +150,20 @@ func moduleMarkerRank(marker string) int {
 		return 1
 	case markerRunningOnly:
 		return 2
-	default:
+	case markerPulled:
 		return 3
+	default:
+		return 4
 	}
 }
 
 // moduleRow is one rendered line's worth of data for `module list`.
 type moduleRow struct {
-	category string // "." for a root unit
+	category []string // path segments; empty for a root unit
 	name     string
 	marker   string
 	rank     int
+	pulledBy []string // non-nil only for a non-enabled, pulled-in unit
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -160,71 +202,144 @@ func nameSet(file string) (map[string]bool, error) {
 
 // moduleBuildRows builds one moduleRow per unit in us whose Path lies under
 // categoryPath (or every unit, when categoryPath is ""), using enabled/
-// running name sets. Pure given its inputs.
-func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, categoryPath string) []moduleRow {
+// running name sets. A unit that isn't enabled but is a key in pulled (from
+// refs.Closure) gets the pulled marker and its puller list instead of the
+// plain off marker — pulled never overrides an enabled unit's own state.
+// category is stored as path segments relative to categoryPath, so the
+// filtered subtree renders rooted at itself rather than repeating the
+// filter as a nested category. Pure given its inputs.
+func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, categoryPath string) []moduleRow {
 	var rows []moduleRow
 	prefix := ""
+	var stripSegs []string
 	if categoryPath != "" {
 		prefix = categoryPath + "/"
+		stripSegs = strings.Split(categoryPath, "/")
 	}
 	for _, u := range us {
 		if prefix != "" && !strings.HasPrefix(u.Path, prefix) {
 			continue
 		}
-		cat := filepath.Dir(u.Path)
+		var segs []string
+		if cat := filepath.Dir(u.Path); cat != "." {
+			segs = strings.Split(cat, "/")[len(stripSegs):]
+		}
+
 		marker := moduleMarker(enabled[u.Name], running[u.Name])
+		var pulledBy []string
+		if !enabled[u.Name] {
+			if by, ok := pulled[u.Name]; ok {
+				marker, pulledBy = markerPulled, by
+			}
+		}
 		rows = append(rows, moduleRow{
-			category: cat,
+			category: segs,
 			name:     u.Name,
 			marker:   marker,
 			rank:     moduleMarkerRank(marker),
+			pulledBy: pulledBy,
 		})
 	}
 	return rows
 }
 
-// moduleRenderTTY writes rows to w in TTY form: root units first (no
-// header), then every other category present, headers sorted, each group
-// ordered by moduleSortRows.
-func moduleRenderTTY(w *strings.Builder, rows []moduleRow) {
+// treeNode is one level of the nested tree moduleRenderTTY builds from
+// rows' category segments: the units living directly at this level, plus
+// one child node per subcategory.
+type treeNode struct {
+	rows     []moduleRow
+	children map[string]*treeNode
+}
+
+// buildTree groups rows into a treeNode hierarchy by category segment.
+func buildTree(rows []moduleRow) *treeNode {
+	root := &treeNode{children: map[string]*treeNode{}}
+	for _, r := range rows {
+		node := root
+		for _, seg := range r.category {
+			child, ok := node.children[seg]
+			if !ok {
+				child = &treeNode{children: map[string]*treeNode{}}
+				node.children[seg] = child
+			}
+			node = child
+		}
+		node.rows = append(node.rows, r)
+	}
+	return root
+}
+
+// markerColor returns the palette color for a row's marker, or pal.off for
+// the plain off state (including an empty marker).
+func markerColor(pal treePalette, marker string) string {
+	switch marker {
+	case markerEnabledOnly:
+		return pal.teal
+	case markerEnabledBoth:
+		return pal.green
+	case markerRunningOnly:
+		return pal.red
+	case markerPulled:
+		return pal.purple
+	default:
+		return pal.off
+	}
+}
+
+// moduleRenderTTY writes rows to w as a tree nested under rootLabel
+// ("modules/", or "<categoryPath>/" when filtered): units before
+// subcategories at each level, each group ordered by moduleSortRows. pal's
+// color fields are empty strings to render the same shape with no ANSI
+// codes (NO_COLOR, or a non-color TTY).
+func moduleRenderTTY(w *strings.Builder, rows []moduleRow, rootLabel string, pal treePalette) {
 	if len(rows) == 0 {
 		w.WriteString("(no modules)\n")
 		return
 	}
 
-	var root []moduleRow
-	catSet := map[string]bool{}
-	for _, r := range rows {
-		if r.category == "." {
-			root = append(root, r)
-		} else {
-			catSet[r.category] = true
-		}
-	}
+	fmt.Fprintf(w, "%s%s%s\n", pal.title, rootLabel, pal.reset)
+	renderTreeNode(w, buildTree(rows), "", pal)
+	w.WriteString("\n")
+}
 
-	moduleSortRows(root)
-	for _, r := range root {
-		fmt.Fprintf(w, "%s %s\n", r.marker, r.name)
-	}
-
-	cats := make([]string, 0, len(catSet))
-	for c := range catSet {
+// renderTreeNode prints node's units, then its subcategories (alphabetical),
+// each continuing with prefix — plain box-drawing text with no embedded
+// color, so the leading run of a line is colored once per line rather than
+// re-opened for every ancestor level.
+func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treePalette) {
+	moduleSortRows(node.rows)
+	cats := make([]string, 0, len(node.children))
+	for c := range node.children {
 		cats = append(cats, c)
 	}
 	sort.Strings(cats)
 
+	total := len(node.rows) + len(cats)
+	i := 0
+
+	for _, r := range node.rows {
+		i++
+		connector := "├── "
+		if i == total {
+			connector = "└── "
+		}
+
+		mc := markerColor(pal, r.marker)
+		fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, r.name, pal.reset)
+		if len(r.pulledBy) > 0 {
+			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(r.pulledBy, ", "), pal.reset)
+		}
+		w.WriteString("\n")
+	}
+
 	for _, cat := range cats {
-		fmt.Fprintf(w, "%s:\n", cat)
-		var group []moduleRow
-		for _, r := range rows {
-			if r.category == cat {
-				group = append(group, r)
-			}
+		i++
+		connector, childPrefix := "├── ", prefix+"│   "
+		if i == total {
+			connector, childPrefix = "└── ", prefix+"    "
 		}
-		moduleSortRows(group)
-		for _, r := range group {
-			fmt.Fprintf(w, "  %s %s\n", r.marker, r.name)
-		}
+		fmt.Fprintf(w, "%s%s%s%s%s%s/%s\n", pal.line, prefix, connector, pal.reset, pal.title, cat, pal.reset)
+		renderTreeNode(w, node.children[cat], childPrefix, pal)
 	}
 }
 
@@ -236,10 +351,10 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 	lines := make([]string, 0, len(rows))
 	for _, r := range rows {
-		if r.category == "." {
+		if len(r.category) == 0 {
 			lines = append(lines, r.name)
 		} else {
-			lines = append(lines, r.category+"/"+r.name)
+			lines = append(lines, strings.Join(r.category, "/")+"/"+r.name)
 		}
 	}
 	sort.Strings(lines)
@@ -292,11 +407,32 @@ func moduleList(p paths.Paths, args []string) error {
 		return err
 	}
 
-	rows := moduleBuildRows(us, enabled, running, categoryPath)
+	var selection []string
+	if _, err := os.Stat(entrypoint); err == nil {
+		selection, err = imports.List(entrypoint)
+		if err != nil {
+			return err
+		}
+	}
+	pulled, err := refs.Closure(p.Modules, us, selection)
+	if err != nil {
+		return err
+	}
+
+	rows := moduleBuildRows(us, enabled, running, pulled, categoryPath)
+
+	rootLabel := "modules/"
+	if categoryPath != "" {
+		rootLabel = categoryPath + "/"
+	}
 
 	var out strings.Builder
 	if tty {
-		moduleRenderTTY(&out, rows)
+		pal := treePalette{}
+		if colorsEnabled(tty) {
+			pal = colorTreePalette
+		}
+		moduleRenderTTY(&out, rows, rootLabel, pal)
 	} else {
 		moduleRenderPlain(&out, rows)
 	}

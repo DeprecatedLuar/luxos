@@ -31,11 +31,11 @@ func User(args []string) error {
 	}
 
 	switch verb {
-	case "add":
+	case "add", "a":
 		return userAdd(p, rest)
-	case "list":
+	case "list", "ls":
 		return userList(p, rest)
-	case "edit":
+	case "edit", "e":
 		return moduleEdit(p, rest)
 	case "enable":
 		return moduleEnable(p, rest)
@@ -46,7 +46,7 @@ func User(args []string) error {
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		return fmt.Errorf("unknown user command '%s'\n  Usage: luxos user <list|add|edit|enable|disable|remove|rename> ...", verb)
+		return fmt.Errorf("unknown user command '%s'\n  Usage: luxos user <list|ls|add|a|edit|e|enable|disable|remove|rename> ...", verb)
 	}
 }
 

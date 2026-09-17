@@ -66,9 +66,9 @@ func run(args []string) error {
 		return help.Run(args)
 	case "rebuild":
 		return commands.Rebuild(rest)
-	case "module":
+	case "module", "modules":
 		return commands.Module(rest)
-	case "user":
+	case "user", "users":
 		return commands.User(rest)
 	case "shell":
 		return commands.Shell(rest)

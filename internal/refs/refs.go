@@ -237,6 +237,83 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 	return violations, nil
 }
 
+// Closure returns, for every unit name reached from roots via a
+// "luxos.modules [ ... ]" call (transitively), the sorted set of unit
+// names that reference it — used by `module`/`user list` to show a
+// module that isn't directly selected but is still pulled in by one
+// that is. Unlike Validate, it is display-only and best-effort: an
+// unresolvable name, a file that fails to parse, or a bad root is
+// silently skipped rather than reported, since a broken config is
+// already caught by Validate at rebuild time. A root itself is never a
+// key unless something else also references it.
+func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]string, error) {
+	root := strings.TrimSuffix(modulesDir, "/")
+
+	var queue []string
+	seen := make(map[string]bool)
+	enqueue := func(unitPath string) {
+		if !seen[unitPath] {
+			seen[unitPath] = true
+			queue = append(queue, unitPath)
+		}
+	}
+	for _, r := range roots {
+		if unitPath, ok := units.Resolve(us, units.NameFromPath(r)); ok {
+			enqueue(unitPath)
+		}
+	}
+
+	pullers := make(map[string]map[string]bool)
+	for len(queue) > 0 {
+		unitPath := queue[0]
+		queue = queue[1:]
+		unitName := units.NameFromPath(unitPath)
+
+		files, err := unitFiles(filepath.Join(root, unitPath))
+		if err != nil {
+			return nil, err
+		}
+
+		for _, file := range files {
+			raw, err := os.ReadFile(file)
+			if err != nil || !strings.Contains(string(raw), "luxos") {
+				continue
+			}
+
+			parsed, err := parse(file)
+			if err != nil {
+				continue
+			}
+			names, violations := scanLuxosUses(stripFormals(parsed))
+			if len(violations) > 0 {
+				continue
+			}
+			for _, name := range names {
+				dep, ok := units.Resolve(us, name)
+				if !ok {
+					continue
+				}
+				if pullers[name] == nil {
+					pullers[name] = make(map[string]bool)
+				}
+				pullers[name][unitName] = true
+				enqueue(dep)
+			}
+		}
+	}
+
+	out := make(map[string][]string, len(pullers))
+	for name, set := range pullers {
+		list := make([]string, 0, len(set))
+		for p := range set {
+			list = append(list, p)
+		}
+		sort.Strings(list)
+		out[name] = list
+	}
+	return out, nil
+}
+
 // Dependents returns every module file under modulesDir whose
 // luxos.modules list contains name. Read-only; a file whose luxos.modules
 // use isn't the recognized shape (or that fails to parse) is silently
