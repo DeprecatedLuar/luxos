@@ -74,10 +74,14 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "bypass:bool update-lock:bool prune:bool machine:value"
+const rebuildFlagSpec = "bypass:bool update-lock:bool prune:bool machine:value config|C:value"
 
 // flakeLockName is channels.toml's sibling in Paths.Config.
 const flakeLockName = "flake.lock"
+
+// configDirEnv is the environment variable paths.Resolve honors as the one
+// override for CONFIG_DIR.
+const configDirEnv = "LUXOS_CONFIG_DIR"
 
 // Rebuild implements `luxos rebuild`, escalating to root and delegating to
 // heal.Run before exec'ing the real nixos-rebuild.
@@ -108,6 +112,23 @@ func Rebuild(args []string) error {
 	bypass := opts["bypass"] != ""
 	updateLock := opts["update-lock"] != ""
 	prune := opts["prune"] != ""
+
+	if bypass && opts["config"] != "" {
+		return fmt.Errorf("--bypass and --config cannot be combined - --bypass never reads the config dir")
+	}
+
+	if opts["config"] != "" {
+		abs, err := filepath.Abs(opts["config"])
+		if err != nil {
+			return err
+		}
+		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+			return fmt.Errorf("config dir %s does not exist", abs)
+		}
+		if err := os.Setenv(configDirEnv, abs); err != nil {
+			return err
+		}
+	}
 
 	if bypass {
 		if opts["machine"] != "" {

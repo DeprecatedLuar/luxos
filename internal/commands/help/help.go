@@ -48,6 +48,7 @@ func rebuildPage() *gohelp.Page {
 			gohelp.Item("--update-lock", "Update flake.lock before building"),
 			gohelp.Item("--prune", "Remove unresolvable imports on the active host"),
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 		)
 }
 
