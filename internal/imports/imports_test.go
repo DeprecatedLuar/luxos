@@ -41,41 +41,6 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-// ---- Scaffold ----
-
-func TestScaffold_CreatesMissing(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "host", "modules", "default.nix")
-
-	created, err := Scaffold(file)
-	if err != nil {
-		t.Fatalf("Scaffold: %v", err)
-	}
-	if !created {
-		t.Fatalf("created = false, want true")
-	}
-	if got := mustReadFile(t, file); got != "{ ... }:\n{\n  imports = [];\n}\n" {
-		t.Errorf("content = %q", got)
-	}
-}
-
-func TestScaffold_ExistingUntouched(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ }:\n{ imports = [ ./a.nix ]; }\n")
-
-	created, err := Scaffold(file)
-	if err != nil {
-		t.Fatalf("Scaffold: %v", err)
-	}
-	if created {
-		t.Fatalf("created = true, want false")
-	}
-	if got := mustReadFile(t, file); got != "{ }:\n{ imports = [ ./a.nix ]; }\n" {
-		t.Errorf("content changed: %q", got)
-	}
-}
-
 // ---- List ----
 
 func TestList_MultiLine(t *testing.T) {
@@ -258,8 +223,8 @@ func TestList_RefusesUnrecognizedShape(t *testing.T) {
 func setupTwoHosts(t *testing.T) (localDir string, host1, host2 string) {
 	t.Helper()
 	localDir = t.TempDir()
-	host1 = filepath.Join(localDir, "host1", "modules", "default.nix")
-	host2 = filepath.Join(localDir, "host2", "modules", "default.nix")
+	host1 = filepath.Join(localDir, "host1", "modules.nix")
+	host2 = filepath.Join(localDir, "host2", "modules.nix")
 	mustWriteFile(t, host1, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	mustWriteFile(t, host2, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	return
@@ -344,10 +309,10 @@ func setupHealFixture(t *testing.T) (localDir, modulesDir, activeFile string, us
 	// The real unit now lives at "a/foo.nix".
 	mustWriteFile(t, filepath.Join(modulesDir, "a", "foo.nix"), "{ }")
 
-	activeFile = filepath.Join(localDir, "active-host", "modules", "default.nix")
+	activeFile = filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
 
-	other := filepath.Join(localDir, "other-host", "modules", "default.nix")
+	other := filepath.Join(localDir, "other-host", "modules.nix")
 	mustWriteFile(t, other, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
 
 	var err error
@@ -398,7 +363,7 @@ func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules", "default.nix")
+	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
 	us, err := units.Walk(modulesDir)
@@ -428,7 +393,7 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules", "default.nix")
+	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
 	us, err := units.Walk(modulesDir)
@@ -460,10 +425,10 @@ func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules", "default.nix")
+	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [];\n}\n")
 
-	otherFile := filepath.Join(localDir, "other-host", "modules", "default.nix")
+	otherFile := filepath.Join(localDir, "other-host", "modules.nix")
 	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
 	us, err := units.Walk(modulesDir)

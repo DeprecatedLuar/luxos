@@ -1,4 +1,6 @@
-// Package config loads and validates machine.toml and channels.toml.
+// Package config loads and validates channels.toml, and validates the
+// fixed .local/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
+// modules.nix, an optional flake.lock, and an optional modules/ directory.
 package config
 
 import (
@@ -6,83 +8,106 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/BurntSushi/toml"
 )
 
-// Required keys in machine.toml. Extend here as optional keys are added to
-// the schema.
-var machineRequiredKeys = []string{"timeZone", "locale", "stateVersion"}
+// Fixed entries under .local/<host>/ (L1). plsDontTouchFile, machineFile
+// and selectionFile are required regular files (symlinks followed);
+// lockFile is an optional regular file; localModulesDir is an optional
+// directory. Nothing else may live there.
+const (
+	plsDontTouchFile = ".plsdonttouch.nix"
+	machineFile      = "machine.nix"
+	selectionFile    = "modules.nix"
+	lockFile         = "flake.lock"
+	localModulesDir  = "modules"
 
-// Machine is the decoded, validated content of a machine.toml file.
-type Machine struct {
-	TimeZone     string `toml:"timeZone"`
-	Locale       string `toml:"locale"`
-	StateVersion string `toml:"stateVersion"`
-}
-
-// LoadMachine decodes and validates the machine.toml at path. It returns
-// warnings for unknown keys (besides the specifically rejected "hostName"
-// and "users") and a single error covering every missing-required-key,
-// "hostName" and "users" violation found.
-func LoadMachine(path string) (Machine, []string, error) {
-	var m Machine
-
-	meta, err := toml.DecodeFile(path, &m)
-	if err != nil {
-		return Machine{}, nil, err
-	}
-
-	var errs []string
-	for _, key := range machineRequiredKeys {
-		if !meta.IsDefined(key) {
-			errs = append(errs, fmt.Sprintf("Missing required key: %s", key))
-		}
-	}
-
-	// "users" was machine.toml's second selection mechanism, stale now that
-	// modules/users/ exists — a hard error naming the fix rather than the
-	// generic unknown-key warning below.
-	if meta.IsDefined("users") {
-		errs = append(errs, "'users' is no longer a machine.toml key: remove users; select users in modules/default.nix")
-	}
-
-	// "hostName" was machine.toml's second source of the machine's identity
-	// — the .local/<name> directory name is now the only one.
-	if meta.IsDefined("hostName") {
-		errs = append(errs, "'hostName' is no longer a machine.toml key: remove hostName; the directory name sets it")
-	}
-
-	if len(errs) > 0 {
-		msg := fmt.Sprintf("Invalid TOML format in %s", path)
-		for _, e := range errs {
-			msg += "\n  - " + e
-		}
-		return Machine{}, nil, fmt.Errorf("%s", msg)
-	}
-
-	var warnings []string
-	for _, key := range meta.Undecoded() {
-		name := key.String()
-		if name == "users" || name == "hostName" {
-			continue
-		}
-		warnings = append(warnings, fmt.Sprintf("unknown key '%s' in %s", name, path))
-	}
-	sort.Strings(warnings)
-
-	return m, warnings, nil
-}
+	plsDontTouchMode = 0444
+)
 
 // ResolveMachine resolves a machine name to its directory under localDir. A
-// machine is a directory there holding a machine.toml.
+// machine is a directory there holding modules.nix.
 func ResolveMachine(localDir, name string) (string, error) {
 	dir := filepath.Join(localDir, name)
-	machineToml := filepath.Join(dir, "machine.toml")
+	selection := filepath.Join(dir, selectionFile)
 
-	if _, err := os.Stat(machineToml); err != nil {
-		return "", fmt.Errorf("no machine.toml under %s\n  Pass --machine <name> if this machine was renamed or isn't named after $(hostname).", dir)
+	if _, err := os.Stat(selection); err != nil {
+		return "", fmt.Errorf("no %s under %s\n  Pass --machine <name> if this machine was renamed or isn't named after $(hostname).", selectionFile, dir)
 	}
 
 	return dir, nil
+}
+
+// ValidateMachine checks hostDir against the fixed host folder layout (L1).
+// Every missing required file is reported as "missing <name>"; every entry
+// that isn't one of the allowed names, or is the wrong type (a required
+// file/flake.lock that isn't a regular file, or modules/ that isn't a
+// directory), is reported as "<name> does not belong here". Problems are
+// sorted and collected into one error; a clean layout returns nil.
+func ValidateMachine(hostDir string) error {
+	entries, err := os.ReadDir(hostDir)
+	if err != nil {
+		return err
+	}
+
+	requiredFiles := []string{plsDontTouchFile, machineFile, selectionFile}
+
+	seen := make(map[string]bool, len(entries))
+	var problems []string
+
+	for _, e := range entries {
+		name := e.Name()
+		path := filepath.Join(hostDir, name)
+
+		switch name {
+		case plsDontTouchFile, machineFile, selectionFile, lockFile:
+			seen[name] = true
+			info, statErr := os.Stat(path)
+			if statErr != nil || info.IsDir() {
+				problems = append(problems, name+" does not belong here")
+			}
+		case localModulesDir:
+			seen[name] = true
+			info, statErr := os.Stat(path)
+			if statErr != nil || !info.IsDir() {
+				problems = append(problems, name+" does not belong here")
+			}
+		default:
+			problems = append(problems, name+" does not belong here")
+		}
+	}
+
+	for _, name := range requiredFiles {
+		if !seen[name] {
+			problems = append(problems, "missing "+name)
+		}
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	sort.Strings(problems)
+	msg := fmt.Sprintf("invalid machine folder %s", hostDir)
+	for _, p := range problems {
+		msg += "\n  - " + p
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// ProtectMachine chmods hostDir/.plsdonttouch.nix to plsDontTouchMode if its
+// mode differs, reporting whether it changed.
+func ProtectMachine(hostDir string) (bool, error) {
+	path := filepath.Join(hostDir, plsDontTouchFile)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if info.Mode().Perm() == plsDontTouchMode {
+		return false, nil
+	}
+	if err := os.Chmod(path, plsDontTouchMode); err != nil {
+		return false, err
+	}
+	return true, nil
 }

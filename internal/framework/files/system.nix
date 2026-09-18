@@ -1,14 +1,11 @@
 { pkgs, lib, inputs, config, ... }:
 
 {
-  imports = [
-    ../hardware-configuration.nix  # Auto-generated filesystems
-  ];
+  imports = [ ../hardware-configuration.nix ];
 
   #──[Packages]──────────────────────────────────────────────────────────────
 
   nixpkgs.config.allowUnfree = true;
-
   environment.systemPackages = with pkgs; [
     ncdu
     fastfetch
@@ -39,12 +36,7 @@
   ];
 
   programs.nix-ld.enable = true;
-
-  # Truth source for `lux module`/`lux user`'s state markers
-  # (implementation-plan.md #23, Phase 5): the running generation's copy of
-  # the staged entrypoint, read at /run/current-system/etc/luxos/modules.nix.
-  # $STAGING_DIR is rewritten by dry-build and by failed builds, so it can't
-  # say what's actually running — this file only updates on a real switch.
+  
   environment.etc."luxos/modules.nix".source = ../config/modules/default.nix;
 
   #──[Users]─────────────────────────────────────────────────────────────────
@@ -110,9 +102,9 @@
 
   # Self-cleanup: prune old generations weekly, dedupe the store.
   nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "--delete-older-than 14d";
+    automatic = lib.mkDefault true;
+    dates = lib.mkDefault "weekly";
+    options = lib.mkDefault "--delete-older-than 14d";
   };
   nix.optimise.automatic = true;
   nix.settings.auto-optimise-store = true;

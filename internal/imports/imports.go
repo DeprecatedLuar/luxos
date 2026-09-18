@@ -1,6 +1,7 @@
 // Package imports is the sole reader/writer of host entrypoints
-// (implementation-plan.md #18): .local/<host>/modules/default.nix files.
-// It reads and writes lines inside the single recognized
+// (implementation-plan.md #18): .local/<host>/modules.nix files, the
+// host's selection (L4). It reads and writes lines inside the single
+// recognized
 // "imports = [ ... ];" block — hand-written and tooling-written lines
 // alike, indistinguishably. Everything else in the file (let, options,
 // comments, a commented-out import) is left byte-for-byte (#7). This is
@@ -29,13 +30,8 @@ import (
 )
 
 // entrypointName is the file name every host's modules selection lives in,
-// found under <LOCAL_DIR>/*/<modulesSubdir>/default.nix.
-const (
-	entrypointName = "default.nix"
-	modulesSubdir  = "modules"
-
-	scaffoldContent = "{ ... }:\n{\n  imports = [];\n}\n"
-)
+// found under <LOCAL_DIR>/*/modules.nix (L4).
+const entrypointName = "modules.nix"
 
 var (
 	// Recognized import line (implementation-plan.md §3): optional leading
@@ -45,9 +41,8 @@ var (
 	lineRe = regexp.MustCompile(`^[ \t]*\./([^ \t#]+)[ \t]*(#.*)?$`)
 
 	// The block's opening line: "imports = [" alone, or the inline-empty
-	// "imports = [];" form Scaffold writes. Anything else after the "["
-	// (e.g. items on the same line) is a shape this package doesn't
-	// understand.
+	// "imports = [];" form. Anything else after the "[" (e.g. items on the
+	// same line) is a shape this package doesn't understand.
 	blockStartRe = regexp.MustCompile(`^[ \t]*imports[ \t]*=[ \t]*\[[ \t]*(\];)?[ \t]*$`)
 
 	// Any line that merely starts an "imports =" assignment — used to
@@ -85,25 +80,6 @@ type item struct {
 // need the same logic imports itself uses.
 func NameFromPath(path string) string {
 	return units.NameFromPath(path)
-}
-
-// Scaffold writes an empty "{ ... }:\n{\n  imports = [];\n}\n" to file if
-// it doesn't already exist, creating parent directories as needed. It
-// reports whether it created the file.
-func Scaffold(file string) (bool, error) {
-	if _, err := os.Stat(file); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
-		return false, err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		return false, err
-	}
-	if err := os.WriteFile(file, []byte(scaffoldContent), 0644); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // List returns the active import paths in file, bare (no leading "./"),
@@ -220,7 +196,7 @@ func Remove(file, path string) error {
 	return writeLines(file, newLines)
 }
 
-// Importers returns every <localDir>/*/modules/default.nix with a line
+// Importers returns every <localDir>/*/modules.nix with a line
 // whose name (from its path, per NameFromPath) matches name — stale paths
 // included. Read-only. A host whose file isn't recognizable is silently
 // skipped (same tolerance as Retarget/Heal — it just can't be a hit).
@@ -250,7 +226,7 @@ func Importers(localDir, name string) ([]string, error) {
 }
 
 // Retarget is the single cross-host writer (#18): in every
-// <localDir>/*/modules/default.nix, rewrite every import line whose name
+// <localDir>/*/modules.nix, rewrite every import line whose name
 // matches name to newPath, or delete it when newPath is "". Returns every
 // change made; a no-op line (already at newPath) is left untouched and
 // unreported, so a second run returns no changes. A host whose file isn't
@@ -432,10 +408,10 @@ func Heal(localDir, activeFile, modulesDir string, us []units.Unit, prune bool) 
 
 //──[private helpers]─────────────────────────────────────────────────────
 
-// hostEntrypoints returns every <localDir>/*/modules/default.nix that
-// exists, sorted for deterministic iteration.
+// hostEntrypoints returns every <localDir>/*/modules.nix that exists,
+// sorted for deterministic iteration.
 func hostEntrypoints(localDir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(localDir, "*", modulesSubdir, entrypointName))
+	matches, err := filepath.Glob(filepath.Join(localDir, "*", entrypointName))
 	if err != nil {
 		return nil, err
 	}

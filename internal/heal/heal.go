@@ -11,7 +11,6 @@ package heal
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -29,19 +28,23 @@ import (
 // gitignoreLines are the lines CONFIG_DIR's root .gitignore must contain;
 // gitignore.Ensure appends whichever are missing and never removes or
 // reorders anything else in the file.
-var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/local", "/.local/*/default.nix"}
+var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local"}
 
 // channelsFile is channels.toml's name under Paths.Config.
 const channelsFile = "channels.toml"
 
+// selectionFile is a host's selection file, holding the "imports = [...]"
+// block imports.Heal/List read and write (L4).
+const selectionFile = "modules.nix"
+
 // Run performs the full self-heal sequence for host, in the order the bash
 // self-heal.sh used: ensure the .gitignore, sync framework modules,
-// scaffold and heal host entrypoints, validate module boundaries,
-// materialize staging, and generate+install flake.nix and
-// configuration.nix. exe is the absolute path to the running luxos binary,
-// used by generate.Configuration for the shadow scripts. prune, when true,
-// removes unresolvable import lines from the active host's entrypoint
-// instead of erroring.
+// validate and protect the host folder (L1-L3), heal host entrypoints,
+// validate module boundaries, materialize staging, and generate+install
+// flake.nix and configuration.nix. exe is the absolute path to the running
+// luxos binary, used by generate.Configuration for the shadow scripts.
+// prune, when true, removes unresolvable import lines from the active
+// host's entrypoint instead of erroring.
 func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	hostDir := filepath.Join(p.Local, host)
 
@@ -70,34 +73,26 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		}
 	}
 
-	// 3. scaffold host entrypoint
-	entrypoint := filepath.Join(hostDir, "modules", "default.nix")
-	fmt.Fprintf(w, "Scaffolding %s if missing...\n", entrypoint)
-	scaffolded, err := imports.Scaffold(entrypoint)
+	// 3. validate and protect the host folder
+	fmt.Fprintf(w, "Validating %s...\n", hostDir)
+	if err := config.ValidateMachine(hostDir); err != nil {
+		return err
+	}
+	protected, err := config.ProtectMachine(hostDir)
 	if err != nil {
 		return err
 	}
-	if scaffolded {
-		fmt.Fprintf(w, "  scaffolded: %s\n", entrypoint)
+	if protected {
+		fmt.Fprintf(w, "  protected: %s\n", filepath.Join(hostDir, ".plsdonttouch.nix"))
 	}
 
-	// 4. generate host default.nix
-	fmt.Fprintf(w, "Generating %s/default.nix...\n", host)
-	hostDefault, err := generate.HostDefault(hostDir)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(hostDir, "default.nix"), hostDefault, 0644); err != nil {
-		return err
-	}
-
-	// 5. ensure modules mirror
+	// 4. ensure modules mirror
 	fmt.Fprintf(w, "Ensuring %s's modules mirror...\n", host)
 	if err := links.EnsureMirror(p.Local, p.Modules, host); err != nil {
 		return err
 	}
 
-	// 6. heal imports
+	// 5. heal imports
 	fmt.Fprintln(w, "Healing modules imports...")
 	us, err := units.Walk(p.Modules)
 	if err != nil {
@@ -114,13 +109,13 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
-	// 7. validate module boundaries
+	// 6. validate module boundaries
 	fmt.Fprintln(w, "Validating module boundaries...")
 	us, err = units.Walk(p.Modules)
 	if err != nil {
 		return err
 	}
-	selection, err := imports.List(entrypoint)
+	selection, err := imports.List(filepath.Join(hostDir, selectionFile))
 	if err != nil {
 		return err
 	}
@@ -135,19 +130,19 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return fmt.Errorf("module boundary violations: %d", len(violations))
 	}
 
-	// 8. ensure local link
+	// 7. ensure local link
 	fmt.Fprintf(w, "Ensuring local -> .local/%s link...\n", host)
 	if err := links.EnsureLocalLink(p.Config, p.Local, host); err != nil {
 		return err
 	}
 
-	// 9. materialize staging
+	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
 	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(p.Config, "flake.lock")); err != nil {
 		return err
 	}
 
-	// 10. generate and install flake.nix
+	// 9. generate and install flake.nix
 	fmt.Fprintln(w, "Generating flake.nix from channels.toml...")
 	channels, err := config.LoadChannels(filepath.Join(p.Config, channelsFile))
 	if err != nil {
@@ -175,16 +170,9 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
-	// 11. generate and install configuration.nix
+	// 10. generate and install configuration.nix
 	fmt.Fprintln(w, "Generating configuration.nix...")
-	m, warnings, err := config.LoadMachine(filepath.Join(hostDir, "machine.toml"))
-	if err != nil {
-		return err
-	}
-	for _, wm := range warnings {
-		fmt.Fprintln(w, "Warning: "+wm)
-	}
-	configContent, err := generate.Configuration(host, m, exe)
+	configContent, err := generate.Configuration(host, exe)
 	if err != nil {
 		return err
 	}
@@ -192,7 +180,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
-	// 12. heal /etc/nixos
+	// 11. heal /etc/nixos
 	fmt.Fprintln(w, "Ensuring /etc/nixos...")
 	actions, err := links.EnsureEtcNixos(p.EtcNixos)
 	if err != nil {

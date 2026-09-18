@@ -1,7 +1,8 @@
-// Package generate renders configuration.nix, flake.nix and a host's
-// default.nix from machine.toml/channels.toml and the module walk, and
-// checks flake.lock for drift against the channels/flakes it declares.
-// Ported from configgen::generate, configgen::generate_default,
+// Package generate renders configuration.nix and flake.nix from
+// channels.toml and the module walk, and checks flake.lock for drift
+// against the channels/flakes it declares. configuration.nix's imports are
+// fixed by the host folder layout (L9): it no longer reads per-machine
+// values out of the host folder. Ported from configgen::generate,
 // configgen::generate_flake and _configgen_warn_lock_drift (see
 // implementation-plan.md §4 bash-to-Go map).
 package generate
@@ -31,15 +32,6 @@ const baseInputName = "nixpkgs"
 // under the staged config/ tree.
 const modulesDirName = "modules"
 
-// hostDefaultSkip are host-directory entries HostDefault never imports:
-// machine.toml isn't a Nix file, default.nix is the file being generated,
-// and modules/ is already wired in directly by Configuration.
-var hostDefaultSkip = map[string]bool{
-	"machine.toml": true,
-	"default.nix":  true,
-	modulesDirName: true,
-}
-
 // shadow is one hard-shadowed command, rendered into configuration.nix's
 // environment.systemPackages.
 type shadow struct {
@@ -60,29 +52,24 @@ var templatesFS embed.FS
 var (
 	configurationTmpl = template.Must(template.New("configuration.nix.tmpl").ParseFS(templatesFS, "templates/configuration.nix.tmpl"))
 	flakeTmpl         = template.Must(template.New("flake.nix.tmpl").ParseFS(templatesFS, "templates/flake.nix.tmpl"))
-	defaultTmpl       = template.Must(template.New("default.nix.tmpl").ParseFS(templatesFS, "templates/default.nix.tmpl"))
 )
 
 // configurationData feeds templates/configuration.nix.tmpl.
 type configurationData struct {
-	TimeZone     string
-	Locale       string
-	StateVersion string
-	Host         string
-	Exe          string
-	HardShadows  []shadow
+	Host        string
+	Exe         string
+	HardShadows []shadow
 }
 
-// Configuration renders configuration.nix for host from an already-loaded,
-// validated Machine and the absolute path to the luxos binary.
-func Configuration(host string, m config.Machine, exe string) ([]byte, error) {
+// Configuration renders configuration.nix for host and the absolute path to
+// the luxos binary. Its imports are fixed (L9): time zone, locale and
+// stateVersion come from machine.nix/.plsdonttouch.nix via those imports,
+// not from any value passed here.
+func Configuration(host, exe string) ([]byte, error) {
 	data := configurationData{
-		TimeZone:     m.TimeZone,
-		Locale:       m.Locale,
-		StateVersion: m.StateVersion,
-		Host:         host,
-		Exe:          exe,
-		HardShadows:  hardShadows,
+		Host:        host,
+		Exe:         exe,
+		HardShadows: hardShadows,
 	}
 
 	var buf bytes.Buffer
@@ -144,67 +131,6 @@ func Flake(host string, c config.Channels, unitList []units.Unit) ([]byte, error
 
 	var buf bytes.Buffer
 	if err := flakeTmpl.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// defaultData feeds templates/default.nix.tmpl.
-type defaultData struct {
-	ImportsBlock string
-}
-
-// HostDefault renders a host's own default.nix: every plain .nix file at
-// machineDir's root, plus any root-level directory carrying its own
-// default.nix, imported by name — excluding machine.toml, default.nix and
-// modules.
-func HostDefault(machineDir string) ([]byte, error) {
-	entries, err := os.ReadDir(machineDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var names []string
-	for _, e := range entries {
-		name := e.Name()
-		if hostDefaultSkip[name] {
-			continue
-		}
-
-		info, err := os.Stat(machineDir + "/" + name)
-		if err != nil {
-			// Vanished mid-walk or a broken symlink: skip it.
-			continue
-		}
-
-		if info.IsDir() {
-			if _, err := os.Stat(machineDir + "/" + name + "/default.nix"); err != nil {
-				continue
-			}
-			names = append(names, name)
-			continue
-		}
-
-		if strings.HasSuffix(name, ".nix") {
-			names = append(names, name)
-		}
-	}
-
-	sort.Strings(names)
-
-	var importsBlock string
-	if len(names) > 0 {
-		lines := make([]string, len(names))
-		for i, n := range names {
-			lines[i] = "    ./" + n
-		}
-		importsBlock = "\n" + strings.Join(lines, "\n") + "\n  "
-	}
-
-	data := defaultData{ImportsBlock: importsBlock}
-
-	var buf bytes.Buffer
-	if err := defaultTmpl.Execute(&buf, data); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

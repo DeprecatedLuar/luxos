@@ -68,14 +68,6 @@ func assertNixParses(t *testing.T, content []byte) {
 	}
 }
 
-func testMachine() config.Machine {
-	return config.Machine{
-		TimeZone:     "America/Sao_Paulo",
-		Locale:       "en_US.UTF-8",
-		StateVersion: "24.05",
-	}
-}
-
 func testChannels() config.Channels {
 	return config.Channels{
 		Base: "stable",
@@ -98,7 +90,7 @@ func testUnits() []units.Unit {
 }
 
 func TestConfiguration_Golden(t *testing.T) {
-	out, err := Configuration("paraloid", testMachine(), "/etc/luxos/bin/luxos")
+	out, err := Configuration("paraloid", "/etc/luxos/bin/luxos")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}
@@ -107,11 +99,11 @@ func TestConfiguration_Golden(t *testing.T) {
 }
 
 func TestConfiguration_Deterministic(t *testing.T) {
-	a, err := Configuration("paraloid", testMachine(), "/x/luxos")
+	a, err := Configuration("paraloid", "/x/luxos")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}
-	b, err := Configuration("paraloid", testMachine(), "/x/luxos")
+	b, err := Configuration("paraloid", "/x/luxos")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}
@@ -147,37 +139,6 @@ func TestFlake_EmptyHostErrors(t *testing.T) {
 	if _, err := Flake("", testChannels(), testUnits()); err == nil {
 		t.Fatalf("Flake: want error for empty host")
 	}
-}
-
-func TestHostDefault_Golden(t *testing.T) {
-	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "machine.toml"), "timeZone = \"UTC\"\n")
-	mustWrite(t, filepath.Join(dir, "extra.nix"), "{ }\n")
-	mustWrite(t, filepath.Join(dir, "zzz.nix"), "{ }\n")
-	mustMkdir(t, filepath.Join(dir, "modules"))
-	mustMkdir(t, filepath.Join(dir, "sub"))
-	mustWrite(t, filepath.Join(dir, "sub", "default.nix"), "{ }\n")
-	mustMkdir(t, filepath.Join(dir, "notaunit")) // no default.nix: not imported
-
-	out, err := HostDefault(dir)
-	if err != nil {
-		t.Fatalf("HostDefault: %v", err)
-	}
-	assertGolden(t, "default", out)
-	assertNixParses(t, out)
-}
-
-func TestHostDefault_Empty(t *testing.T) {
-	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "machine.toml"), "timeZone = \"UTC\"\n")
-	mustMkdir(t, filepath.Join(dir, "modules"))
-
-	out, err := HostDefault(dir)
-	if err != nil {
-		t.Fatalf("HostDefault: %v", err)
-	}
-	assertGolden(t, "default_empty", out)
-	assertNixParses(t, out)
 }
 
 func TestSystemNix_Parses(t *testing.T) {

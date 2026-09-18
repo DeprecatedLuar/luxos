@@ -64,16 +64,20 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(modules, "misc", "foo.nix"), "{ }\n")
 
 	// host1: active host, stale import to heal.
-	write(t, filepath.Join(local, "host1", "modules", "default.nix"),
+	write(t, filepath.Join(local, "host1", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(local, "host1", "machine.toml"),
-		"timeZone = \"UTC\"\nlocale = \"en_US.UTF-8\"\nstateVersion = \"25.11\"\n")
+	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
+		"{ system.stateVersion = \"25.11\"; }\n")
+	write(t, filepath.Join(local, "host1", "machine.nix"),
+		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	// host2: other host, already correct - imports.Heal must leave it be.
-	write(t, filepath.Join(local, "host2", "modules", "default.nix"),
+	write(t, filepath.Join(local, "host2", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(local, "host2", "machine.toml"),
-		"timeZone = \"UTC\"\nlocale = \"en_US.UTF-8\"\nstateVersion = \"25.11\"\n")
+	write(t, filepath.Join(local, "host2", ".plsdonttouch.nix"),
+		"{ system.stateVersion = \"25.11\"; }\n")
+	write(t, filepath.Join(local, "host2", "machine.nix"),
+		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	channelsToml := mustReadFile(t, "../framework/files/templates/channels.toml")
 	write(t, filepath.Join(config, "channels.toml"), channelsToml)
@@ -119,7 +123,7 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 
 	// The moved import was rewritten in host1's real entrypoint.
-	entrypoint := filepath.Join(p.Local, host, "modules", "default.nix")
+	entrypoint := filepath.Join(p.Local, host, "modules.nix")
 	content := mustReadFile(t, entrypoint)
 	if strings.Contains(content, "old/foo.nix") {
 		t.Errorf("entrypoint %s still references old/foo.nix:\n%s", entrypoint, content)
@@ -151,6 +155,25 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestRun_StrayHostFileFails(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	exe := "/etc/luxos/bin/luxos"
+
+	stray := filepath.Join(p.Local, host, "hardware.nix")
+	write(t, stray, "{ }\n")
+
+	var out bytes.Buffer
+	err := Run(&out, p, host, exe, false)
+	if err == nil {
+		t.Fatal("expected an error for the stray host file, got nil")
+	}
+	if !strings.Contains(err.Error(), "hardware.nix does not belong here") {
+		t.Errorf("error = %q, want mention of hardware.nix", err.Error())
+	}
+}
+
 func TestRun_UnimportedViolationIgnored(t *testing.T) {
 	skipIfNoNix(t)
 
@@ -175,7 +198,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.
 	write(t, filepath.Join(p.Modules, "bad.nix"), "{ imports = [ ../outside.nix ]; }\n")
-	write(t, filepath.Join(p.Local, host, "modules", "default.nix"),
+	write(t, filepath.Join(p.Local, host, "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer

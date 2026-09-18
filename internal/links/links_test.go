@@ -32,7 +32,7 @@ func TestEnsureMirror_Create(t *testing.T) {
 		t.Fatalf("Readlink: %v", err)
 	}
 	resolved := filepath.Join(filepath.Dir(link), raw)
-	want := filepath.Join(localDir, "host1", "modules", "default.nix")
+	want := filepath.Join(localDir, "host1", "modules.nix")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -61,7 +61,7 @@ func TestEnsureMirror_Repoint(t *testing.T) {
 		t.Fatalf("Readlink: %v", err)
 	}
 	resolved := filepath.Join(filepath.Dir(link), raw)
-	want := filepath.Join(localDir, "host2", "modules", "default.nix")
+	want := filepath.Join(localDir, "host2", "modules.nix")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}

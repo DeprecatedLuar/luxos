@@ -19,23 +19,24 @@ const (
 	configurationNix = "configuration.nix"
 
 	mirrorEntrypoint = "default.nix"
+	selectionFile    = "modules.nix"
 	modulesRel       = "modules"
 	localLinkName    = "local"
 )
 
 // EnsureMirror ensures <modulesDir>/default.nix is a symlink to
-// <localDir>/<host>/modules/default.nix, creating the host's modules
+// <localDir>/<host>/modules.nix (L4), creating the host's local modules
 // directory if needed. Errors if a real file already occupies that path.
 func EnsureMirror(localDir, modulesDir, host string) error {
-	hostModulesDir := filepath.Join(localDir, host, modulesRel)
-	if err := os.MkdirAll(hostModulesDir, dirMode); err != nil {
+	hostDir := filepath.Join(localDir, host)
+	if err := os.MkdirAll(filepath.Join(hostDir, modulesRel), dirMode); err != nil {
 		return err
 	}
 
 	sharedDefault := filepath.Join(modulesDir, mirrorEntrypoint)
-	target := filepath.Join(hostModulesDir, mirrorEntrypoint)
+	target := filepath.Join(hostDir, selectionFile)
 
-	if err := refuseRealFile(sharedDefault, "reserved for the generated mirror link to "+hostModulesDir+"/default.nix"); err != nil {
+	if err := refuseRealFile(sharedDefault, "reserved for the generated mirror link to "+target); err != nil {
 		return err
 	}
 
