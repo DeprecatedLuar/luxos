@@ -140,7 +140,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(p.Config, "flake.lock")); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(hostDir, "flake.lock")); err != nil {
 		return err
 	}
 
@@ -154,12 +154,12 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	if err != nil {
 		return err
 	}
-	orphaned, unlocked, err := generate.LockDrift(filepath.Join(p.Config, "flake.lock"), generate.LockInputs(channels))
+	orphaned, unlocked, err := generate.LockDrift(filepath.Join(hostDir, "flake.lock"), generate.LockInputs(channels))
 	if err != nil {
 		return err
 	}
 	if len(orphaned) > 0 || len(unlocked) > 0 {
-		fmt.Fprintf(w, "Warning: %s no longer matches %s\n", filepath.Join(p.Config, "flake.lock"), channelsFile)
+		fmt.Fprintf(w, "Warning: %s no longer matches %s\n", filepath.Join(hostDir, "flake.lock"), channelsFile)
 		for _, name := range orphaned {
 			fmt.Fprintf(w, "  orphaned in flake.lock: %s\n", name)
 		}

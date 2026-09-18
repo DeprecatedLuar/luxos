@@ -11,6 +11,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
+// hostFlakeLock is the content written to .local/<host>/flake.lock in
+// fixtures, distinct from the bogus one written at the config root so a
+// test can tell which one staging.Materialize actually copied.
+const hostFlakeLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstable":"unstable_2"}}}}` + "\n"
+
 func skipIfNoNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
@@ -70,6 +75,11 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host1", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+	write(t, filepath.Join(local, "host1", "flake.lock"), hostFlakeLock)
+
+	// A flake.lock at the config root, which must be ignored: only the
+	// active host's own .local/<host>/flake.lock is ever staged.
+	write(t, filepath.Join(config, "flake.lock"), "{ \"root-lock\": true }\n")
 
 	// host2: other host, already correct - imports.Heal must leave it be.
 	write(t, filepath.Join(local, "host2", "modules.nix"),
@@ -120,6 +130,13 @@ func TestRun_EndToEnd(t *testing.T) {
 		if _, err := os.Stat(f); err != nil {
 			t.Errorf("expected %s to exist: %v", f, err)
 		}
+	}
+
+	// The staged flake.lock came from .local/host1/flake.lock, not the
+	// config root - the root copy (ignored) must not be what got staged.
+	stagedLock := mustReadFile(t, filepath.Join(p.Staging, "flake.lock"))
+	if stagedLock != hostFlakeLock {
+		t.Errorf("staged flake.lock = %q, want the host's flake.lock %q", stagedLock, hostFlakeLock)
 	}
 
 	// The moved import was rewritten in host1's real entrypoint.

@@ -41,7 +41,9 @@ const (
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
 // framework/shadow.sh, framework/units.nix, framework/overlay.nix,
 // config/modules (from modulesDir), config/local (from hostDir),
-// hardware-configuration.nix, and flake.lock if lockFile exists.
+// hardware-configuration.nix, and flake.lock if lockFile exists. lockFile is
+// the active host's own flake.lock (hostDir/flake.lock), not a config-root
+// one.
 // Every symlink under modulesDir and hostDir is dereferenced. Refuses to
 // touch stagingDir unless it is empty or a tree this package created
 // (marked with Marker), and refuses a dangling symlink under modulesDir or
@@ -122,8 +124,9 @@ func Install(stagingDir, rel string, content []byte) error {
 }
 
 // UpdateLock re-locks the staged flake and copies the result back to
-// configLock, owned by uid:gid, to be committed. Not exercised by unit
-// tests: it requires real network/nix flake access.
+// configLock (the active host's flake.lock, hostDir/flake.lock), owned by
+// uid:gid, to be committed. Not exercised by unit tests: it requires real
+// network/nix flake access.
 func UpdateLock(stagingDir, configLock string, uid, gid int) error {
 	if err := nix.FlakeUpdate(stagingDir); err != nil {
 		return err

@@ -154,7 +154,8 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	if _, err := config.ResolveMachine(p.Local, host); err != nil {
+	hostDir, err := config.ResolveMachine(p.Local, host)
+	if err != nil {
 		return err
 	}
 
@@ -170,7 +171,7 @@ func Rebuild(args []string) error {
 	if updateLock {
 		uid := envInt("SUDO_UID")
 		gid := envInt("SUDO_GID")
-		configLock := filepath.Join(p.Config, flakeLockName)
+		configLock := filepath.Join(hostDir, flakeLockName)
 		if err := staging.UpdateLock(p.Staging, configLock, uid, gid); err != nil {
 			return err
 		}
