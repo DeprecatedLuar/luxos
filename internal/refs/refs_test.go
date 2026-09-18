@@ -110,7 +110,7 @@ func TestValidate_Boundary(t *testing.T) {
 	}
 
 	violationsFor := func(modulesDir string) map[string]string {
-		us, err := units.Walk(modulesDir)
+		us, err := units.Walk(modulesDir, "")
 		if err != nil {
 			t.Fatalf("units.Walk(%s): %v", modulesDir, err)
 		}
@@ -179,7 +179,7 @@ func TestValidate_Boundary(t *testing.T) {
 		mods := filepath.Join(clean, "modules")
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ]; }`)
 		write(t, filepath.Join(mods, "a.nix"), `{ }`)
-		us, err := units.Walk(mods)
+		us, err := units.Walk(mods, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -210,7 +210,7 @@ func TestValidate_OnlyImportedClosure(t *testing.T) {
 	write(t, filepath.Join(mods, "dep", "inner.nix"), `{ imports = [ ../../outside.nix ]; }`)
 	write(t, filepath.Join(mods, "unused.nix"), `let n = "x"; in { imports = [ ./${n}.nix ../elsewhere.nix ]; }`)
 
-	us, err := units.Walk(mods)
+	us, err := units.Walk(mods, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestClosure(t *testing.T) {
 	write(t, filepath.Join(mods, "b.nix"), `{ }`)
 	write(t, filepath.Join(mods, "c.nix"), `{ }`) // unreferenced, never a key
 
-	us, err := units.Walk(mods)
+	us, err := units.Walk(mods, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestClosure_UnresolvableNameSkipped(t *testing.T) {
 	mods := t.TempDir()
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "missing" ]; }`)
 
-	us, err := units.Walk(mods)
+	us, err := units.Walk(mods, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestClosure_UnparseableFileSkipped(t *testing.T) {
 	mods := t.TempDir()
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ...`) // unterminated, fails to parse
 
-	us, err := units.Walk(mods)
+	us, err := units.Walk(mods, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestModulesFunction(t *testing.T) {
 	write(t, filepath.Join(M, "cyc/a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "b" ]; config.marks = [ "a" ]; }`)
 	write(t, filepath.Join(M, "cyc/b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "a" ]; config.marks = [ "b" ]; }`)
 
-	us, err := units.Walk(M)
+	us, err := units.Walk(M, "")
 	if err != nil {
 		t.Fatalf("units.Walk: %v", err)
 	}
@@ -816,7 +816,7 @@ func TestVerification_UnresolvedNameNamesFileAndName(t *testing.T) {
 	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ]; }`)
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "waylnd" ]; }`)
 
-	us, err := units.Walk(mods)
+	us, err := units.Walk(mods, "")
 	if err != nil {
 		t.Fatal(err)
 	}

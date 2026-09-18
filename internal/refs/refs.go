@@ -30,6 +30,12 @@ import (
 // and Retarget (it isn't a module file).
 const entrypointName = "default.nix"
 
+// localName is the reserved entry at modulesDir's own root — the link to
+// the active host's local modules (L5) — that findAllNix must skip when
+// walking modulesDir itself, so passing the modules dir never walks the
+// link.
+const localName = "local"
+
 // modulesDirName is the fixed name Validate's "does not resolve" message
 // refers to (matches bash's CONFIGGEN_MODULES_DIR constant, "modules").
 const modulesDirName = "modules"
@@ -320,7 +326,7 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 // skipped — it just can't be a hit.
 func Dependents(modulesDir, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
-	files, err := findAllNix(root)
+	files, err := findAllNix(root, localName)
 	if err != nil {
 		return nil, err
 	}
@@ -553,13 +559,16 @@ func unitFiles(unit string) ([]string, error) {
 	if !info.IsDir() {
 		return []string{unit}, nil
 	}
-	return findAllNix(unit)
+	return findAllNix(unit, "")
 }
 
 // findAllNix returns every *.nix file under root (following symlinks, like
 // `find -L root -type f -name '*.nix'`), sorted in byte order. A broken
-// symlink or vanished entry is skipped.
-func findAllNix(root string) ([]string, error) {
+// symlink or vanished entry is skipped. skipRootEntry, when non-empty, is
+// the name of one entry at root's own top level (not any nested occurrence)
+// that is skipped entirely rather than walked — used to keep modulesDir's
+// reserved "local" link (L5) out of a walk rooted at modulesDir itself.
+func findAllNix(root, skipRootEntry string) ([]string, error) {
 	var out []string
 	var walk func(dir string) error
 	walk = func(dir string) error {
@@ -568,6 +577,9 @@ func findAllNix(root string) ([]string, error) {
 			return err
 		}
 		for _, e := range entries {
+			if dir == root && skipRootEntry != "" && e.Name() == skipRootEntry {
+				continue
+			}
 			p := filepath.Join(dir, e.Name())
 			info, err := os.Stat(p)
 			if err != nil {

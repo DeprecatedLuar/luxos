@@ -316,7 +316,7 @@ func setupHealFixture(t *testing.T) (localDir, modulesDir, activeFile string, us
 	mustWriteFile(t, other, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
 
 	var err error
-	us, err = units.Walk(modulesDir)
+	us, err = units.Walk(modulesDir, "")
 	if err != nil {
 		t.Fatalf("units.Walk: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	us, err := units.Walk(modulesDir)
+	us, err := units.Walk(modulesDir, "")
 	if err != nil {
 		t.Fatalf("units.Walk: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	us, err := units.Walk(modulesDir)
+	us, err := units.Walk(modulesDir, "")
 	if err != nil {
 		t.Fatalf("units.Walk: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 	otherFile := filepath.Join(localDir, "other-host", "modules.nix")
 	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	us, err := units.Walk(modulesDir)
+	us, err := units.Walk(modulesDir, "")
 	if err != nil {
 		t.Fatalf("units.Walk: %v", err)
 	}

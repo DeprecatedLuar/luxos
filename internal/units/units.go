@@ -15,6 +15,15 @@ import (
 // that the walk root's own copy is skipped for).
 const entrypointName = "default.nix"
 
+// localName is the reserved entry at modulesDir's own root: the symlink to
+// the active host's local modules directory (L5). Walk never descends into
+// it when walking modulesDir; the active host's local units are discovered
+// separately, via localModulesDir, and prefixed "local/".
+const localName = "local"
+
+// localPrefix is prepended to every unit Path found under localModulesDir.
+const localPrefix = "local/"
+
 // Unit is one named module found under a modules directory. Path is
 // relative to that directory, with no leading "./".
 type Unit struct {
@@ -22,20 +31,44 @@ type Unit struct {
 	Path string
 }
 
-// Walk discovers every unit under modulesDir per §3 Walk:
+// Walk discovers every unit for a host: the shared units under modulesDir
+// plus, when localModulesDir is given, that host's own local units (L6).
+// Over modulesDir, per §3 Walk:
 //   - the root's own default.nix is skipped;
+//   - the root's own "local" entry (the reserved link to the active host's
+//     local modules) is skipped, so it is never descended into here;
 //   - a *.nix file is a unit;
 //   - a directory with its own default.nix is a unit, not descended into;
 //   - a directory without one is a transparent category and is descended
 //     into;
 //   - symlinks are followed (os.Stat, not Lstat).
 //
-// The result is sorted by Name (byte order). A name claimed by more than
-// one unit is a hard error listing every path that claims it.
-func Walk(modulesDir string) ([]Unit, error) {
+// localModulesDir is walked the same way (its own root "default.nix"/"local"
+// entries have no special meaning there), and every unit found under it has
+// its Path prefixed "local/". A missing localModulesDir yields no local
+// units; an empty localModulesDir ("") skips the local walk entirely.
+//
+// The result is sorted by Name (byte order). A name claimed by more than one
+// unit — across the combined shared+local set — is a hard error listing
+// every path that claims it, "local/..." for a local one.
+func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 	var raw []Unit
-	if err := walkDir(modulesDir, modulesDir, &raw); err != nil {
+	if err := walkDir(modulesDir, modulesDir, true, &raw); err != nil {
 		return nil, err
+	}
+
+	if localModulesDir != "" {
+		if _, err := os.Stat(localModulesDir); err == nil {
+			var localRaw []Unit
+			if err := walkDir(localModulesDir, localModulesDir, false, &localRaw); err != nil {
+				return nil, err
+			}
+			for _, u := range localRaw {
+				raw = append(raw, Unit{Name: u.Name, Path: localPrefix + u.Path})
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 
 	sort.Slice(raw, func(i, j int) bool { return raw[i].Name < raw[j].Name })
@@ -73,7 +106,9 @@ func Walk(modulesDir string) ([]Unit, error) {
 
 // walkDir emits (unsorted, duplicates left in) units found under dir into
 // *out. root is the fixed walk root, used to compute relative paths.
-func walkDir(root, dir string, out *[]Unit) error {
+// skipLocalRoot, when true, also skips an entry named localName at the walk
+// root (used for the shared modulesDir walk only; L5).
+func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -93,6 +128,9 @@ func walkDir(root, dir string, out *[]Unit) error {
 		if dir == root && entry.Name() == entrypointName {
 			continue
 		}
+		if dir == root && skipLocalRoot && entry.Name() == localName {
+			continue
+		}
 
 		if info.IsDir() {
 			defaultNix := filepath.Join(entryPath, entrypointName)
@@ -103,7 +141,7 @@ func walkDir(root, dir string, out *[]Unit) error {
 				}
 				*out = append(*out, Unit{Name: entry.Name(), Path: relPath})
 			} else {
-				if err := walkDir(root, entryPath, out); err != nil {
+				if err := walkDir(root, entryPath, skipLocalRoot, out); err != nil {
 					return err
 				}
 			}

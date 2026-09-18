@@ -24,6 +24,11 @@ import (
 // list/enable/disable act on.
 const entrypointName = "default.nix"
 
+// localLinkName is the reserved entry at Paths.Modules' own root: the link
+// to the active host's local modules directory (L5). A missing link means
+// no local units for units.Walk's purposes.
+const localLinkName = "local"
+
 // accountFileName is the file moduleAddUser writes the account definition
 // to; `edit` prefers it over entrypointName for a directory unit that has
 // one, since that's where a user module's actual content lives.
@@ -449,7 +454,7 @@ func moduleList(p paths.Paths, args []string) error {
 		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
 	}
 
-	us, err := units.Walk(p.Modules)
+	us, err := units.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
 	if err != nil {
 		return err
 	}
@@ -1007,7 +1012,7 @@ func moduleRename(p paths.Paths, args []string) error {
 
 // resolveUnitPath walks modulesDir and resolves name to its path.
 func resolveUnitPath(modulesDir, name string) (string, bool, error) {
-	us, err := units.Walk(modulesDir)
+	us, err := units.Walk(modulesDir, filepath.Join(modulesDir, localLinkName))
 	if err != nil {
 		return "", false, err
 	}

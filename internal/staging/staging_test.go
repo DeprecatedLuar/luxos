@@ -34,6 +34,15 @@ func fixture(t *testing.T) (modulesDir, hostDir, hardwareConfig, lockFile string
 		t.Fatal(err)
 	}
 
+	// Local modules link under modulesDir, like links.EnsureLocalModules
+	// creates: modulesDir/local -> hostDir/modules.
+	if err := os.WriteFile(filepath.Join(hostDir, "modules", "foo.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(hostDir, "modules"), filepath.Join(modulesDir, "local")); err != nil {
+		t.Fatal(err)
+	}
+
 	hardwareConfig = filepath.Join(root, "hardware-configuration.nix")
 	if err := os.WriteFile(hardwareConfig, []byte("{ }"), 0644); err != nil {
 		t.Fatal(err)
@@ -61,6 +70,7 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "shadow.sh"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
+		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
 		filepath.Join(stagingDir, "config", "local", "modules", "default.nix"),
 		filepath.Join(stagingDir, "hardware-configuration.nix"),
 		filepath.Join(stagingDir, "flake.lock"),

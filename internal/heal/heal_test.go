@@ -155,6 +155,68 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestRun_LocalModuleSelected(t *testing.T) {
+	skipIfNoNix(t)
+
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	local := filepath.Join(config, ".local")
+	modules := filepath.Join(config, "modules")
+	staging := filepath.Join(root, "staging")
+	etcNixos := filepath.Join(root, "etc-nixos")
+	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
+
+	// A module private to host1, selected through the "local/" prefix.
+	write(t, filepath.Join(local, "host1", "modules", "foo.nix"), "{ }\n")
+	write(t, filepath.Join(local, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
+		"{ system.stateVersion = \"25.11\"; }\n")
+	write(t, filepath.Join(local, "host1", "machine.nix"),
+		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+
+	channelsToml := mustReadFile(t, "../framework/files/templates/channels.toml")
+	write(t, filepath.Join(config, "channels.toml"), channelsToml)
+	write(t, hardwareConfig, "{ }\n")
+
+	p := paths.Paths{
+		Home:           root,
+		User:           "test",
+		Config:         config,
+		Local:          local,
+		Modules:        modules,
+		Staging:        staging,
+		EtcNixos:       etcNixos,
+		HardwareConfig: hardwareConfig,
+		RunningModules: filepath.Join(root, "run-modules.nix"),
+		LuxLink:        filepath.Join(root, "lux"),
+	}
+
+	var out bytes.Buffer
+	if err := Run(&out, p, "host1", "/etc/luxos/bin/luxos", false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+
+	link := filepath.Join(modules, "local")
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("Lstat %s: %v", link, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink", link)
+	}
+
+	stagedFoo := filepath.Join(staging, "config", "modules", "local", "foo.nix")
+	if _, err := os.Stat(stagedFoo); err != nil {
+		t.Errorf("expected %s to exist: %v", stagedFoo, err)
+	}
+
+	flakeContent := mustReadFile(t, filepath.Join(staging, "flake.nix"))
+	if !strings.Contains(flakeContent, `"foo" = ./config/modules/local/foo.nix;`) {
+		t.Errorf("flake.nix missing local unit mapping, got:\n%s", flakeContent)
+	}
+}
+
 func TestRun_StrayHostFileFails(t *testing.T) {
 	skipIfNoNix(t)
 

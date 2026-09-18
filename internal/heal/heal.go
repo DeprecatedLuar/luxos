@@ -92,9 +92,15 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
+	// 4b. ensure modules/local -> .local/<host>/modules link
+	fmt.Fprintf(w, "Ensuring modules/local -> .local/%s/modules link...\n", host)
+	if err := links.EnsureLocalModules(p.Local, p.Modules, host); err != nil {
+		return err
+	}
+
 	// 5. heal imports
 	fmt.Fprintln(w, "Healing modules imports...")
-	us, err := units.Walk(p.Modules)
+	us, err := units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
 	if err != nil {
 		return err
 	}
@@ -111,7 +117,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 6. validate module boundaries
 	fmt.Fprintln(w, "Validating module boundaries...")
-	us, err = units.Walk(p.Modules)
+	us, err = units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
 	if err != nil {
 		return err
 	}

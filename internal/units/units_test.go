@@ -37,7 +37,7 @@ func TestWalk_FileUnit(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestWalk_FolderUnitNotDescended(t *testing.T) {
 	// unit — the walk must not descend into it.
 	mustWriteFile(t, filepath.Join(root, "wayland", "extra.nix"), "{ }")
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestWalk_CategoryDescent(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "services", "sshd.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "services", "nested", "default.nix"), "{ }")
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestWalk_RootDefaultNixSkipped(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestWalk_SymlinkedDirectoryFollowed(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestWalk_DuplicateAcrossCategories(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "a", "shared.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "b", "shared.nix"), "{ }")
 
-	_, err := Walk(root)
+	_, err := Walk(root, "")
 	if err == nil {
 		t.Fatalf("expected error for duplicate name")
 	}
@@ -152,7 +152,7 @@ func TestWalk_SortedByName(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "alpha.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "mid.nix"), "{ }")
 
-	us, err := Walk(root)
+	us, err := Walk(root, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -168,6 +168,91 @@ func TestWalk_SortedByName(t *testing.T) {
 		if names[i] != want[i] {
 			t.Errorf("names[%d] = %q, want %q", i, names[i], want[i])
 		}
+	}
+}
+
+func TestWalk_LocalUnitsPrefixed(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "cat", "bar.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(us) != 3 {
+		t.Fatalf("got %d units, want 3: %+v", len(us), us)
+	}
+	foo := unitByName(t, us, "foo")
+	if foo.Path != "local/foo.nix" {
+		t.Errorf("foo Path = %q, want local/foo.nix", foo.Path)
+	}
+	bar := unitByName(t, us, "bar")
+	if bar.Path != filepath.Join("local", "cat", "bar.nix") {
+		t.Errorf("bar Path = %q, want local/cat/bar.nix", bar.Path)
+	}
+	hyprland := unitByName(t, us, "hyprland")
+	if hyprland.Path != "hyprland.nix" {
+		t.Errorf("hyprland Path = %q, want hyprland.nix", hyprland.Path)
+	}
+}
+
+func TestWalk_MissingLocalDirIsFine(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
+	missingLocal := filepath.Join(t.TempDir(), "does-not-exist")
+
+	us, err := Walk(root, missingLocal)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(us) != 1 {
+		t.Fatalf("got %d units, want 1: %+v", len(us), us)
+	}
+}
+
+func TestWalk_SameNameSharedAndLocalIsDuplicate(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "foo.nix"), "{ }")
+
+	_, err := Walk(root, local)
+	if err == nil {
+		t.Fatalf("expected error for duplicate name across shared+local")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "duplicate module name 'foo':") {
+		t.Errorf("error missing header, got: %s", msg)
+	}
+	if !strings.Contains(msg, "  - foo.nix") {
+		t.Errorf("error missing shared claimant, got: %s", msg)
+	}
+	if !strings.Contains(msg, "  - local/foo.nix") {
+		t.Errorf("error missing local claimant, got: %s", msg)
+	}
+}
+
+func TestWalk_RootLocalNeverWalked(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	// A real "local" directory sitting at modulesDir's own root (as the
+	// mirror link's target would be) must never be descended into here,
+	// even though it isn't a symlink in this fixture.
+	mustWriteFile(t, filepath.Join(root, "local", "should-not-appear.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(us) != 1 {
+		t.Fatalf("got %d units, want 1 (root local/ must never be walked): %+v", len(us), us)
+	}
+	if us[0].Name != "hyprland" {
+		t.Errorf("Name = %q, want hyprland", us[0].Name)
 	}
 }
 

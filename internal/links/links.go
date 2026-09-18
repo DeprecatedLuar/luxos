@@ -24,6 +24,11 @@ const (
 	localLinkName    = "local"
 )
 
+// localModulesLinkName is the reserved entry at modulesDir's own root that
+// EnsureLocalModules manages: the symlink to the active host's local
+// modules directory (L5).
+const localModulesLinkName = "local"
+
 // EnsureMirror ensures <modulesDir>/default.nix is a symlink to
 // <localDir>/<host>/modules.nix (L4), creating the host's local modules
 // directory if needed. Errors if a real file already occupies that path.
@@ -61,6 +66,29 @@ func EnsureLocalLink(configDir, localDir, host string) error {
 	}
 
 	return relink(link, target)
+}
+
+// EnsureLocalModules ensures <modulesDir>/local is a symlink to
+// <localDir>/<host>/modules (L5), creating the target directory if needed.
+// Errors if a real file or directory already occupies that name — nothing
+// else may claim it.
+func EnsureLocalModules(localDir, modulesDir, host string) error {
+	target := filepath.Join(localDir, host, modulesRel)
+	if err := os.MkdirAll(target, dirMode); err != nil {
+		return err
+	}
+
+	link := filepath.Join(modulesDir, localModulesLinkName)
+	if err := refuseRealFile(link, "reserved for the link to the active host's local modules; nothing else may claim it"); err != nil {
+		return err
+	}
+
+	rel, err := filepath.Rel(filepath.Dir(link), target)
+	if err != nil {
+		return err
+	}
+
+	return relink(link, rel)
 }
 
 // EnsureEtcNixos ensures etcNixos is a real directory (self-healing a stale
