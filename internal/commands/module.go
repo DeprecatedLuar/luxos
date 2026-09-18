@@ -29,6 +29,11 @@ const entrypointName = "default.nix"
 // no local units for units.Walk's purposes.
 const localLinkName = "local"
 
+// localPathPrefix marks a unit path (as units.Walk returns it) as
+// belonging to the active host's own local modules (L5/L6), e.g.
+// "local/foo.nix" — used by remove/rename to pick their scope (L7/L13).
+const localPathPrefix = "local/"
+
 // accountFileName is the file moduleAddUser writes the account definition
 // to; `edit` prefers it over entrypointName for a directory unit that has
 // one, since that's where a user module's actual content lives.
@@ -823,6 +828,39 @@ func moduleDisable(p paths.Paths, args []string) error {
 	return nil
 }
 
+//──[scoping]──────────────────────────────────────────────────────────────
+
+// activeHost resolves the active machine's name from modules/local (L5),
+// the symlink links.EnsureLocalModules maintains to
+// <p.Local>/<host>/modules — its parent directory's base name.
+func activeHost(p paths.Paths) (string, error) {
+	real, err := filepath.EvalSymlinks(filepath.Join(p.Modules, localLinkName))
+	if err != nil {
+		return "", fmt.Errorf("no active machine: modules/local is missing, run luxos rebuild first")
+	}
+	return filepath.Base(filepath.Dir(real)), nil
+}
+
+// moduleScope picks the host/localDirs scope remove/rename operate under,
+// from the unit's own path (L7/L13): a "local/..." unit is scoped to the
+// active host alone; anything else is scoped to every host.
+func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []string, err error) {
+	if strings.HasPrefix(unitPath, localPathPrefix) {
+		host, err = activeHost(p)
+		if err != nil {
+			return "", nil, err
+		}
+		return host, []string{filepath.Join(p.Local, host, "modules")}, nil
+	}
+
+	matches, err := filepath.Glob(filepath.Join(p.Local, "*", "modules"))
+	if err != nil {
+		return "", nil, err
+	}
+	sort.Strings(matches)
+	return "", matches, nil
+}
+
 //──[remove]───────────────────────────────────────────────────────────────
 
 // printReferencedBy prints label followed by an indented list of files, or
@@ -868,13 +906,18 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, path)
 	}
 
-	importers, err := imports.Importers(p.Local, name)
+	host, localDirs, err := moduleScope(p, path)
+	if err != nil {
+		return err
+	}
+
+	importers, err := imports.Importers(p.Local, name, host)
 	if err != nil {
 		return err
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is imported by:", name), importers, fmt.Sprintf("'%s' is not imported by any host.", name))
 
-	dependents, err := refs.Dependents(p.Modules, name)
+	dependents, err := refs.Dependents(p.Modules, localDirs, name)
 	if err != nil {
 		return err
 	}
@@ -894,10 +937,10 @@ func moduleRemove(p paths.Paths, args []string) error {
 	// refs.Retarget first: it validates every dependent's call shape before
 	// writing anything and refuses the whole operation on a bad shape, so a
 	// refusal here leaves the tree completely untouched.
-	if _, err := refs.Retarget(p.Modules, name, ""); err != nil {
+	if _, err := refs.Retarget(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Local, name, ""); err != nil {
+	if _, err := imports.Retarget(p.Local, name, "", host); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
@@ -954,7 +997,12 @@ func moduleRename(p paths.Paths, args []string) error {
 		return fmt.Errorf("module name '%s' already exists at modules/%s", newName, existingPath)
 	}
 
-	dependents, err := refs.Dependents(p.Modules, oldName)
+	host, localDirs, err := moduleScope(p, oldPath)
+	if err != nil {
+		return err
+	}
+
+	dependents, err := refs.Dependents(p.Modules, localDirs, oldName)
 	if err != nil {
 		return err
 	}
@@ -990,13 +1038,13 @@ func moduleRename(p paths.Paths, args []string) error {
 	// writing anything, refusing the whole operation on a bad shape): a
 	// refusal here leaves the unit unmoved and every host entrypoint
 	// untouched.
-	if _, err := refs.Retarget(p.Modules, oldName, newName); err != nil {
+	if _, err := refs.Retarget(p.Modules, localDirs, oldName, newName); err != nil {
 		return err
 	}
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Local, oldName, newPath); err != nil {
+	if _, err := imports.Retarget(p.Local, oldName, newPath, host); err != nil {
 		return err
 	}
 

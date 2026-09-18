@@ -100,11 +100,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 5. heal imports
 	fmt.Fprintln(w, "Healing modules imports...")
-	us, err := units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
-	if err != nil {
-		return err
-	}
-	healChanges, healWarnings, err := imports.Heal(p.Local, filepath.Join(p.Modules, "default.nix"), p.Modules, us, prune)
+	healChanges, healWarnings, err := imports.Heal(p.Local, p.Modules, host, prune)
 	for _, c := range healChanges {
 		fmt.Fprintln(w, formatImportChange(c))
 	}
@@ -117,7 +113,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 6. validate module boundaries
 	fmt.Fprintln(w, "Validating module boundaries...")
-	us, err = units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
+	us, err := units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
 	if err != nil {
 		return err
 	}

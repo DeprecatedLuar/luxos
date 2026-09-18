@@ -540,7 +540,7 @@ func TestRetarget(t *testing.T) {
 		write(t, filepath.Join(mods, "c.nix"), `{ }`)
 		write(t, filepath.Join(mods, "wayland.nix"), `{ }`)
 
-		changes, err := Retarget(mods, "wayland", "wl")
+		changes, err := Retarget(mods, nil, "wayland", "wl")
 		if err != nil {
 			t.Fatalf("Retarget: %v", err)
 		}
@@ -588,7 +588,7 @@ func TestRetarget(t *testing.T) {
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ./d.nix ]; }`)
 		write(t, filepath.Join(mods, "d.nix"), `{ luxos, ... }: { imports = luxos.modules [ "wl" ]; }`)
 
-		changes, err := Retarget(mods, "wl", "")
+		changes, err := Retarget(mods, nil, "wl", "")
 		if err != nil {
 			t.Fatalf("Retarget: %v", err)
 		}
@@ -611,7 +611,7 @@ func TestRetarget(t *testing.T) {
 	})
 
 	t.Run("no dependents: no-op, no error", func(t *testing.T) {
-		changes, err := Retarget(mods, "nonexistent-name", "newname")
+		changes, err := Retarget(mods, nil, "nonexistent-name", "newname")
 		if err != nil {
 			t.Fatalf("Retarget: %v", err)
 		}
@@ -627,7 +627,7 @@ func TestRetarget(t *testing.T) {
 		beforeE := mustReadFile(t, eFile)
 		beforeF := mustReadFile(t, fFile)
 
-		if _, err := Retarget(mods, "shared", "renamed"); err == nil {
+		if _, err := Retarget(mods, nil, "shared", "renamed"); err == nil {
 			t.Fatalf("Retarget: want error refusing the whole write")
 		}
 		if mustReadFile(t, eFile) != beforeE {
@@ -644,11 +644,11 @@ func TestRetarget(t *testing.T) {
 		os.Remove(filepath.Join(mods, "e.nix"))
 		os.Remove(filepath.Join(mods, "f.nix"))
 
-		if _, err := Retarget(mods, "shared", "renamed"); err != nil {
+		if _, err := Retarget(mods, nil, "shared", "renamed"); err != nil {
 			t.Fatalf("Retarget (first run): %v", err)
 		}
 		before := mustReadFile(t, gFile)
-		changes2, err := Retarget(mods, "shared", "renamed")
+		changes2, err := Retarget(mods, nil, "shared", "renamed")
 		if err != nil {
 			t.Fatalf("Retarget (second run): %v", err)
 		}
@@ -843,7 +843,7 @@ func TestVerification_RenameWithDependentsRewritesBothFiles(t *testing.T) {
 	write(t, filepath.Join(mods, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`)
 	write(t, filepath.Join(mods, "wayland.nix"), `{ }`)
 
-	changes, err := Retarget(mods, "wayland", "wl")
+	changes, err := Retarget(mods, nil, "wayland", "wl")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -857,6 +857,128 @@ func TestVerification_RenameWithDependentsRewritesBothFiles(t *testing.T) {
 		}
 		if len(names) != 1 || names[0] != "wl" {
 			t.Errorf("%s: names = %v, want [wl]", f, names)
+		}
+	}
+}
+
+//============================================================================
+// Suite: Phase 4 — per-host local scoping and the shared/local boundary
+// rule (L7, L8).
+//============================================================================
+
+func TestDependents_ScansLocalModulesDirs(t *testing.T) {
+	skipIfNoNix(t)
+	F := t.TempDir()
+	mods := filepath.Join(F, "modules")
+	local1 := filepath.Join(F, "local", "host1", "modules")
+	local2 := filepath.Join(F, "local", "host2", "modules")
+	mustMkdirAll(t, mods)
+
+	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
+	write(t, filepath.Join(local1, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
+	write(t, filepath.Join(local2, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "other" ]; }`)
+
+	got, err := Dependents(mods, []string{local1, local2}, "shared")
+	if err != nil {
+		t.Fatalf("Dependents: %v", err)
+	}
+	want := filepath.Join(local1, "a.nix")
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("Dependents = %v, want [%s]", got, want)
+	}
+}
+
+func TestDependents_MissingLocalModulesDirSkipped(t *testing.T) {
+	skipIfNoNix(t)
+	F := t.TempDir()
+	mods := filepath.Join(F, "modules")
+	mustMkdirAll(t, mods)
+	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
+
+	missing := filepath.Join(F, "local", "no-such-host", "modules")
+	if _, err := Dependents(mods, []string{missing}, "shared"); err != nil {
+		t.Fatalf("Dependents: want no error for a missing localModulesDirs entry, got %v", err)
+	}
+}
+
+func TestRetarget_ScopedToOneHostsLocalModulesDir(t *testing.T) {
+	skipIfNoNix(t)
+	F := t.TempDir()
+	mods := filepath.Join(F, "modules")
+	local1 := filepath.Join(F, "local", "host1", "modules")
+	mustMkdirAll(t, mods)
+
+	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./shared.nix ]; }`)
+	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
+	aFile := write(t, filepath.Join(local1, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
+
+	// A rename scoped to host1's local dir only.
+	changes, err := Retarget(mods, []string{local1}, "shared", "renamed-shared")
+	if err != nil {
+		t.Fatalf("Retarget: %v", err)
+	}
+	if len(changes) != 1 || changes[0].File != aFile {
+		t.Fatalf("changes = %v, want exactly one change to %s", changes, aFile)
+	}
+	names, err := Names(aFile)
+	if err != nil {
+		t.Fatalf("Names: %v", err)
+	}
+	if len(names) != 1 || names[0] != "renamed-shared" {
+		t.Errorf("names = %v, want [renamed-shared]", names)
+	}
+}
+
+func TestValidate_SharedModuleReferencingLocalModuleIsAViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+
+	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./shared.nix ]; }`)
+	write(t, filepath.Join(mods, "shared.nix"), `{ luxos, ... }: { imports = luxos.modules [ "priv" ]; }`)
+
+	local := filepath.Join(mods, "local")
+	write(t, filepath.Join(local, "priv.nix"), `{ }`)
+
+	us, err := units.Walk(mods, local)
+	if err != nil {
+		t.Fatalf("units.Walk: %v", err)
+	}
+	violations, err := Validate(mods, us, []string{"shared.nix"})
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	found := false
+	for _, v := range violations {
+		if v.File == "shared.nix" && strings.Contains(v.Message, "shared module references local module 'priv'") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a shared-references-local violation, got %v", violations)
+	}
+}
+
+func TestValidate_LocalModuleReferencingSharedModuleIsFine(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+
+	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./local/priv.nix ]; }`)
+	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
+
+	local := filepath.Join(mods, "local")
+	write(t, filepath.Join(local, "priv.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
+
+	us, err := units.Walk(mods, local)
+	if err != nil {
+		t.Fatalf("units.Walk: %v", err)
+	}
+	violations, err := Validate(mods, us, []string{"local/priv.nix"})
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	for _, v := range violations {
+		if strings.Contains(v.Message, "shared module references local module") {
+			t.Errorf("unexpected boundary violation for local -> shared reference: %v", v)
 		}
 	}
 }

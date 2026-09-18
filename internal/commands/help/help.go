@@ -28,7 +28,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
 			gohelp.Item("module|modules list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
-			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module"),
+			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("module|modules edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("module|modules enable <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
 			gohelp.Item("module|modules disable <name>...", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
@@ -58,7 +58,7 @@ func modulePage() *gohelp.Page {
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
 			gohelp.Item("list|ls [category-path]", "List modules (grouped by category)"),
-			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module"),
+			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("enable <name>...", "Enable one or more modules on this host"),
 			gohelp.Item("disable <name>...", "Disable one or more modules on this host"),
@@ -81,7 +81,7 @@ func userPage() *gohelp.Page {
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
 		).
-		Text("Every verb here is `luxos module <verb>` with the category fixed to users/.")
+		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no local/ equivalent for users.")
 }
 
 // shellPage documents `luxos shell`.

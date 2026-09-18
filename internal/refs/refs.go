@@ -40,6 +40,10 @@ const localName = "local"
 // refers to (matches bash's CONFIGGEN_MODULES_DIR constant, "modules").
 const modulesDirName = "modules"
 
+// localPrefix marks a unit path (as units.Walk returns it) as belonging to
+// a host's own local modules (L5/L6/L8), e.g. "local/foo.nix".
+const localPrefix = "local/"
+
 // Violation is one boundary, dynamic-path, call-shape or unresolved-name
 // problem found by Validate. File is relative to modulesDir.
 type Violation struct {
@@ -234,6 +238,12 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 					})
 					continue
 				}
+				if !strings.HasPrefix(unitPath, localPrefix) && strings.HasPrefix(dep, localPrefix) {
+					violations = append(violations, Violation{
+						File:    rel,
+						Message: fmt.Sprintf("luxos.modules: shared module references local module '%s'", name),
+					})
+				}
 				enqueue(dep)
 			}
 		}
@@ -320,16 +330,32 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 	return out, nil
 }
 
-// Dependents returns every module file under modulesDir whose
+// Dependents returns every module file under modulesDir (root "local"
+// entry skipped, L5) plus every localModulesDirs entry, whose
 // luxos.modules list contains name. Read-only; a file whose luxos.modules
 // use isn't the recognized shape (or that fails to parse) is silently
-// skipped — it just can't be a hit.
-func Dependents(modulesDir, name string) ([]string, error) {
+// skipped — it just can't be a hit. A missing localModulesDirs entry is
+// silently skipped too.
+func Dependents(modulesDir string, localModulesDirs []string, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 	files, err := findAllNix(root, localName)
 	if err != nil {
 		return nil, err
 	}
+	for _, d := range localModulesDirs {
+		if _, err := os.Stat(d); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		lf, err := findAllNix(d, "")
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, lf...)
+	}
+	sort.Strings(files)
 	rootDefault := filepath.Join(root, entrypointName)
 
 	var out []string
@@ -361,8 +387,8 @@ func Dependents(modulesDir, name string) ([]string, error) {
 // Before writing, the candidate is re-parsed and required to equal the
 // original parse with exactly that one substitution applied; any other
 // difference refuses the write and names the file.
-func Retarget(modulesDir, name, newName string) ([]Change, error) {
-	files, err := Dependents(modulesDir, name)
+func Retarget(modulesDir string, localModulesDirs []string, name, newName string) ([]Change, error) {
+	files, err := Dependents(modulesDir, localModulesDirs, name)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,16 @@
 package commands
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/links"
+	"github.com/DeprecatedLuar/luxos/internal/paths"
+)
 
 func TestModuleMarker(t *testing.T) {
 	cases := []struct {
@@ -120,5 +130,130 @@ func TestJoinCategory(t *testing.T) {
 		if got := joinCategory(c.category, c.base); got != c.want {
 			t.Errorf("joinCategory(%q, %q) = %q, want %q", c.category, c.base, got, c.want)
 		}
+	}
+}
+
+//──[Phase 4: per-host scoping of remove/rename]─────────────────────────────
+
+func skipIfNoNix(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("nix-instantiate"); err != nil {
+		t.Skip("nix-instantiate not on PATH")
+	}
+}
+
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func write(t *testing.T, path, content string) {
+	t.Helper()
+	mustMkdirAll(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// twoHostScopeFixture builds a config tree with two hosts' local modules
+// dirs and modules/local pointed at host1 (the active host).
+func twoHostScopeFixture(t *testing.T) paths.Paths {
+	t.Helper()
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	local := filepath.Join(config, ".local")
+	modules := filepath.Join(config, "modules")
+	mustMkdirAll(t, modules)
+
+	if err := links.EnsureLocalModules(local, modules, "host1"); err != nil {
+		t.Fatalf("EnsureLocalModules: %v", err)
+	}
+	// host2 has no active symlink, but still needs its own local dir.
+	mustMkdirAll(t, filepath.Join(local, "host2", "modules"))
+
+	return paths.Paths{
+		Home:           root,
+		User:           "test",
+		Config:         config,
+		Local:          local,
+		Modules:        modules,
+		Staging:        filepath.Join(root, "staging"),
+		EtcNixos:       filepath.Join(root, "etc-nixos"),
+		HardwareConfig: filepath.Join(root, "hardware-configuration.nix"),
+		RunningModules: filepath.Join(root, "run-modules.nix"),
+		LuxLink:        filepath.Join(root, "lux"),
+	}
+}
+
+func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+
+	write(t, filepath.Join(p.Local, "host1", "modules", "foo.nix"), "{ }\n")
+	write(t, filepath.Join(p.Local, "host2", "modules", "foo.nix"), "{ }\n")
+	write(t, filepath.Join(p.Local, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(p.Local, "host2", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
+
+	if err := moduleRemove(p, []string{"foo", "-y"}); err != nil {
+		t.Fatalf("moduleRemove: %v", err)
+	}
+
+	host1Names, err := imports.List(filepath.Join(p.Local, "host1", "modules.nix"))
+	if err != nil {
+		t.Fatalf("List(host1): %v", err)
+	}
+	if len(host1Names) != 0 {
+		t.Errorf("host1 modules.nix = %v, want empty (import removed)", host1Names)
+	}
+
+	host2Content := mustReadFile(t, filepath.Join(p.Local, "host2", "modules.nix"))
+	if !strings.Contains(host2Content, "./local/foo.nix") {
+		t.Errorf("host2 modules.nix was touched, want untouched:\n%s", host2Content)
+	}
+	if _, err := os.Stat(filepath.Join(p.Local, "host2", "modules", "foo.nix")); err != nil {
+		t.Errorf("host2's local foo.nix should still exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Local, "host1", "modules", "foo.nix")); !os.IsNotExist(err) {
+		t.Errorf("host1's local foo.nix should have been removed, stat err = %v", err)
+	}
+}
+
+func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+
+	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
+	write(t, filepath.Join(p.Local, "host2", "modules", "x.nix"),
+		`{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`+"\n")
+	write(t, filepath.Join(p.Local, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./wayland.nix\n  ];\n}\n")
+	write(t, filepath.Join(p.Local, "host2", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/x.nix\n  ];\n}\n")
+
+	if err := moduleRename(p, []string{"wayland", "wl", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+
+	host2Content := mustReadFile(t, filepath.Join(p.Local, "host2", "modules", "x.nix"))
+	if !strings.Contains(host2Content, `"wl"`) || strings.Contains(host2Content, `"wayland"`) {
+		t.Errorf("host2's local x.nix not rewritten: %q", host2Content)
+	}
+
+	host1Content := mustReadFile(t, filepath.Join(p.Local, "host1", "modules.nix"))
+	if !strings.Contains(host1Content, "./wl.nix") {
+		t.Errorf("host1 modules.nix not rewritten to wl.nix: %q", host1Content)
 	}
 }
