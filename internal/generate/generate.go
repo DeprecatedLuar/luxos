@@ -18,7 +18,6 @@ import (
 	"text/template"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 // nixSystem is the platform every generated flake builds for.
@@ -27,10 +26,6 @@ const nixSystem = "x86_64-linux"
 // baseInputName is the flake input name the base channel is always emitted
 // under (system.nix references inputs.nixpkgs directly).
 const baseInputName = "nixpkgs"
-
-// modulesDirName is the shared modules folder name, at CONFIG_DIR root and
-// under the staged config/ tree.
-const modulesDirName = "modules"
 
 // shadow is one hard-shadowed command, rendered into configuration.nix's
 // environment.systemPackages.
@@ -81,27 +76,26 @@ func Configuration(host, exe string) ([]byte, error) {
 
 // flakeData feeds templates/flake.nix.tmpl.
 type flakeData struct {
-	InputsBlock  string
-	OutputsArgs  string
-	OverlayBlock string
-	UnitsBlock   string
-	Host         string
+	InputsBlock string
+	OutputsArgs string
+	Host        string
 }
 
-// Flake renders flake.nix for host from already-loaded, validated Channels
-// and the module walk (units.Walk's result, sorted by Name).
-func Flake(host string, c config.Channels, unitList []units.Unit) ([]byte, error) {
+// Flake renders flake.nix for host from already-loaded, validated Channels.
+// The channel overlay and luxos.modules are computed in Nix, from
+// framework/overlay.nix and framework/units.nix (staged alongside by
+// staging.Materialize), not generated here.
+func Flake(host string, c config.Channels) ([]byte, error) {
 	if host == "" {
 		return nil, fmt.Errorf("generate.Flake: host name is required")
 	}
 
-	var inputLines, overlayLines []string
+	var inputLines []string
 	outputsArgs := "self, " + baseInputName
 
 	for _, ch := range c.Channels {
 		if ch.Name == c.Base {
 			inputLines = append(inputLines, fmt.Sprintf("    %s.url = %q;  # base channel: %s", baseInputName, ch.URL, c.Base))
-			overlayLines = append(overlayLines, fmt.Sprintf("      %s = prev;", c.Base))
 		}
 	}
 	for _, ch := range c.Channels {
@@ -109,24 +103,16 @@ func Flake(host string, c config.Channels, unitList []units.Unit) ([]byte, error
 			continue
 		}
 		inputLines = append(inputLines, fmt.Sprintf("    %s.url = %q;", ch.Name, ch.URL))
-		overlayLines = append(overlayLines, fmt.Sprintf("      %s = import %s { inherit (prev.stdenv.hostPlatform) system; inherit (prev) config; };", ch.Name, ch.Name))
 		outputsArgs += ", " + ch.Name
 	}
 	for _, f := range c.Flakes {
 		inputLines = append(inputLines, fmt.Sprintf("    %s.url = %q;", f.Name, f.URL))
 	}
 
-	var unitLines []string
-	for _, u := range unitList {
-		unitLines = append(unitLines, fmt.Sprintf("      %q = ./config/%s/%s;", u.Name, modulesDirName, u.Path))
-	}
-
 	data := flakeData{
-		InputsBlock:  strings.Join(inputLines, "\n"),
-		OutputsArgs:  outputsArgs,
-		OverlayBlock: strings.Join(overlayLines, "\n"),
-		UnitsBlock:   strings.Join(unitLines, "\n"),
-		Host:         host,
+		InputsBlock: strings.Join(inputLines, "\n"),
+		OutputsArgs: outputsArgs,
+		Host:        host,
 	}
 
 	var buf bytes.Buffer

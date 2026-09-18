@@ -13,31 +13,10 @@
   outputs = { self, nixpkgs, unstable, ... }@inputs:
   let
     system = "x86_64-linux";
+    lib = nixpkgs.lib;
 
-    # Exposes every declared channel as pkgs.<channel>.<package>, so a package
-    # reference always states which channel it came from. The base channel
-    # aliases prev instead of re-importing itself (pkgs already is that
-    # channel); the others inherit config so allowUnfree and friends carry
-    # over rather than being restated here.
-    channelOverlay = final: prev: {
-      stable = prev;
-      unstable = import unstable { inherit (prev.stdenv.hostPlatform) system; inherit (prev) config; };
-    };
-
-    # Machine modules reach the framework's through modules/system
-    # (a link to $FRAMEWORK_DIR/modules, dereferenced by staging). luxos
-    # carries staged config paths (implementation-plan.md #26), not
-    # $FRAMEWORK_DIR/$CONFIG_DIR paths, so this still crosses nothing over
-    # the repo boundary.
-    luxos = let
-      units = {
-      "hyprland" = ./config/modules/desktop/hyprland.nix;
-      "user1" = ./config/modules/users/user1;
-      "wayland" = ./config/modules/system/wayland.nix;
-      };
-    in {
-      modules = names: map (n: units.${n} or (throw "luxos.modules: '${n}' does not resolve to any module under modules/")) names;
-    };
+    channelOverlay = import ./framework/overlay.nix { inherit lib inputs system; };
+    luxos.modules = import ./framework/units.nix { inherit lib; root = ./config/modules; };
 
     mkHost = hostName: nixpkgs.lib.nixosSystem {
       specialArgs = { inherit inputs hostName luxos; };

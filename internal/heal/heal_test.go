@@ -212,8 +212,11 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	}
 
 	flakeContent := mustReadFile(t, filepath.Join(staging, "flake.nix"))
-	if !strings.Contains(flakeContent, `"foo" = ./config/modules/local/foo.nix;`) {
-		t.Errorf("flake.nix missing local unit mapping, got:\n%s", flakeContent)
+	if !strings.Contains(flakeContent, "import ./framework/units.nix") {
+		t.Errorf("flake.nix missing units.nix import, got:\n%s", flakeContent)
+	}
+	if !strings.Contains(flakeContent, "import ./framework/overlay.nix") {
+		t.Errorf("flake.nix missing overlay.nix import, got:\n%s", flakeContent)
 	}
 }
 

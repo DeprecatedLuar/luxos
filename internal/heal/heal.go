@@ -150,7 +150,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	if err != nil {
 		return err
 	}
-	flakeContent, err := generate.Flake(host, channels, us)
+	flakeContent, err := generate.Flake(host, channels)
 	if err != nil {
 		return err
 	}

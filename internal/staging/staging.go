@@ -26,8 +26,10 @@ const (
 	frameworkDir = "framework"
 	configDir    = "config"
 
-	systemNix = "system.nix"
-	shadowSh  = "shadow.sh"
+	systemNix  = "system.nix"
+	shadowSh   = "shadow.sh"
+	unitsNix   = "units.nix"
+	overlayNix = "overlay.nix"
 
 	stagedModulesDir = "modules"
 	stagedLocalDir   = "local"
@@ -37,8 +39,9 @@ const (
 )
 
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
-// framework/shadow.sh, config/modules (from modulesDir), config/local (from
-// hostDir), hardware-configuration.nix, and flake.lock if lockFile exists.
+// framework/shadow.sh, framework/units.nix, framework/overlay.nix,
+// config/modules (from modulesDir), config/local (from hostDir),
+// hardware-configuration.nix, and flake.lock if lockFile exists.
 // Every symlink under modulesDir and hostDir is dereferenced. Refuses to
 // touch stagingDir unless it is empty or a tree this package created
 // (marked with Marker), and refuses a dangling symlink under modulesDir or
@@ -74,6 +77,12 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile strin
 		return err
 	}
 	if err := writeFrameworkFile(fwDir, shadowSh); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, unitsNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, overlayNix); err != nil {
 		return err
 	}
 

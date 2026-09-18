@@ -1,10 +1,19 @@
 package staging
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+func skipIfNoNix(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("nix-instantiate"); err != nil {
+		t.Skip("nix-instantiate not on PATH")
+	}
+}
 
 // fixture builds a modulesDir and hostDir tree, the latter containing a
 // symlink into the former (like the generated mirror link), plus a
@@ -68,6 +77,8 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, Marker),
 		filepath.Join(stagingDir, "framework", "system.nix"),
 		filepath.Join(stagingDir, "framework", "shadow.sh"),
+		filepath.Join(stagingDir, "framework", "units.nix"),
+		filepath.Join(stagingDir, "framework", "overlay.nix"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
@@ -203,4 +214,151 @@ func TestInstall_NestedRel(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stagingDir, "sub", "dir", "file.nix")); err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
+}
+
+// fakeLib is a minimal, network-free stand-in for nixpkgs' lib, providing
+// only what framework/units.nix uses, so the eval below doesn't depend on
+// <nixpkgs> being on NIX_PATH.
+const fakeLib = `{
+    hasSuffix = suffix: s:
+      let l = builtins.stringLength suffix; sl = builtins.stringLength s; in
+      sl >= l && builtins.substring (sl - l) l s == suffix;
+    removeSuffix = suffix: s:
+      let l = builtins.stringLength suffix; sl = builtins.stringLength s; in
+      if sl >= l && builtins.substring (sl - l) l s == suffix
+      then builtins.substring 0 (sl - l) s
+      else s;
+    foldl' = builtins.foldl';
+    foldlAttrs = f: init: attrs:
+      builtins.foldl' (acc: name: f acc name attrs.${name}) init (builtins.attrNames attrs);
+  }`
+
+// materializeUnitsFixture stages modulesDir (built by the caller) through
+// Materialize and returns the staged framework/units.nix path and the
+// staged config/modules path to evaluate it against.
+func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, stagedModulesDir string) {
+	t.Helper()
+	root := t.TempDir()
+	stagingDir := filepath.Join(root, "staging")
+
+	hostDir := filepath.Join(root, "host1")
+	if err := os.MkdirAll(hostDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
+	if err := os.WriteFile(hardwareConfig, []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, filepath.Join(root, "flake.lock")); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	return filepath.Join(stagingDir, "framework", "units.nix"), filepath.Join(stagingDir, "config", "modules")
+}
+
+// evalUnitsNix evaluates framework/units.nix against modulesDir with the
+// given name list, returning the resolved paths as toString'd strings and
+// whether evaluation succeeded (builtins.tryEval).
+func evalUnitsNix(t *testing.T, unitsNixPath, modulesDir string, names []string) (paths []string, ok bool) {
+	t.Helper()
+
+	namesExpr := "[ "
+	for _, n := range names {
+		namesExpr += `"` + n + `" `
+	}
+	namesExpr += "]"
+
+	expr := `
+let
+  lib = ` + fakeLib + `;
+  f = import ` + nixQuote(unitsNixPath) + ` { inherit lib; root = ` + nixQuote(modulesDir) + `; };
+  resolved = map toString (f ` + namesExpr + `);
+  attempt = builtins.tryEval (builtins.deepSeq resolved resolved);
+in
+  { ok = attempt.success; paths = if attempt.success then attempt.value else []; }
+`
+
+	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "--expr", expr)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("nix-instantiate --eval: %v\n%s", err, out)
+	}
+
+	var result struct {
+		Ok    bool     `json:"ok"`
+		Paths []string `json:"paths"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("unmarshal eval output %q: %v", out, err)
+	}
+	return result.Paths, result.Ok
+}
+
+// nixQuote renders path as a double-quoted Nix string literal. Absolute
+// paths on disk never contain a double quote or backslash, so no escaping
+// is needed.
+func nixQuote(path string) string {
+	return `"` + path + `"`
+}
+
+func TestUnitsNix_ResolvesAndThrowsOnUnknown(t *testing.T) {
+	skipIfNoNix(t)
+
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	if err := os.WriteFile(mustJoin(t, modulesDir, "a.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mustJoin(t, modulesDir, "cat", "b.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mustJoin(t, modulesDir, "cat", "c", "default.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	unitsNixPath, stagedModulesDir := materializeUnitsFixture(t, modulesDir)
+
+	paths, ok := evalUnitsNix(t, unitsNixPath, stagedModulesDir, []string{"b"})
+	if !ok {
+		t.Fatalf("evaluating [\"b\"] should have succeeded")
+	}
+	want := filepath.Join(stagedModulesDir, "cat", "b.nix")
+	if len(paths) != 1 || paths[0] != want {
+		t.Fatalf("paths = %v, want [%s]", paths, want)
+	}
+
+	if _, ok := evalUnitsNix(t, unitsNixPath, stagedModulesDir, []string{"does-not-exist"}); ok {
+		t.Fatalf("evaluating an unknown name should have thrown")
+	}
+}
+
+func TestUnitsNix_DuplicateNameThrows(t *testing.T) {
+	skipIfNoNix(t)
+
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	if err := os.WriteFile(mustJoin(t, modulesDir, "a.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mustJoin(t, modulesDir, "cat", "a.nix"), []byte("{ }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	unitsNixPath, stagedModulesDir := materializeUnitsFixture(t, modulesDir)
+
+	if _, ok := evalUnitsNix(t, unitsNixPath, stagedModulesDir, []string{"a"}); ok {
+		t.Fatalf("evaluating a duplicate basename should have thrown")
+	}
+}
+
+// mustJoin creates the parent directories for filepath.Join(base, elem...)
+// and returns that path.
+func mustJoin(t *testing.T, base string, elem ...string) string {
+	t.Helper()
+	full := filepath.Join(append([]string{base}, elem...)...)
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return full
 }

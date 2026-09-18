@@ -11,7 +11,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -81,14 +80,6 @@ func testChannels() config.Channels {
 	}
 }
 
-func testUnits() []units.Unit {
-	return []units.Unit{
-		{Name: "hyprland", Path: "desktop/hyprland.nix"},
-		{Name: "user1", Path: "users/user1"},
-		{Name: "wayland", Path: "system/wayland.nix"},
-	}
-}
-
 func TestConfiguration_Golden(t *testing.T) {
 	out, err := Configuration("paraloid", "/etc/luxos/bin/luxos")
 	if err != nil {
@@ -113,7 +104,7 @@ func TestConfiguration_Deterministic(t *testing.T) {
 }
 
 func TestFlake_Golden(t *testing.T) {
-	out, err := Flake("paraloid", testChannels(), testUnits())
+	out, err := Flake("paraloid", testChannels())
 	if err != nil {
 		t.Fatalf("Flake: %v", err)
 	}
@@ -122,11 +113,11 @@ func TestFlake_Golden(t *testing.T) {
 }
 
 func TestFlake_Deterministic(t *testing.T) {
-	a, err := Flake("paraloid", testChannels(), testUnits())
+	a, err := Flake("paraloid", testChannels())
 	if err != nil {
 		t.Fatalf("Flake: %v", err)
 	}
-	b, err := Flake("paraloid", testChannels(), testUnits())
+	b, err := Flake("paraloid", testChannels())
 	if err != nil {
 		t.Fatalf("Flake: %v", err)
 	}
@@ -136,7 +127,7 @@ func TestFlake_Deterministic(t *testing.T) {
 }
 
 func TestFlake_EmptyHostErrors(t *testing.T) {
-	if _, err := Flake("", testChannels(), testUnits()); err == nil {
+	if _, err := Flake("", testChannels()); err == nil {
 		t.Fatalf("Flake: want error for empty host")
 	}
 }
