@@ -10,7 +10,8 @@
     ncdu
     fastfetch
 
-    ripgrep
+    nano
+    vim
     git
     wget
     lsof
