@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
@@ -76,7 +75,7 @@ func gradientLogo() string {
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
 const rebuildFlagSpec = "bypass:bool update-lock:bool prune:bool machine:value config|C:value"
 
-// flakeLockName is channels.toml's sibling in Paths.Config.
+// flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
 
 // configDirEnv is the environment variable paths.Resolve honors as the one
@@ -169,10 +168,8 @@ func Rebuild(args []string) error {
 	}
 
 	if updateLock {
-		uid := envInt("SUDO_UID")
-		gid := envInt("SUDO_GID")
-		configLock := filepath.Join(hostDir, flakeLockName)
-		if err := staging.UpdateLock(p.Staging, configLock, uid, gid); err != nil {
+		hostLock := filepath.Join(hostDir, flakeLockName)
+		if err := staging.UpdateLock(p.Staging, hostLock); err != nil {
 			return err
 		}
 	}
@@ -189,14 +186,4 @@ func Rebuild(args []string) error {
 	flakeArgs = append(flakeArgs, rest...)
 
 	return nix.Exec(rebuildBin, flakeArgs)
-}
-
-// envInt reads an environment variable as an int, falling back to 0 when
-// unset or unparsable.
-func envInt(name string) int {
-	v, err := strconv.Atoi(os.Getenv(name))
-	if err != nil {
-		return 0
-	}
-	return v
 }

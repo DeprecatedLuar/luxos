@@ -4,6 +4,7 @@
 package nix
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,14 @@ const flakeBin = "nix"
 // buildBin is the classic nix-build binary, used for the channel-based
 // (--bypass) escape hatch.
 const buildBin = "nix-build"
+
+// writeFlakeArgs runs flake-file's write-flake app. --no-write-lock-file
+// keeps the bootstrap's default nixpkgs from moving a lock pinned to another
+// one; flakeLockArgs then fills in whatever is missing.
+var writeFlakeArgs = []string{"run", "--no-write-lock-file", ".#write-flake"}
+
+// flakeLockArgs locks missing inputs without moving existing pins.
+var flakeLockArgs = []string{"flake", "lock"}
 
 // rebuildAttr is the nix attribute path to a flake's built nixos-rebuild.
 const rebuildAttr = "config.system.build.nixos-rebuild"
@@ -65,6 +74,31 @@ func FlakeUpdate(flakeDir string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// WriteFlake runs flake-file's write-flake app in stagingDir, regenerating
+// flake.nix from the input declarations in the staged modules.
+func WriteFlake(stagingDir string) error {
+	return runIn(stagingDir, writeFlakeArgs)
+}
+
+// FlakeLock runs `nix flake lock` in stagingDir: missing inputs are locked,
+// existing pins stay where they are.
+func FlakeLock(stagingDir string) error {
+	return runIn(stagingDir, flakeLockArgs)
+}
+
+// runIn runs the nix binary with args in dir, wrapping a failure with the
+// command line and its stderr.
+func runIn(dir string, args []string) error {
+	cmd := exec.Command(flakeBin, args...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s (in %s) failed: %w\n%s", flakeBin, strings.Join(args, " "), dir, err, stderr.String())
+	}
+	return nil
 }
 
 // RebuildFromFlake builds nixosConfigurations.<host>.config.system.build.nixos-rebuild

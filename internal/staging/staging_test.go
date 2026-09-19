@@ -79,6 +79,8 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "shadow.sh"),
 		filepath.Join(stagingDir, "framework", "units.nix"),
 		filepath.Join(stagingDir, "framework", "overlay.nix"),
+		filepath.Join(stagingDir, "flake.nix"),
+		filepath.Join(stagingDir, "framework", "outputs.nix"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
@@ -361,4 +363,59 @@ func mustJoin(t *testing.T, base string, elem ...string) string {
 		t.Fatal(err)
 	}
 	return full
+}
+
+func TestLockChanged(t *testing.T) {
+	stagingDir := t.TempDir()
+	hostLock := filepath.Join(t.TempDir(), "flake.lock")
+	if err := os.WriteFile(filepath.Join(stagingDir, "flake.lock"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if changed, err := LockChanged(stagingDir, hostLock); err != nil || !changed {
+		t.Errorf("missing host lock: changed=%v err=%v, want true", changed, err)
+	}
+
+	if err := os.WriteFile(hostLock, []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := LockChanged(stagingDir, hostLock); err != nil || changed {
+		t.Errorf("same content: changed=%v err=%v, want false", changed, err)
+	}
+
+	if err := os.WriteFile(hostLock, []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := LockChanged(stagingDir, hostLock); err != nil || !changed {
+		t.Errorf("different content: changed=%v err=%v, want true", changed, err)
+	}
+}
+
+func TestLockChanged_MissingStagedLockErrors(t *testing.T) {
+	if _, err := LockChanged(t.TempDir(), filepath.Join(t.TempDir(), "flake.lock")); err == nil {
+		t.Fatal("want error when the staged lock is missing")
+	}
+}
+
+func TestCopyLockBack(t *testing.T) {
+	stagingDir := t.TempDir()
+	hostLock := filepath.Join(t.TempDir(), "flake.lock")
+	if err := os.WriteFile(filepath.Join(stagingDir, "flake.lock"), []byte("locked"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyLockBack(stagingDir, hostLock); err != nil {
+		t.Fatalf("CopyLockBack: %v", err)
+	}
+	data, err := os.ReadFile(hostLock)
+	if err != nil || string(data) != "locked" {
+		t.Errorf("host lock = %q, err=%v, want %q", data, err, "locked")
+	}
+	info, err := os.Stat(hostLock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != fileMode {
+		t.Errorf("host lock mode = %v, want %v", info.Mode().Perm(), fileMode)
+	}
 }

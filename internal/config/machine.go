@@ -1,5 +1,4 @@
-// Package config loads and validates channels.toml, and validates the
-// fixed .local/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
+// Package config validates the fixed .local/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
 // modules.nix, an optional flake.lock, and an optional modules/ directory.
 package config
 

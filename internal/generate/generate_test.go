@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
@@ -67,19 +66,6 @@ func assertNixParses(t *testing.T, content []byte) {
 	}
 }
 
-func testChannels() config.Channels {
-	return config.Channels{
-		Base: "stable",
-		Channels: []config.Input{
-			{Name: "stable", URL: "github:NixOS/nixpkgs/nixos-24.05"},
-			{Name: "unstable", URL: "github:NixOS/nixpkgs/nixos-unstable"},
-		},
-		Flakes: []config.Input{
-			{Name: "home-manager", URL: "github:nix-community/home-manager"},
-		},
-	}
-}
-
 func TestConfiguration_Golden(t *testing.T) {
 	out, err := Configuration("paraloid", "/etc/luxos/bin/luxos")
 	if err != nil {
@@ -103,33 +89,41 @@ func TestConfiguration_Deterministic(t *testing.T) {
 	}
 }
 
-func TestFlake_Golden(t *testing.T) {
-	out, err := Flake("paraloid", testChannels())
+func TestFlakeBootstrap_Golden(t *testing.T) {
+	out, err := FlakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("Flake: %v", err)
+		t.Fatalf("FlakeBootstrap: %v", err)
 	}
-	assertGolden(t, "flake", out)
+	assertGolden(t, "bootstrap", out)
 	assertNixParses(t, out)
 }
 
-func TestFlake_Deterministic(t *testing.T) {
-	a, err := Flake("paraloid", testChannels())
+func TestFlakeBootstrap_Deterministic(t *testing.T) {
+	a, err := FlakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("Flake: %v", err)
+		t.Fatalf("FlakeBootstrap: %v", err)
 	}
-	b, err := Flake("paraloid", testChannels())
+	b, err := FlakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("Flake: %v", err)
+		t.Fatalf("FlakeBootstrap: %v", err)
 	}
 	if string(a) != string(b) {
-		t.Errorf("Flake is not deterministic")
+		t.Errorf("FlakeBootstrap is not deterministic")
 	}
 }
 
-func TestFlake_EmptyHostErrors(t *testing.T) {
-	if _, err := Flake("", testChannels()); err == nil {
-		t.Fatalf("Flake: want error for empty host")
+func TestFlakeBootstrap_EmptyHostErrors(t *testing.T) {
+	if _, err := FlakeBootstrap(""); err == nil {
+		t.Fatalf("FlakeBootstrap: want error for empty host")
 	}
+}
+
+func TestStaticFlakeNix_Parses(t *testing.T) {
+	content, err := framework.File("flake.nix")
+	if err != nil {
+		t.Fatalf("framework.File(flake.nix): %v", err)
+	}
+	assertNixParses(t, content)
 }
 
 func TestSystemNix_Parses(t *testing.T) {
@@ -172,96 +166,3 @@ func TestShadowScript_BashSyntaxValid(t *testing.T) {
 		t.Errorf("bash -n failed: %v\n%s", err, out)
 	}
 }
-
-func TestLockDrift_NoLockFile(t *testing.T) {
-	orphaned, unlocked, err := LockDrift(filepath.Join(t.TempDir(), "flake.lock"), []string{"nixpkgs"})
-	if err != nil {
-		t.Fatalf("LockDrift: %v", err)
-	}
-	if orphaned != nil || unlocked != nil {
-		t.Errorf("LockDrift with missing lock: got orphaned=%v unlocked=%v, want nil, nil", orphaned, unlocked)
-	}
-}
-
-func TestLockDrift_InSync(t *testing.T) {
-	dir := t.TempDir()
-	lock := filepath.Join(dir, "flake.lock")
-	mustWrite(t, lock, `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstable":"unstable_2"}}}}`)
-
-	orphaned, unlocked, err := LockDrift(lock, []string{"nixpkgs", "unstable"})
-	if err != nil {
-		t.Fatalf("LockDrift: %v", err)
-	}
-	if len(orphaned) != 0 || len(unlocked) != 0 {
-		t.Errorf("LockDrift in sync: got orphaned=%v unlocked=%v, want none", orphaned, unlocked)
-	}
-}
-
-func TestLockDrift_Orphaned(t *testing.T) {
-	dir := t.TempDir()
-	lock := filepath.Join(dir, "flake.lock")
-	mustWrite(t, lock, `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","old-channel":"old_2"}}}}`)
-
-	orphaned, unlocked, err := LockDrift(lock, []string{"nixpkgs"})
-	if err != nil {
-		t.Fatalf("LockDrift: %v", err)
-	}
-	if want := []string{"old-channel"}; !equalStrings(orphaned, want) {
-		t.Errorf("orphaned = %v, want %v", orphaned, want)
-	}
-	if len(unlocked) != 0 {
-		t.Errorf("unlocked = %v, want none", unlocked)
-	}
-}
-
-func TestLockDrift_Unlocked(t *testing.T) {
-	dir := t.TempDir()
-	lock := filepath.Join(dir, "flake.lock")
-	mustWrite(t, lock, `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2"}}}}`)
-
-	orphaned, unlocked, err := LockDrift(lock, []string{"nixpkgs", "new-channel"})
-	if err != nil {
-		t.Fatalf("LockDrift: %v", err)
-	}
-	if len(orphaned) != 0 {
-		t.Errorf("orphaned = %v, want none", orphaned)
-	}
-	if want := []string{"new-channel"}; !equalStrings(unlocked, want) {
-		t.Errorf("unlocked = %v, want %v", unlocked, want)
-	}
-}
-
-func TestLockInputs(t *testing.T) {
-	got := LockInputs(testChannels())
-	want := []string{"nixpkgs", "unstable", "home-manager"}
-	if !equalStrings(got, want) {
-		t.Errorf("LockInputs = %v, want %v", got, want)
-	}
-}
-
-func mustWrite(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func mustMkdir(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0755); err != nil {
-		t.Fatalf("mkdir %s: %v", path, err)
-	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-

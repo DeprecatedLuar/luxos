@@ -1,5 +1,3 @@
-github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
-github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/DeprecatedLuar/gohelp-luar v0.4.0 h1:dsNKLsvGrqZMYwZcbFC+5vVWR3wsCicBf/APhHnn1uY=
 github.com/DeprecatedLuar/gohelp-luar v0.4.0/go.mod h1:Cyu+2LWntqOPywRtAZHADj8EgOe+R3s0+hjjp5XHOow=
 golang.org/x/sys v0.28.0 h1:Fksou7UEQUWlKvIdsqzJmUmCX3cZuD2+P3XyyzwMhlA=

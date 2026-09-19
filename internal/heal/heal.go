@@ -19,6 +19,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/gitignore"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/links"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -30,8 +31,12 @@ import (
 // reorders anything else in the file.
 var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local"}
 
-// channelsFile is channels.toml's name under Paths.Config.
-const channelsFile = "channels.toml"
+// Nix invocations, replaceable so tests need neither network nor a
+// working flake-file.
+var (
+	writeFlake = nix.WriteFlake
+	flakeLock  = nix.FlakeLock
+)
 
 // selectionFile is a host's selection file, holding the "imports = [...]"
 // block imports.Heal/List read and write (L4).
@@ -41,7 +46,7 @@ const selectionFile = "modules.nix"
 // self-heal.sh used: ensure the .gitignore, sync framework modules,
 // validate and protect the host folder (L1-L3), heal host entrypoints,
 // validate module boundaries, materialize staging, and generate+install
-// flake.nix and configuration.nix. exe is the absolute path to the running
+// flake-file.nix (then flake.nix via flake-file) and configuration.nix. exe is the absolute path to the running
 // luxos binary, used by generate.Configuration for the shadow scripts.
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
@@ -144,32 +149,31 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
-	// 9. generate and install flake.nix
-	fmt.Fprintln(w, "Generating flake.nix from channels.toml...")
-	channels, err := config.LoadChannels(filepath.Join(p.Config, channelsFile))
+	// 9. generate flake-file.nix, let flake-file write flake.nix, lock
+	fmt.Fprintln(w, "Generating flake.nix with flake-file...")
+	bootstrap, err := generate.FlakeBootstrap(host)
 	if err != nil {
 		return err
 	}
-	flakeContent, err := generate.Flake(host, channels)
+	if err := staging.Install(p.Staging, "flake-file.nix", bootstrap); err != nil {
+		return err
+	}
+	if err := writeFlake(p.Staging); err != nil {
+		return err
+	}
+	if err := flakeLock(p.Staging); err != nil {
+		return err
+	}
+	hostLock := filepath.Join(hostDir, "flake.lock")
+	changed, err := staging.LockChanged(p.Staging, hostLock)
 	if err != nil {
 		return err
 	}
-	orphaned, unlocked, err := generate.LockDrift(filepath.Join(hostDir, "flake.lock"), generate.LockInputs(channels))
-	if err != nil {
-		return err
-	}
-	if len(orphaned) > 0 || len(unlocked) > 0 {
-		fmt.Fprintf(w, "Warning: %s no longer matches %s\n", filepath.Join(hostDir, "flake.lock"), channelsFile)
-		for _, name := range orphaned {
-			fmt.Fprintf(w, "  orphaned in flake.lock: %s\n", name)
+	if changed {
+		if err := staging.CopyLockBack(p.Staging, hostLock); err != nil {
+			return err
 		}
-		for _, name := range unlocked {
-			fmt.Fprintf(w, "  unlocked, will resolve to HEAD: %s\n", name)
-		}
-		fmt.Fprintln(w, "  Run 'luxos rebuild --update-lock' to re-lock deliberately.")
-	}
-	if err := staging.Install(p.Staging, "flake.nix", flakeContent); err != nil {
-		return err
+		fmt.Fprintf(w, "  locked new inputs: %s\n", hostLock)
 	}
 
 	// 10. generate and install configuration.nix

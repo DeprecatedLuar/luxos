@@ -23,6 +23,33 @@ func skipIfNoNix(t *testing.T) {
 	}
 }
 
+// fakeNix replaces the nix invocations for the test and returns the calls
+// made, in order. The fake lock step writes a staged flake.lock when
+// staging.Materialize had none to copy, as `nix flake lock` would.
+func fakeNix(t *testing.T) *[]string {
+	t.Helper()
+	calls := &[]string{}
+	origWrite, origLock := writeFlake, flakeLock
+	t.Cleanup(func() { writeFlake, flakeLock = origWrite, origLock })
+
+	writeFlake = func(stagingDir string) error {
+		*calls = append(*calls, "write-flake")
+		if _, err := os.Stat(filepath.Join(stagingDir, "flake-file.nix")); err != nil {
+			t.Errorf("write-flake ran before flake-file.nix was installed: %v", err)
+		}
+		return nil
+	}
+	flakeLock = func(stagingDir string) error {
+		*calls = append(*calls, "flake-lock")
+		lock := filepath.Join(stagingDir, "flake.lock")
+		if _, err := os.Stat(lock); os.IsNotExist(err) {
+			return os.WriteFile(lock, []byte("{\"fake\":true}\n"), 0644)
+		}
+		return nil
+	}
+	return calls
+}
+
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0755); err != nil {
@@ -89,9 +116,6 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host2", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	channelsToml := mustReadFile(t, "../framework/files/templates/channels.toml")
-	write(t, filepath.Join(config, "channels.toml"), channelsToml)
-
 	write(t, hardwareConfig, "{ }\n")
 
 	p := paths.Paths{
@@ -114,14 +138,20 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	p, host := fixture(t)
 	exe := "/etc/luxos/bin/luxos"
+	calls := fakeNix(t)
 
 	var out bytes.Buffer
 	if err := Run(&out, p, host, exe, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
+	if got := strings.Join(*calls, ","); got != "write-flake,flake-lock" {
+		t.Errorf("nix calls = %q, want write-flake then flake-lock", got)
+	}
+
 	mustExist := []string{
 		filepath.Join(p.Staging, "flake.nix"),
+		filepath.Join(p.Staging, "flake-file.nix"),
 		filepath.Join(p.Staging, "configuration.nix"),
 		filepath.Join(p.Staging, "framework", "system.nix"),
 		filepath.Join(p.Staging, "config", "modules", "system", "desktop.nix"),
@@ -192,8 +222,6 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	write(t, filepath.Join(local, "host1", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	channelsToml := mustReadFile(t, "../framework/files/templates/channels.toml")
-	write(t, filepath.Join(config, "channels.toml"), channelsToml)
 	write(t, hardwareConfig, "{ }\n")
 
 	p := paths.Paths{
@@ -208,6 +236,8 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		RunningModules: filepath.Join(root, "run-modules.nix"),
 		LuxLink:        filepath.Join(root, "lux"),
 	}
+
+	fakeNix(t)
 
 	var out bytes.Buffer
 	if err := Run(&out, p, "host1", "/etc/luxos/bin/luxos", false); err != nil {
@@ -228,12 +258,20 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", stagedFoo, err)
 	}
 
-	flakeContent := mustReadFile(t, filepath.Join(staging, "flake.nix"))
-	if !strings.Contains(flakeContent, "import ./framework/units.nix") {
-		t.Errorf("flake.nix missing units.nix import, got:\n%s", flakeContent)
+	flakeFile := mustReadFile(t, filepath.Join(staging, "flake-file.nix"))
+	for _, want := range []string{"import ./framework/overlay.nix", "nixosConfigurations.host1"} {
+		if !strings.Contains(flakeFile, want) {
+			t.Errorf("flake-file.nix missing %q, got:\n%s", want, flakeFile)
+		}
 	}
-	if !strings.Contains(flakeContent, "import ./framework/overlay.nix") {
-		t.Errorf("flake.nix missing overlay.nix import, got:\n%s", flakeContent)
+
+	// No lock existed for the host: the fake lock step created one, so the
+	// rebuild copies it back and says so.
+	if !strings.Contains(out.String(), "locked new inputs:") {
+		t.Errorf("output did not report the new lock, got:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(local, "host1", "flake.lock")); err != nil {
+		t.Errorf("lock was not copied back to the host folder: %v", err)
 	}
 }
 
@@ -242,6 +280,7 @@ func TestRun_StrayHostFileFails(t *testing.T) {
 
 	p, host := fixture(t)
 	exe := "/etc/luxos/bin/luxos"
+	fakeNix(t)
 
 	stray := filepath.Join(p.Local, host, "hardware.nix")
 	write(t, stray, "{ }\n")
@@ -261,6 +300,7 @@ func TestRun_UnimportedViolationIgnored(t *testing.T) {
 
 	p, host := fixture(t)
 	exe := "/etc/luxos/bin/luxos"
+	fakeNix(t)
 
 	// Broken, but no host imports it: it is never built, so never checked.
 	write(t, filepath.Join(p.Modules, "unused.nix"), "{ imports = [ ../outside.nix ]; }\n")
@@ -276,6 +316,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 
 	p, host := fixture(t)
 	exe := "/etc/luxos/bin/luxos"
+	fakeNix(t)
 
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.

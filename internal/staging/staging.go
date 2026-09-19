@@ -6,10 +6,12 @@
 package staging
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -26,10 +28,12 @@ const (
 	frameworkDir = "framework"
 	configDir    = "config"
 
+	flakeNix   = "flake.nix"
 	systemNix  = "system.nix"
 	shadowSh   = "shadow.sh"
 	unitsNix   = "units.nix"
 	overlayNix = "overlay.nix"
+	outputsNix = "outputs.nix"
 
 	stagedModulesDir = "modules"
 	stagedLocalDir   = "local"
@@ -39,7 +43,7 @@ const (
 )
 
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
-// framework/shadow.sh, framework/units.nix, framework/overlay.nix,
+// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, flake.nix,
 // config/modules (from modulesDir), config/local (from hostDir),
 // hardware-configuration.nix, and flake.lock if lockFile exists. lockFile is
 // the active host's own flake.lock (hostDir/flake.lock), not a config-root
@@ -87,6 +91,12 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile strin
 	if err := writeFrameworkFile(fwDir, overlayNix); err != nil {
 		return err
 	}
+	if err := writeFrameworkFile(fwDir, outputsNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(stagingDir, flakeNix); err != nil {
+		return err
+	}
 
 	if err := copyDeref(modulesDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
 		return err
@@ -124,21 +134,50 @@ func Install(stagingDir, rel string, content []byte) error {
 }
 
 // UpdateLock re-locks the staged flake and copies the result back to
-// configLock (the active host's flake.lock, hostDir/flake.lock), owned by
-// uid:gid, to be committed. Not exercised by unit tests: it requires real
-// network/nix flake access.
-func UpdateLock(stagingDir, configLock string, uid, gid int) error {
+// hostLock (the active host's flake.lock) via CopyLockBack, to be committed.
+// Not exercised by unit tests: it requires real network/nix flake access.
+func UpdateLock(stagingDir, hostLock string) error {
 	if err := nix.FlakeUpdate(stagingDir); err != nil {
 		return err
 	}
+	return CopyLockBack(stagingDir, hostLock)
+}
 
-	if err := copyFile(filepath.Join(stagingDir, lockFileName), configLock); err != nil {
+// LockChanged reports whether the staged flake.lock differs from hostLock.
+// A missing hostLock counts as changed; a missing staged lock is an error.
+func LockChanged(stagingDir, hostLock string) (bool, error) {
+	staged, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
+	if err != nil {
+		return false, err
+	}
+	host, err := os.ReadFile(hostLock)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return !bytes.Equal(staged, host), nil
+}
+
+// CopyLockBack copies the staged flake.lock to hostLock, owned by whoever
+// owns hostLock's directory (the invoking user, since rebuild runs as root).
+func CopyLockBack(stagingDir, hostLock string) error {
+	info, err := os.Stat(filepath.Dir(hostLock))
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(configLock, fileMode); err != nil {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot read the owner of %s", filepath.Dir(hostLock))
+	}
+	if err := copyFile(filepath.Join(stagingDir, lockFileName), hostLock); err != nil {
 		return err
 	}
-	return os.Chown(configLock, uid, gid)
+	if err := os.Chmod(hostLock, fileMode); err != nil {
+		return err
+	}
+	return os.Chown(hostLock, int(st.Uid), int(st.Gid))
 }
 
 func guard(stagingDir string) error {
