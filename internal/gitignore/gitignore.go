@@ -6,16 +6,15 @@ import (
 	"bufio"
 	"os"
 	"strings"
-)
 
-const (
-	createMode = 0644
+	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 // Ensure appends every line in lines that is not already present in the
 // file at path (exact match, ignoring a trailing '\r' and trailing
 // whitespace), preserving existing content and order. It creates the file
-// if it does not exist. It returns the lines that were actually added, in
+// if it does not exist; a created file gets its parent directory's owner.
+// It returns the lines that were actually added, in
 // the order given.
 func Ensure(path string, lines []string) (added []string, err error) {
 	existing, err := readLines(path)
@@ -42,20 +41,33 @@ func Ensure(path string, lines []string) (added []string, err error) {
 		return nil, nil
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, createMode)
-	if err != nil {
-		return nil, err
+	_, statErr := os.Lstat(path)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return nil, statErr
 	}
-	defer f.Close()
+	missing := statErr != nil
 
 	var b strings.Builder
-	if needsLeadingNewline(path) {
+	if !missing && needsLeadingNewline(path) {
 		b.WriteString("\n")
 	}
 	for _, l := range toAdd {
 		b.WriteString(l)
 		b.WriteString("\n")
 	}
+
+	if missing {
+		if err := userfile.Write(path, []byte(b.String())); err != nil {
+			return nil, err
+		}
+		return toAdd, nil
+	}
+
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
 
 	if _, err := f.WriteString(b.String()); err != nil {
 		return nil, err

@@ -11,10 +11,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 // Marker marks a directory as a staging tree this package created and may
@@ -160,24 +160,15 @@ func LockChanged(stagingDir, hostLock string) (bool, error) {
 	return !bytes.Equal(staged, host), nil
 }
 
-// CopyLockBack copies the staged flake.lock to hostLock, owned by whoever
-// owns hostLock's directory (the invoking user, since rebuild runs as root).
+// CopyLockBack copies the staged flake.lock to hostLock via userfile.Write,
+// so it is owned by whoever owns hostLock's directory (the invoking user,
+// since rebuild runs as root).
 func CopyLockBack(stagingDir, hostLock string) error {
-	info, err := os.Stat(filepath.Dir(hostLock))
+	data, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
 	if err != nil {
 		return err
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("cannot read the owner of %s", filepath.Dir(hostLock))
-	}
-	if err := copyFile(filepath.Join(stagingDir, lockFileName), hostLock); err != nil {
-		return err
-	}
-	if err := os.Chmod(hostLock, fileMode); err != nil {
-		return err
-	}
-	return os.Chown(hostLock, int(st.Uid), int(st.Gid))
+	return userfile.Write(hostLock, data)
 }
 
 func guard(stagingDir string) error {
