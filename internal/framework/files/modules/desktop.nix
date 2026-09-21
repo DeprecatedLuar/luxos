@@ -1,5 +1,47 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
+let
+  appimage-run-base = pkgs.appimage-run.override {
+    extraPkgs = pkgs: with pkgs; [ libxshmfence zstd ];
+  };
+
+  # nixpkgs' appimage-run only unpacks SquashFS payloads. uruntime AppImages
+  # carry DwarFS instead, so extract those here and hand the directory to the
+  # stock script (-w), which runs it inside the same FHS env.
+  appimage-run = pkgs.writeShellApplication {
+    name = "appimage-run";
+    runtimeInputs = with pkgs; [ binutils gawk coreutils dwarfs ];
+    text = ''
+      readonly DWARFS_MAGIC="DWARFS"
+      readonly CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/appimage-run"
+      readonly BASE="${lib.getExe appimage-run-base}"
+
+      # Options (-x, -w, -d, -h) belong to the stock script.
+      if [[ $# -eq 0 || "$1" == -* ]]; then exec "$BASE" "$@"; fi
+
+      image=$(realpath "$1")
+      # Payload starts where the ELF section headers end, same as appimage-exec.sh.
+      offset=$(LC_ALL=C readelf -h "$image" | awk 'NR==13{s=$5} NR==18{e=$5} NR==19{n=$5} END{print s+e*n}')
+      magic=$(dd if="$image" bs=1 skip="$offset" count=''${#DWARFS_MAGIC} status=none | tr -d '\0')
+
+      if [[ "$magic" != "$DWARFS_MAGIC" ]]; then exec "$BASE" "$@"; fi
+
+      appdir="$CACHE_DIR/$(sha256sum "$image" | awk '{print $1}')"
+      if [[ ! -x "$appdir/AppRun" ]]; then
+        partial="$appdir.partial"
+        rm -rf "$partial" "$appdir"
+        mkdir -p "$partial"
+        echo "Extracting $(basename "$image") (DwarFS) to $appdir"
+        dwarfsextract -i "$image" --image-offset="$offset" -o "$partial" --log-level=error
+        mv "$partial" "$appdir"
+      fi
+
+      shift
+      export APPIMAGE="$image"
+      exec "$BASE" -w "$appdir" "$@"
+    '';
+  };
+in
 {
   #──[X11 compatibility]─────────────────────────────────────────────────────
   # XWayland (enabled by default under programs.hyprland) needs these even
@@ -32,9 +74,7 @@
   programs.appimage = {
     enable = true;
     binfmt = true;
-    package = pkgs.appimage-run.override {
-      extraPkgs = pkgs: with pkgs; [ libxshmfence zstd ];
-    };
+    package = appimage-run;
   };
   programs.nix-ld.enable = true;
   # Portable (non-AppImage) binaries in ~/Workspace/tools/ need these to
