@@ -3,7 +3,7 @@
 {
   users.users.user = {
     isNormalUser = true;
-    extraGroups = [ "networkmanager" "wheel" ];
+    # extraGroups = [ "networkmanager" "wheel" ];
     openssh.authorizedKeys.keys = [
       # "ssh-ed25519 AAAA... you@host"
     ];
