@@ -17,6 +17,8 @@ const (
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
+
+	environmentDescription = "syntax of CONFIG_DIR/environment"
 )
 
 // rootPage is the top-level usage text, ported from help.sh's cmd_help
@@ -36,6 +38,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("module|modules rename|rn <old> <new>", "Rename a module's identity"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
+			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
 		)
 }
 
@@ -90,10 +93,34 @@ func shellPage() *gohelp.Page {
 		Usage(binaryName + " shell [args]")
 }
 
+// environmentPage documents the syntax of CONFIG_DIR/environment.
+func environmentPage() *gohelp.Page {
+	return gohelp.NewPage("environment", environmentDescription).
+		Usage("CONFIG_DIR/environment").
+		Section("Syntax",
+			gohelp.Item("KEY=VALUE", "One variable per line; blank lines and # comments are ignored"),
+			gohelp.Item("export KEY=VALUE", "The export prefix is accepted"),
+			gohelp.Item("KEY=\"value\"", "Double quotes: spaces allowed, $ references expand"),
+			gohelp.Item("KEY='value'", "Single quotes: everything literal"),
+			gohelp.Item("KEY=value # note", "Inline comment after whitespace"),
+			gohelp.Item("$HOME, $USER", "Expanded per user at login"),
+			gohelp.Item("$KEY, ${KEY}", "A key defined earlier in the file"),
+		).
+		Section("Fails the build",
+			gohelp.Item("Reserved keys", "HOME USER LOGNAME SHELL XDG_RUNTIME_DIR XDG_SESSION_ID XDG_SESSION_TYPE XDG_SEAT XDG_VTNR DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS PATH"),
+			gohelp.Item("Unknown $VAR", "Only $HOME, $USER and earlier keys"),
+			gohelp.Item("\\ or backtick", "Outside single quotes"),
+			gohelp.Item("\" or @{", "Anywhere in a value"),
+			gohelp.Item("Duplicate key", "Each key once"),
+			gohelp.Item("Other syntax", "Spaces around =, unquoted spaces, mixed quoting"),
+		).
+		Text("Applied to every host as environment.sessionVariables. A module setting the same key to a different value fails the build; lib.mkForce in a module overrides this file. Your shell rc runs later and overrides it in that shell. Delete the file and the next rebuild restores the template; empty it to set nothing.")
+}
+
 // Run routes luxos's help output: `luxos help`, `luxos help <topic>`,
 // `luxos help --all`, `-h`/`--help` and no args all funnel through here.
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error (G10).
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), modulePage(), userPage(), shellPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), modulePage(), userPage(), shellPage(), environmentPage())
 }
