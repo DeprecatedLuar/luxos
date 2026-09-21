@@ -35,6 +35,9 @@ const (
 	overlayNix = "overlay.nix"
 	outputsNix = "outputs.nix"
 
+	environmentNix    = "environment.nix"
+	stagedEnvironment = "environment"
+
 	stagedModulesDir = "modules"
 	stagedLocalDir   = "local"
 
@@ -43,8 +46,8 @@ const (
 )
 
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
-// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, flake.nix,
-// config/modules (from modulesDir), config/local (from hostDir),
+// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, framework/environment.nix, flake.nix,
+// config/modules (from modulesDir), config/local (from hostDir), config/environment (from environmentFile, required),
 // hardware-configuration.nix, and flake.lock if lockFile exists. lockFile is
 // the active host's own flake.lock (hostDir/flake.lock), not a config-root
 // one.
@@ -52,7 +55,7 @@ const (
 // touch stagingDir unless it is empty or a tree this package created
 // (marked with Marker), and refuses a dangling symlink under modulesDir or
 // hostDir, naming it.
-func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile string) error {
+func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile string) error {
 	if err := guard(stagingDir); err != nil {
 		return err
 	}
@@ -94,6 +97,9 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile strin
 	if err := writeFrameworkFile(fwDir, outputsNix); err != nil {
 		return err
 	}
+	if err := writeFrameworkFile(fwDir, environmentNix); err != nil {
+		return err
+	}
 	if err := writeFrameworkFile(stagingDir, flakeNix); err != nil {
 		return err
 	}
@@ -102,6 +108,10 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile strin
 		return err
 	}
 	if err := copyDeref(hostDir, filepath.Join(cfgDir, stagedLocalDir)); err != nil {
+		return err
+	}
+
+	if err := copyFile(environmentFile, filepath.Join(cfgDir, stagedEnvironment)); err != nil {
 		return err
 	}
 

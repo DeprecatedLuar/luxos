@@ -1,7 +1,7 @@
 // Package heal is the self-healing orchestrator run before every rebuild.
 // It sequences internal/gitignore, internal/framework, internal/imports,
 // internal/generate, internal/links, internal/units, internal/refs and
-// internal/staging in the fixed order the bash self-heal.sh used, printing
+// internal/staging and internal/userfile in the fixed order the bash self-heal.sh used, printing
 // progress to the given io.Writer. It has no parsing or decision logic of
 // its own (implementation-plan.md G10/G11): every package it calls takes
 // explicit directories and returns values plus error; this file only
@@ -24,6 +24,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/units"
+	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 // gitignoreLines are the lines CONFIG_DIR's root .gitignore must contain;
@@ -42,8 +43,16 @@ var (
 // block imports.Heal/List read and write (L4).
 const selectionFile = "modules.nix"
 
+const (
+	// environmentFile is the global environment file at the config root;
+	// environmentTemplate is the embedded template written when it is missing.
+	environmentFile     = "environment"
+	environmentTemplate = "templates/environment"
+)
+
 // Run performs the full self-heal sequence for host, in the order the bash
-// self-heal.sh used: ensure the .gitignore, sync framework modules,
+// self-heal.sh used: ensure the .gitignore, ensure the global environment file (created from
+// the embedded template when missing), sync framework modules,
 // validate and protect the host folder (L1-L3), heal host entrypoints,
 // validate module boundaries, materialize staging, and generate+install
 // flake-file.nix (then flake.nix via flake-file) and configuration.nix. exe is the absolute path to the running
@@ -61,6 +70,21 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	}
 	for _, line := range added {
 		fmt.Fprintf(w, "  added: %s\n", line)
+	}
+
+	// 1b. environment file
+	fmt.Fprintln(w, "Ensuring environment file...")
+	tmpl, err := framework.File(environmentTemplate)
+	if err != nil {
+		return err
+	}
+	envPath := filepath.Join(p.Config, environmentFile)
+	created, err := userfile.Create(envPath, tmpl)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(w, "  created: %s\n", envPath)
 	}
 
 	// 2. framework modules sync
@@ -145,7 +169,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(hostDir, "flake.lock")); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
 		return err
 	}
 

@@ -18,7 +18,7 @@ func skipIfNoNix(t *testing.T) {
 // fixture builds a modulesDir and hostDir tree, the latter containing a
 // symlink into the former (like the generated mirror link), plus a
 // hardware-configuration.nix and flake.lock. Returns their paths.
-func fixture(t *testing.T) (modulesDir, hostDir, hardwareConfig, lockFile string) {
+func fixture(t *testing.T) (modulesDir, hostDir, hardwareConfig, lockFile, environmentFile string) {
 	t.Helper()
 	root := t.TempDir()
 
@@ -62,14 +62,19 @@ func fixture(t *testing.T) (modulesDir, hostDir, hardwareConfig, lockFile string
 		t.Fatal(err)
 	}
 
-	return modulesDir, hostDir, hardwareConfig, lockFile
+	environmentFile = filepath.Join(root, "environment")
+	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return modulesDir, hostDir, hardwareConfig, lockFile, environmentFile
 }
 
 func TestMaterialize_Basic(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+	modulesDir, hostDir, hardwareConfig, lockFile, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -81,6 +86,8 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "overlay.nix"),
 		filepath.Join(stagingDir, "flake.nix"),
 		filepath.Join(stagingDir, "framework", "outputs.nix"),
+		filepath.Join(stagingDir, "framework", "environment.nix"),
+		filepath.Join(stagingDir, "config", "environment"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
@@ -121,15 +128,25 @@ func TestMaterialize_Basic(t *testing.T) {
 
 func TestMaterialize_LockOptional(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, hardwareConfig, _ := fixture(t)
+	modulesDir, hostDir, hardwareConfig, _, environmentFile := fixture(t)
 	missingLock := filepath.Join(t.TempDir(), "flake.lock")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, missingLock); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, missingLock, environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
 	if _, err := os.Stat(filepath.Join(stagingDir, "flake.lock")); !os.IsNotExist(err) {
 		t.Fatalf("flake.lock should not exist, err=%v", err)
+	}
+}
+
+func TestMaterialize_MissingEnvironmentFails(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, hardwareConfig, lockFile, _ := fixture(t)
+	missingEnv := filepath.Join(t.TempDir(), "environment")
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, missingEnv); err == nil {
+		t.Fatal("expected an error for a missing environment file")
 	}
 }
 
@@ -141,9 +158,9 @@ func TestMaterialize_GuardRefusesForeignDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+	modulesDir, hostDir, hardwareConfig, lockFile, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err == nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile); err == nil {
 		t.Fatalf("expected guard error for foreign staging dir")
 	}
 
@@ -154,26 +171,26 @@ func TestMaterialize_GuardRefusesForeignDir(t *testing.T) {
 
 func TestMaterialize_GuardAllowsOwnTree(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+	modulesDir, hostDir, hardwareConfig, lockFile, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile); err != nil {
 		t.Fatalf("first Materialize: %v", err)
 	}
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile); err != nil {
 		t.Fatalf("second Materialize (re-run on own tree): %v", err)
 	}
 }
 
 func TestMaterialize_DanglingLinkRefused(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, hardwareConfig, lockFile := fixture(t)
+	modulesDir, hostDir, hardwareConfig, lockFile, environmentFile := fixture(t)
 
 	dangling := filepath.Join(modulesDir, "broken.nix")
 	if err := os.Symlink(filepath.Join(modulesDir, "does-not-exist.nix"), dangling); err != nil {
 		t.Fatal(err)
 	}
 
-	err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile)
+	err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile)
 	if err == nil {
 		t.Fatalf("expected dangling symlink error")
 	}
@@ -252,7 +269,12 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 		t.Fatal(err)
 	}
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, filepath.Join(root, "flake.lock")); err != nil {
+	environmentFile := filepath.Join(root, "environment")
+	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, filepath.Join(root, "flake.lock"), environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 

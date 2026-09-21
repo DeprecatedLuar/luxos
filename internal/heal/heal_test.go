@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
@@ -190,6 +191,18 @@ func TestRun_EndToEnd(t *testing.T) {
 		}
 	}
 
+	// The environment file was created from the template and staged as is.
+	tmpl, err := framework.File("templates/environment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Config, "environment")); got != string(tmpl) {
+		t.Errorf("environment = %q, want the template %q", got, tmpl)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Staging, "config", "environment")); got != string(tmpl) {
+		t.Errorf("staged environment = %q, want the template %q", got, tmpl)
+	}
+
 	// A second run finds nothing left to heal.
 	var out2 bytes.Buffer
 	if err := Run(&out2, p, host, exe, false); err != nil {
@@ -199,6 +212,26 @@ func TestRun_EndToEnd(t *testing.T) {
 		if strings.Contains(out2.String(), marker) {
 			t.Errorf("second run reported a heal change (found %q), got:\n%s", marker, out2.String())
 		}
+	}
+}
+
+func TestRun_ExistingEnvironmentUntouched(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	fakeNix(t)
+	envPath := filepath.Join(p.Config, "environment")
+	write(t, envPath, "")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+	if got := mustReadFile(t, envPath); got != "" {
+		t.Errorf("environment = %q, want it left empty", got)
+	}
+	if strings.Contains(out.String(), "created: "+envPath) {
+		t.Errorf("output reported a creation, got:\n%s", out.String())
 	}
 }
 
