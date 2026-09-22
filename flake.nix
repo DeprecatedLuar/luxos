@@ -17,6 +17,13 @@
         inherit version vendorHash;
         src = ./.;
         subPackages = [ "cmd/luxos" ];
+
+        # `lux` is a second name for the same binary, so every host that
+        # installs this package gets both commands on PATH.
+        postInstall = ''
+          ln -s luxos $out/bin/lux
+        '';
+
         meta.mainProgram = "luxos";
       };
     };

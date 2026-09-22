@@ -19,7 +19,6 @@ const (
 	configRelToHome = ".config/luxos"
 	localRel        = ".local"
 	modulesRel      = "modules"
-	luxLinkRel      = ".local/bin/lux"
 
 	etcNixos       = "/etc/nixos"
 	staging        = "/etc/nixos/luxos"
@@ -43,7 +42,6 @@ type Paths struct {
 	Sys            string // /sys
 	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/etc/luxos/modules.nix
-	LuxLink        string // <Home>/.local/bin/lux
 }
 
 // Resolve determines the invoking user (honoring $SUDO_USER) and builds
@@ -76,7 +74,6 @@ func Resolve() (Paths, error) {
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: runningModules,
-		LuxLink:        filepath.Join(u.HomeDir, luxLinkRel),
 	}, nil
 }
 

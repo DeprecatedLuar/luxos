@@ -139,7 +139,6 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
-		LuxLink:        filepath.Join(root, "lux"),
 	}
 	return p, "host1"
 }
@@ -329,7 +328,6 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
-		LuxLink:        filepath.Join(root, "lux"),
 	}
 
 	fakeNix(t)

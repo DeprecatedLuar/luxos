@@ -77,9 +77,6 @@ func TestResolve_HomeEnvOverridesCurrentUser(t *testing.T) {
 	if want := filepath.Join(fakeHome, configRelToHome); p.Config != want {
 		t.Fatalf("Config = %q, want %q", p.Config, want)
 	}
-	if want := filepath.Join(fakeHome, luxLinkRel); p.LuxLink != want {
-		t.Fatalf("LuxLink = %q, want %q", p.LuxLink, want)
-	}
 }
 
 func TestResolve_NoHomeEnvFallsBackToCurrentUser(t *testing.T) {

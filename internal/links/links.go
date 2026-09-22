@@ -143,49 +143,6 @@ func EnsureEtcNixos(etcNixos string) ([]string, error) {
 	return actions, nil
 }
 
-// LuxLinkState reports what EnsureLux found or did.
-type LuxLinkState int
-
-const (
-	LuxLinkOK LuxLinkState = iota
-	LuxLinkCreated
-	LuxLinkConflict
-)
-
-// EnsureLux ensures link is a symlink to target (G8). Missing -> created.
-// Already a symlink to target -> ok. A symlink pointing elsewhere, or a
-// real file/dir, is left untouched and reported as a conflict.
-func EnsureLux(link, target string) (LuxLinkState, error) {
-	if err := os.MkdirAll(filepath.Dir(link), dirMode); err != nil {
-		return LuxLinkConflict, err
-	}
-
-	info, err := os.Lstat(link)
-	if os.IsNotExist(err) {
-		if err := os.Symlink(target, link); err != nil {
-			return LuxLinkConflict, err
-		}
-		return LuxLinkCreated, nil
-	}
-	if err != nil {
-		return LuxLinkConflict, err
-	}
-
-	if info.Mode()&os.ModeSymlink == 0 {
-		return LuxLinkConflict, nil
-	}
-
-	current, err := os.Readlink(link)
-	if err != nil {
-		return LuxLinkConflict, err
-	}
-	if current != target {
-		return LuxLinkConflict, nil
-	}
-
-	return LuxLinkOK, nil
-}
-
 // refuseRealFile errors if path exists and is not a symlink.
 func refuseRealFile(path, reason string) error {
 	info, err := os.Lstat(path)

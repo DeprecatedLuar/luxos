@@ -40,7 +40,12 @@
   ];
 
   programs.nix-ld.enable = true;
-  
+
+  # Personal bin directories on PATH. luxos links itself into ~/.local/bin/lux,
+  # so that one is required for `lux` to resolve on a fresh machine.
+  environment.localBinInPath = lib.mkDefault true;
+  environment.homeBinInPath = lib.mkDefault true;
+
   environment.etc."luxos/modules.nix".source = ../config/modules/default.nix;
 
   #──[Users]─────────────────────────────────────────────────────────────────
