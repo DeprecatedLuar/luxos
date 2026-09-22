@@ -34,6 +34,9 @@
     squashfsTools
 
     kitty.terminfo
+  ] ++ [
+    # The luxos binary itself, from the flake input declared in flake-file.nix.
+    inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 
   programs.nix-ld.enable = true;

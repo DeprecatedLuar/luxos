@@ -34,6 +34,12 @@ in
   # bootstrap inputs must be declared here or the regenerated flake loses them.
   flake-file.inputs.flake-file.url = pinned.flake-file.url;
   flake-file.inputs.nixpkgs.url = lib.mkDefault pinned.nixpkgs.url;
+
+  # The luxos binary itself, installed by framework/system.nix. Declared here
+  # (not in system.nix) because flake-file only reads inputs from this file.
+  flake-file.inputs.luxos.url = "github:DeprecatedLuar/luxos/go-rebuild";
+  flake-file.inputs.luxos.inputs.nixpkgs.follows = "nixpkgs";
+
   flake-file.outputs = "inputs: import ./framework/outputs.nix inputs";
 
   # The staged flake root holds exactly one machine's configuration.nix, so
