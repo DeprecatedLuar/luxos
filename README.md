@@ -1,3 +1,3 @@
 ```
-git clone <your luxos config repo> ~/.config/luxos && nix run github:DeprecatedLuar/luxos/go-rebuild -- rebuild switch
+nix --extra-experimental-features 'nix-command flakes' run github:DeprecatedLuar/luxos/go-rebuild -- rebuild switch
 ```

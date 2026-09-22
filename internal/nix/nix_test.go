@@ -50,3 +50,19 @@ func TestParse_InvalidFileErrorsWithStderr(t *testing.T) {
 		t.Fatalf("Parse: want error for invalid syntax")
 	}
 }
+
+func TestFlakeEnv_AddsNixConfig(t *testing.T) {
+	got := flakeEnv([]string{"HOME=/root"})
+	want := []string{"HOME=/root", "NIX_CONFIG=" + flakeFeatures}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("flakeEnv = %q, want %q", got, want)
+	}
+}
+
+func TestFlakeEnv_KeepsExistingNixConfig(t *testing.T) {
+	got := flakeEnv([]string{"NIX_CONFIG=warn-dirty = false", "HOME=/root"})
+	want := []string{"HOME=/root", "NIX_CONFIG=warn-dirty = false\n" + flakeFeatures}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("flakeEnv = %q, want %q", got, want)
+	}
+}

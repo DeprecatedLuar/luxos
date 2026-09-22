@@ -5,11 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
-// configDirEnv mirrors internal/paths' LUXOS_CONFIG_DIR override; it is
-// preserved across the sudo re-exec because sudo otherwise drops it (sudo
-// resets the environment by default).
+// configDirEnv mirrors internal/paths' LUXOS_CONFIG_DIR override; the
+// resolved config dir is passed through it across the sudo re-exec.
 const configDirEnv = "LUXOS_CONFIG_DIR"
 
 // EnsureRoot re-execs the running binary under sudo when not already root
@@ -31,11 +32,14 @@ func EnsureRoot(args []string) error {
 		return err
 	}
 
-	argv := []string{sudoPath}
-	if v, ok := os.LookupEnv(configDirEnv); ok {
-		argv = append(argv, fmt.Sprintf("%s=%s", configDirEnv, v))
+	// Resolve as the invoking user: under sudo, pam_env re-expands
+	// XDG_CONFIG_HOME against root's HOME.
+	p, err := paths.Resolve()
+	if err != nil {
+		return err
 	}
-	argv = append(argv, exe)
+
+	argv := []string{sudoPath, fmt.Sprintf("%s=%s", configDirEnv, p.Config), exe}
 	argv = append(argv, args...)
 
 	return syscall.Exec(sudoPath, argv, os.Environ())

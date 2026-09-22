@@ -38,6 +38,15 @@ const rebuildAttr = "config.system.build.nixos-rebuild"
 // rebuildBinRelpath is the binary's location inside that derivation's output.
 const rebuildBinRelpath = "bin/nixos-rebuild"
 
+// nixConfigVar is the environment variable nix reads extra settings from,
+// one per line, applied after nix.conf.
+const nixConfigVar = "NIX_CONFIG"
+
+// flakeFeatures enables flakes for luxos's own nix calls, so the first
+// rebuild on a machine whose nix.conf has them off (before system.nix
+// turns them on) still works. extra- appends, so it is a no-op elsewhere.
+const flakeFeatures = "extra-experimental-features = nix-command flakes"
+
 // rebuildChannelExpr is the classic <nixpkgs/nixos> NIX_PATH entry, used
 // only when staging itself is broken.
 const rebuildChannelExpr = "<nixpkgs/nixos>"
@@ -71,6 +80,7 @@ func Parse(absPath string) (string, error) {
 // and stderr through to the caller's.
 func FlakeUpdate(flakeDir string) error {
 	cmd := exec.Command(flakeBin, "flake", "update", "--flake", flakeDir)
+	cmd.Env = flakeEnv(os.Environ())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -93,6 +103,7 @@ func FlakeLock(stagingDir string) error {
 func runIn(dir string, args []string) error {
 	cmd := exec.Command(flakeBin, args...)
 	cmd.Dir = dir
+	cmd.Env = flakeEnv(os.Environ())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -107,6 +118,7 @@ func runIn(dir string, args []string) error {
 func RebuildFromFlake(stagingDir, host string) (string, error) {
 	target := fmt.Sprintf("%s#nixosConfigurations.%s.%s", stagingDir, host, rebuildAttr)
 	cmd := exec.Command(flakeBin, "build", target, "--no-link", "--print-out-paths")
+	cmd.Env = flakeEnv(os.Environ())
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -117,6 +129,24 @@ func RebuildFromFlake(stagingDir, host string) (string, error) {
 		return "", fmt.Errorf("%s build %s: no output path printed", flakeBin, target)
 	}
 	return filepath.Join(outPath, rebuildBinRelpath), nil
+}
+
+// flakeEnv returns env with flakeFeatures added to NIX_CONFIG, keeping any
+// settings already there.
+func flakeEnv(env []string) []string {
+	prefix := nixConfigVar + "="
+	out := make([]string, 0, len(env)+1)
+	value := flakeFeatures
+	for _, kv := range env {
+		if existing, ok := strings.CutPrefix(kv, prefix); ok {
+			if existing != "" {
+				value = existing + "\n" + flakeFeatures
+			}
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, prefix+value)
 }
 
 // RebuildFromChannel builds nixos-rebuild from the channel-based
