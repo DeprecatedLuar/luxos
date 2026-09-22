@@ -1,6 +1,13 @@
 { lib, config, ... }:
 
 let
+  # nixpkgs' own nvidia.nix sets hardware.nvidia.prime.offload.enable via
+  # mkDefault (reverseSyncCfg.enable), so a plain mkDefault true here would
+  # conflict at equal priority. This priority must stay below mkDefault's
+  # 1000 (so it wins over nixpkgs' default) and above a plain definition's
+  # 100 (so a host module setting the option directly still wins).
+  offloadPriority = 900;
+
   gpus = config.luxos.hardware.gpus;
 
   nvidiaGpus = builtins.filter (g: g.vendor == "nvidia") gpus;
@@ -33,8 +40,8 @@ in
     (lib.mkIf havePair {
       hardware.nvidia.prime = {
         nvidiaBusId = lib.mkDefault nvidia.busId;
-        offload.enable = lib.mkDefault true;
-        offload.enableOffloadCmd = lib.mkDefault true;
+        offload.enable = lib.mkOverride offloadPriority true;
+        offload.enableOffloadCmd = lib.mkOverride offloadPriority true;
       };
     })
     (lib.mkIf (havePair && integrated.vendor == "intel") {

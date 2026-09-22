@@ -48,10 +48,16 @@ func run(args []string) error {
 		return commands.Module(withDefaultVerb(rest, "list"))
 	case "list", "ls":
 		return commands.Module(append([]string{"list"}, rest...))
+	case "edit":
+		return commands.Module(append([]string{"edit"}, rest...))
 	case "enable":
 		return commands.Module(append([]string{"enable"}, rest...))
 	case "disable":
 		return commands.Module(append([]string{"disable"}, rest...))
+	case "remove", "rm":
+		return commands.Module(append([]string{"remove"}, rest...))
+	case "rename", "rn":
+		return commands.Module(append([]string{"rename"}, rest...))
 	case "user":
 		return commands.User(rest)
 	case "users":
