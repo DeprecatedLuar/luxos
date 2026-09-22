@@ -42,20 +42,21 @@ const (
 	stagedLocalDir   = "local"
 
 	hardwareConfigName = "hardware-configuration.nix"
+	bootConfigName     = "boot.nix"
 	lockFileName       = "flake.lock"
 )
 
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
 // framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, framework/environment.nix, flake.nix,
 // config/modules (from modulesDir), config/local (from hostDir), config/environment (from environmentFile, required),
-// hardware-configuration.nix, and flake.lock if lockFile exists. lockFile is
-// the active host's own flake.lock (hostDir/flake.lock), not a config-root
-// one.
+// hardware-configuration.nix, boot.nix (from bootConfig, required), and
+// flake.lock if lockFile exists. lockFile is the active host's own
+// flake.lock (hostDir/flake.lock), not a config-root one.
 // Every symlink under modulesDir and hostDir is dereferenced. Refuses to
 // touch stagingDir unless it is empty or a tree this package created
 // (marked with Marker), and refuses a dangling symlink under modulesDir or
 // hostDir, naming it.
-func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, environmentFile string) error {
+func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lockFile, environmentFile string) error {
 	if err := guard(stagingDir); err != nil {
 		return err
 	}
@@ -116,6 +117,10 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, lockFile, envi
 	}
 
 	if err := copyFile(hardwareConfig, filepath.Join(stagingDir, hardwareConfigName)); err != nil {
+		return err
+	}
+
+	if err := copyFile(bootConfig, filepath.Join(stagingDir, bootConfigName)); err != nil {
 		return err
 	}
 

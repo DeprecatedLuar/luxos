@@ -24,6 +24,9 @@ const (
 	etcNixos       = "/etc/nixos"
 	staging        = "/etc/nixos/luxos"
 	hardwareConfig = "/etc/nixos/hardware-configuration.nix"
+	bootConfig     = "/etc/nixos/boot.nix"
+	sysDir         = "/sys"
+	mountsFile     = "/proc/mounts"
 	runningModules = "/run/current-system/etc/luxos/modules.nix"
 )
 
@@ -36,6 +39,9 @@ type Paths struct {
 	Staging        string // /etc/nixos/luxos
 	EtcNixos       string // /etc/nixos
 	HardwareConfig string // /etc/nixos/hardware-configuration.nix
+	BootConfig     string // /etc/nixos/boot.nix
+	Sys            string // /sys
+	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/etc/luxos/modules.nix
 	LuxLink        string // <Home>/.local/bin/lux
 }
@@ -66,6 +72,9 @@ func Resolve() (Paths, error) {
 		Staging:        staging,
 		EtcNixos:       etcNixos,
 		HardwareConfig: hardwareConfig,
+		BootConfig:     bootConfig,
+		Sys:            sysDir,
+		Mounts:         mountsFile,
 		RunningModules: runningModules,
 		LuxLink:        filepath.Join(u.HomeDir, luxLinkRel),
 	}, nil

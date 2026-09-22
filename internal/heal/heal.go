@@ -1,11 +1,12 @@
 // Package heal is the self-healing orchestrator run before every rebuild.
 // It sequences internal/gitignore, internal/framework, internal/imports,
-// internal/generate, internal/links, internal/units, internal/refs and
-// internal/staging and internal/userfile in the fixed order the bash self-heal.sh used, printing
-// progress to the given io.Writer. It has no parsing or decision logic of
-// its own (implementation-plan.md G10/G11): every package it calls takes
-// explicit directories and returns values plus error; this file only
-// sequences and reports.
+// internal/generate, internal/links, internal/units, internal/refs,
+// internal/boot and internal/staging and internal/userfile in the fixed
+// order the bash self-heal.sh used, printing progress to the given
+// io.Writer. It has no parsing or decision logic of its own
+// (implementation-plan.md G10/G11): every package it calls takes explicit
+// directories and returns values plus error; this file only sequences and
+// reports.
 package heal
 
 import (
@@ -13,6 +14,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/DeprecatedLuar/luxos/internal/boot"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/generate"
@@ -54,8 +56,9 @@ const (
 // self-heal.sh used: ensure the .gitignore, ensure the global environment file (created from
 // the embedded template when missing), sync framework modules,
 // validate and protect the host folder (L1-L3), heal host entrypoints,
-// validate module boundaries, materialize staging, and generate+install
-// flake-file.nix (then flake.nix via flake-file) and configuration.nix. exe is the absolute path to the running
+// validate module boundaries, ensure /etc/nixos/boot.nix, materialize
+// staging, and generate+install flake-file.nix (then flake.nix via
+// flake-file) and configuration.nix. exe is the absolute path to the running
 // luxos binary, used by generate.Configuration for the shadow scripts.
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
@@ -167,9 +170,19 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 		return err
 	}
 
+	// 7b. ensure boot.nix
+	fmt.Fprintf(w, "Ensuring %s...\n", p.BootConfig)
+	bootCreated, err := boot.Ensure(p.BootConfig, p.Sys, p.Mounts)
+	if err != nil {
+		return err
+	}
+	if bootCreated {
+		fmt.Fprintf(w, "  created: %s (review it; luxos never rewrites it)\n", p.BootConfig)
+	}
+
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, p.HardwareConfig, p.BootConfig, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
 		return err
 	}
 

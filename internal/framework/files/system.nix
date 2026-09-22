@@ -1,7 +1,7 @@
 { pkgs, lib, inputs, config, ... }:
 
 {
-  imports = [ ../hardware-configuration.nix ./environment.nix ];
+  imports = [ ../hardware-configuration.nix ../boot.nix ./environment.nix ];
 
   #──[Packages]──────────────────────────────────────────────────────────────
 

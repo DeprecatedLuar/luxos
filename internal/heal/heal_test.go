@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/boot"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
@@ -90,6 +91,9 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	staging := filepath.Join(root, "staging")
 	etcNixos := filepath.Join(root, "etc-nixos")
 	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
+	bootConfig := filepath.Join(root, "boot.nix")
+	sysDir := filepath.Join(root, "sys")
+	mountsFile := filepath.Join(root, "mounts")
 
 	// The module that host1's entrypoint refers to by a now-stale path;
 	// units.Resolve finds it by name ("foo") and imports.Heal rewrites the
@@ -118,6 +122,9 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	write(t, hardwareConfig, "{ }\n")
+	write(t, bootConfig, "{ ... }: { }\n")
+	mustMkdirAll(t, sysDir)
+	write(t, mountsFile, "")
 
 	p := paths.Paths{
 		Home:           root,
@@ -128,6 +135,9 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		Staging:        staging,
 		EtcNixos:       etcNixos,
 		HardwareConfig: hardwareConfig,
+		BootConfig:     bootConfig,
+		Sys:            sysDir,
+		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
 		LuxLink:        filepath.Join(root, "lux"),
 	}
@@ -161,6 +171,12 @@ func TestRun_EndToEnd(t *testing.T) {
 		if _, err := os.Stat(f); err != nil {
 			t.Errorf("expected %s to exist: %v", f, err)
 		}
+	}
+
+	// The pre-written boot.nix was left alone and staged as is.
+	wantBoot := mustReadFile(t, p.BootConfig)
+	if got := mustReadFile(t, filepath.Join(p.Staging, "boot.nix")); got != wantBoot {
+		t.Errorf("staged boot.nix = %q, want %q", got, wantBoot)
 	}
 
 	// The staged flake.lock came from .local/host1/flake.lock, not the
@@ -235,6 +251,43 @@ func TestRun_ExistingEnvironmentUntouched(t *testing.T) {
 	}
 }
 
+func TestRun_BootConfigCreated(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	fakeNix(t)
+
+	// No pre-written boot.nix this time: fixture wrote one, so remove it and
+	// fake an EFI sysfs with vfat mounted at /boot.
+	if err := os.Remove(p.BootConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p.Sys, "firmware", "efi", "efivars"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, p.Mounts, "/dev/sda1 /boot vfat rw 0 0\n")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+
+	want, err := boot.Render(boot.Loader{EFI: true, Target: "/boot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := mustReadFile(t, p.BootConfig); got != string(want) {
+		t.Errorf("boot.nix = %q, want %q", got, want)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Staging, "boot.nix")); got != string(want) {
+		t.Errorf("staged boot.nix = %q, want %q", got, want)
+	}
+	if !strings.Contains(out.String(), "created:") {
+		t.Errorf("output did not report the creation, got:\n%s", out.String())
+	}
+}
+
 func TestRun_LocalModuleSelected(t *testing.T) {
 	skipIfNoNix(t)
 
@@ -245,6 +298,9 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	staging := filepath.Join(root, "staging")
 	etcNixos := filepath.Join(root, "etc-nixos")
 	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
+	bootConfig := filepath.Join(root, "boot.nix")
+	sysDir := filepath.Join(root, "sys")
+	mountsFile := filepath.Join(root, "mounts")
 
 	// A module private to host1, selected through the "local/" prefix.
 	write(t, filepath.Join(local, "host1", "modules", "foo.nix"), "{ }\n")
@@ -256,6 +312,9 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	write(t, hardwareConfig, "{ }\n")
+	write(t, bootConfig, "{ ... }: { }\n")
+	mustMkdirAll(t, sysDir)
+	write(t, mountsFile, "")
 
 	p := paths.Paths{
 		Home:           root,
@@ -266,6 +325,9 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		Staging:        staging,
 		EtcNixos:       etcNixos,
 		HardwareConfig: hardwareConfig,
+		BootConfig:     bootConfig,
+		Sys:            sysDir,
+		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
 		LuxLink:        filepath.Join(root, "lux"),
 	}
