@@ -35,8 +35,10 @@ const (
 	overlayNix = "overlay.nix"
 	outputsNix = "outputs.nix"
 
-	environmentNix    = "environment.nix"
-	stagedEnvironment = "environment"
+	environmentNix        = "environment.nix"
+	luxosHardwareNix      = "luxos-hardware.nix"
+	luxosHardwareDefaults = "luxos-hardware-defaults.nix"
+	stagedEnvironment     = "environment"
 
 	stagedModulesDir = "modules"
 	stagedLocalDir   = "local"
@@ -47,7 +49,8 @@ const (
 )
 
 // Materialize wipes and rebuilds stagingDir: framework/system.nix,
-// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, framework/environment.nix, flake.nix,
+// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, framework/environment.nix,
+// framework/luxos-hardware.nix, framework/luxos-hardware-defaults.nix, flake.nix,
 // config/modules (from modulesDir), config/local (from hostDir), config/environment (from environmentFile, required),
 // hardware-configuration.nix, boot.nix (from bootConfig, required), and
 // flake.lock if lockFile exists. lockFile is the active host's own
@@ -99,6 +102,12 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lo
 		return err
 	}
 	if err := writeFrameworkFile(fwDir, environmentNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, luxosHardwareNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, luxosHardwareDefaults); err != nil {
 		return err
 	}
 	if err := writeFrameworkFile(stagingDir, flakeNix); err != nil {

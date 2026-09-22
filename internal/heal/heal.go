@@ -1,7 +1,7 @@
 // Package heal is the self-healing orchestrator run before every rebuild.
 // It sequences internal/gitignore, internal/framework, internal/imports,
 // internal/generate, internal/links, internal/units, internal/refs,
-// internal/boot and internal/staging and internal/userfile in the fixed
+// internal/boot, internal/gpu and internal/staging and internal/userfile in the fixed
 // order the bash self-heal.sh used, printing progress to the given
 // io.Writer. It has no parsing or decision logic of its own
 // (implementation-plan.md G10/G11): every package it calls takes explicit
@@ -19,6 +19,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/generate"
 	"github.com/DeprecatedLuar/luxos/internal/gitignore"
+	"github.com/DeprecatedLuar/luxos/internal/gpu"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/links"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -57,8 +58,9 @@ const (
 // the embedded template when missing), sync framework modules,
 // validate and protect the host folder (L1-L3), heal host entrypoints,
 // validate module boundaries, ensure /etc/nixos/boot.nix, materialize
-// staging, and generate+install flake-file.nix (then flake.nix via
-// flake-file) and configuration.nix. exe is the absolute path to the running
+// staging, generate+install flake-file.nix, detect GPUs and install
+// framework/gpu.nix, then flake.nix via flake-file, and configuration.nix.
+// exe is the absolute path to the running
 // luxos binary, used by generate.Configuration for the shadow scripts.
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
@@ -195,6 +197,24 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 	if err := staging.Install(p.Staging, "flake-file.nix", bootstrap); err != nil {
 		return err
 	}
+
+	// 9b. detect GPUs and install the fact file
+	fmt.Fprintln(w, "Detecting GPUs...")
+	gpus, err := gpu.Detect(p.Sys)
+	if err != nil {
+		return err
+	}
+	for _, g := range gpus {
+		fmt.Fprintf(w, "  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
+	}
+	gpuContent, err := gpu.Render(gpus)
+	if err != nil {
+		return err
+	}
+	if err := staging.Install(p.Staging, "framework/gpu.nix", gpuContent); err != nil {
+		return err
+	}
+
 	if err := writeFlake(p.Staging); err != nil {
 		return err
 	}

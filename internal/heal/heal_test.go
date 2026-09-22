@@ -10,6 +10,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/boot"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
+	"github.com/DeprecatedLuar/luxos/internal/gpu"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
@@ -284,6 +285,53 @@ func TestRun_BootConfigCreated(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "created:") {
 		t.Errorf("output did not report the creation, got:\n%s", out.String())
+	}
+}
+
+// writeGPUDevice writes a fake sysfs PCI device directory
+// <sysDir>/bus/pci/devices/<addr> with the given class/vendor hex strings,
+// matching internal/gpu's own test fixture shape.
+func writeGPUDevice(t *testing.T, sysDir, addr, class, vendor string) {
+	t.Helper()
+	dir := filepath.Join(sysDir, "bus", "pci", "devices", addr)
+	mustMkdirAll(t, dir)
+	write(t, filepath.Join(dir, "class"), class+"\n")
+	write(t, filepath.Join(dir, "vendor"), vendor+"\n")
+	write(t, filepath.Join(dir, "device"), "0x1234\n")
+}
+
+func TestRun_GPUsDetectedAndStaged(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	fakeNix(t)
+
+	// A single NVIDIA GPU in the fake sysfs.
+	writeGPUDevice(t, p.Sys, "0000:01:00.0", "0x030200", "0x10de")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+
+	gpuFile := filepath.Join(p.Staging, "framework", "gpu.nix")
+	got := mustReadFile(t, gpuFile)
+
+	want, err := gpu.Render([]gpu.GPU{
+		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Errorf("staged framework/gpu.nix = %q, want %q", got, want)
+	}
+
+	if !strings.Contains(out.String(), "Detecting GPUs...") {
+		t.Errorf("output did not report GPU detection, got:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "nvidia 3d: PCI:1@0:0:0") {
+		t.Errorf("output did not report the detected GPU, got:\n%s", out.String())
 	}
 }
 
