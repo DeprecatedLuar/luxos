@@ -270,7 +270,9 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		return err
 	}
 
-	return nil
+	// 11. make the generated tree read-only
+	fmt.Fprintf(w, "Sealing %s...\n", p.Staging)
+	return staging.Seal(p.Staging)
 }
 
 // formatImportChange renders one imports.Change the way bash's

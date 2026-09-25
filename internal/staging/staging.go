@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	dirMode  = 0755
-	fileMode = 0644
+	dirMode        = 0755
+	fileMode       = 0644
+	sealedFileMode = 0444
 
 	frameworkDir = "framework"
 	configDir    = "config"
@@ -275,4 +276,34 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, fileMode)
+}
+
+// Seal makes every file luxos generated read-only, so an accidental edit
+// under /etc/nixos fails visibly instead of vanishing on the next rebuild.
+// Directories stay 0755: unlinking is governed by the parent's mode, so
+// Prune still works. This does not stop root, which is the common case
+// under sudo - it is a signal, not a lock.
+func Seal(stagingDir string) error {
+	for _, name := range owned {
+		root := filepath.Join(stagingDir, name)
+		if _, err := os.Lstat(root); os.IsNotExist(err) {
+			continue
+		}
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			switch {
+			case d.IsDir():
+				return os.Chmod(p, dirMode)
+			case d.Type().IsRegular():
+				return os.Chmod(p, sealedFileMode)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

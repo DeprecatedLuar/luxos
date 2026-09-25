@@ -682,3 +682,38 @@ func TestPrune(t *testing.T) {
 		t.Fatalf("second Prune: %v", err)
 	}
 }
+
+func TestSeal(t *testing.T) {
+	stage := t.TempDir()
+	writeTree(t, stage, map[string]string{
+		"framework/system.nix":   "x",
+		"config/modules/a/b.nix": "x",
+		"flake.nix":              "x",
+		"boot.nix":               "x",
+	})
+	if err := Seal(stage); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"framework/system.nix", "config/modules/a/b.nix", "flake.nix"} {
+		if fi, _ := os.Stat(filepath.Join(stage, f)); fi.Mode().Perm() != 0444 {
+			t.Errorf("%s mode %v", f, fi.Mode().Perm())
+		}
+	}
+	for _, d := range []string{"framework", "config", "config/modules", "config/modules/a"} {
+		if fi, _ := os.Stat(filepath.Join(stage, d)); fi.Mode().Perm() != 0755 {
+			t.Errorf("%s mode %v", d, fi.Mode().Perm())
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(stage, "boot.nix")); fi.Mode().Perm() == 0444 {
+		t.Error("boot.nix was sealed")
+	}
+	if err := Prune(stage); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(stage, "framework")) || exists(filepath.Join(stage, "config")) || exists(filepath.Join(stage, "flake.nix")) {
+		t.Error("Prune left sealed entries")
+	}
+	if !exists(filepath.Join(stage, "boot.nix")) {
+		t.Error("Prune removed boot.nix")
+	}
+}
