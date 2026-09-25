@@ -8,9 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/boot"
+	"github.com/DeprecatedLuar/luxos/internal/computer"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
-	"github.com/DeprecatedLuar/luxos/internal/gpu"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
@@ -18,6 +17,9 @@ import (
 // fixtures, distinct from the bogus one written at the config root so a
 // test can tell which one staging.Materialize actually copied.
 const hostFlakeLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstable":"unstable_2"}}}}` + "\n"
+
+// hardwareConfigContent is the pre-written hardware-configuration.nix.
+const hardwareConfigContent = "{ }\n"
 
 func skipIfNoNix(t *testing.T) {
 	t.Helper()
@@ -122,7 +124,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host2", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	write(t, hardwareConfig, "{ }\n")
+	write(t, hardwareConfig, hardwareConfigContent)
 	write(t, bootConfig, "{ ... }: { }\n")
 	mustMkdirAll(t, sysDir)
 	write(t, mountsFile, "")
@@ -177,6 +179,14 @@ func TestRun_EndToEnd(t *testing.T) {
 	wantBoot := mustReadFile(t, p.BootConfig)
 	if got := mustReadFile(t, filepath.Join(p.Staging, "boot.nix")); got != wantBoot {
 		t.Errorf("staged boot.nix = %q, want %q", got, wantBoot)
+	}
+
+	// The pre-written hardware-configuration.nix was left alone.
+	if got := mustReadFile(t, p.HardwareConfig); got != hardwareConfigContent {
+		t.Errorf("hardware-configuration.nix = %q, want %q", got, hardwareConfigContent)
+	}
+	if strings.Contains(out.String(), "created: "+p.HardwareConfig) {
+		t.Errorf("output reported creating %s, got:\n%s", p.HardwareConfig, out.String())
 	}
 
 	// The staged flake.lock came from .local/host1/flake.lock, not the
@@ -272,7 +282,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
-	want, err := boot.Render(boot.Loader{EFI: true, Target: "/boot"})
+	want, err := computer.RenderBoot(computer.Loader{EFI: true, Target: "/boot"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +300,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 
 // writeGPUDevice writes a fake sysfs PCI device directory
 // <sysDir>/bus/pci/devices/<addr> with the given class/vendor hex strings,
-// matching internal/gpu's own test fixture shape.
+// matching internal/computer's own test fixture shape.
 func writeGPUDevice(t *testing.T, sysDir, addr, class, vendor string) {
 	t.Helper()
 	dir := filepath.Join(sysDir, "bus", "pci", "devices", addr)
@@ -317,7 +327,7 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 	gpuFile := filepath.Join(p.Staging, "framework", "gpu.nix")
 	got := mustReadFile(t, gpuFile)
 
-	want, err := gpu.Render([]gpu.GPU{
+	want, err := computer.RenderGPUs([]computer.GPU{
 		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
 	})
 	if err != nil {
@@ -358,7 +368,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	write(t, filepath.Join(local, "host1", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	write(t, hardwareConfig, "{ }\n")
+	write(t, hardwareConfig, hardwareConfigContent)
 	write(t, bootConfig, "{ ... }: { }\n")
 	mustMkdirAll(t, sysDir)
 	write(t, mountsFile, "")

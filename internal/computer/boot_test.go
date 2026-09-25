@@ -1,4 +1,4 @@
-package boot
+package computer
 
 import (
 	"os"
@@ -32,7 +32,7 @@ func writeMounts(t *testing.T, dir string, lines ...string) string {
 	return path
 }
 
-// efiSys creates <sys>/firmware/efi/efivars so Detect sees EFI firmware.
+// efiSys creates <sys>/firmware/efi/efivars so DetectBoot sees EFI firmware.
 func efiSys(t *testing.T, sysDir string) {
 	t.Helper()
 	dir := filepath.Join(sysDir, "firmware", "efi")
@@ -86,22 +86,22 @@ func partition(t *testing.T, sysDir, disk, part string) {
 	}
 }
 
-func TestDetect_EFI_VfatAtBoot(t *testing.T) {
+func TestDetectBoot_EFI_VfatAtBoot(t *testing.T) {
 	sysDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 /boot vfat rw 0 0")
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: true, Target: "/boot"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_EFI_PrefersEfiMountPoint(t *testing.T) {
+func TestDetectBoot_EFI_PrefersEfiMountPoint(t *testing.T) {
 	sysDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(),
@@ -109,57 +109,57 @@ func TestDetect_EFI_PrefersEfiMountPoint(t *testing.T) {
 		"/dev/sda1 /boot/efi vfat rw 0 0",
 	)
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: true, Target: "/boot/efi"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_EFI_NoVfatErrors(t *testing.T) {
+func TestDetectBoot_EFI_NoVfatErrors(t *testing.T) {
 	sysDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 /boot ext4 rw 0 0")
 
-	if _, err := Detect(sysDir, mountsFile); err == nil {
-		t.Fatalf("Detect: want error, got nil")
+	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
-func TestDetect_BIOS_PartitionOfRoot(t *testing.T) {
+func TestDetectBoot_BIOS_PartitionOfRoot(t *testing.T) {
 	sysDir := t.TempDir()
 	partition(t, sysDir, "sda", "sda1")
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 / ext4 rw 0 0")
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: false, Target: "/dev/sda"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_BIOS_NvmePartition(t *testing.T) {
+func TestDetectBoot_BIOS_NvmePartition(t *testing.T) {
 	sysDir := t.TempDir()
 	partition(t, sysDir, "nvme0n1", "nvme0n1p2")
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/nvme0n1p2 / ext4 rw 0 0")
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: false, Target: "/dev/nvme0n1"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_BIOS_PrefersBootMount(t *testing.T) {
+func TestDetectBoot_BIOS_PrefersBootMount(t *testing.T) {
 	sysDir := t.TempDir()
 	partition(t, sysDir, "sdb", "sdb1")
 	partition(t, sysDir, "sda", "sda1")
@@ -168,60 +168,60 @@ func TestDetect_BIOS_PrefersBootMount(t *testing.T) {
 		"/dev/sdb1 /boot ext4 rw 0 0",
 	)
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: false, Target: "/dev/sdb"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_BIOS_WholeDiskNoPartitionFile(t *testing.T) {
+func TestDetectBoot_BIOS_WholeDiskNoPartitionFile(t *testing.T) {
 	sysDir := t.TempDir()
 	wholeDisk(t, sysDir, "vda", false)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/vda / ext4 rw 0 0")
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: false, Target: "/dev/vda"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestDetect_BIOS_SlavesErrors(t *testing.T) {
+func TestDetectBoot_BIOS_SlavesErrors(t *testing.T) {
 	sysDir := t.TempDir()
 	wholeDisk(t, sysDir, "dm-0", true)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/dm-0 / ext4 rw 0 0")
 
-	if _, err := Detect(sysDir, mountsFile); err == nil {
-		t.Fatalf("Detect: want error, got nil")
+	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
-func TestDetect_BIOS_NonDevSourceErrors(t *testing.T) {
+func TestDetectBoot_BIOS_NonDevSourceErrors(t *testing.T) {
 	sysDir := t.TempDir()
 	mountsFile := writeMounts(t, t.TempDir(), "tmpfs / tmpfs rw 0 0")
 
-	if _, err := Detect(sysDir, mountsFile); err == nil {
-		t.Fatalf("Detect: want error, got nil")
+	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
-func TestDetect_BIOS_MissingClassBlockEntryErrors(t *testing.T) {
+func TestDetectBoot_BIOS_MissingClassBlockEntryErrors(t *testing.T) {
 	sysDir := t.TempDir()
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 / ext4 rw 0 0")
 
-	if _, err := Detect(sysDir, mountsFile); err == nil {
-		t.Fatalf("Detect: want error, got nil")
+	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
-func TestDetect_MountsFile_LastLineForMountPointWins(t *testing.T) {
+func TestDetectBoot_MountsFile_LastLineForMountPointWins(t *testing.T) {
 	sysDir := t.TempDir()
 	partition(t, sysDir, "sdb", "sdb1")
 	mountsFile := writeMounts(t, t.TempDir(),
@@ -229,50 +229,50 @@ func TestDetect_MountsFile_LastLineForMountPointWins(t *testing.T) {
 		"/dev/sdb1 / ext4 rw 0 0",
 	)
 
-	got, err := Detect(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectBoot: %v", err)
 	}
 	want := Loader{EFI: false, Target: "/dev/sdb"}
 	if got != want {
-		t.Errorf("Detect = %+v, want %+v", got, want)
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
 	}
 }
 
-func TestRender_Golden(t *testing.T) {
+func TestRenderBoot_Golden(t *testing.T) {
 	efiGolden, err := os.ReadFile(filepath.Join("testdata", "efi.golden"))
 	if err != nil {
 		t.Fatalf("read efi.golden: %v", err)
 	}
-	got, err := Render(Loader{EFI: true, Target: "/boot"})
+	got, err := RenderBoot(Loader{EFI: true, Target: "/boot"})
 	if err != nil {
-		t.Fatalf("Render EFI: %v", err)
+		t.Fatalf("RenderBoot EFI: %v", err)
 	}
 	if string(got) != string(efiGolden) {
-		t.Errorf("Render EFI mismatch\n--- got ---\n%s\n--- want ---\n%s", got, efiGolden)
+		t.Errorf("RenderBoot EFI mismatch\n--- got ---\n%s\n--- want ---\n%s", got, efiGolden)
 	}
 
 	biosGolden, err := os.ReadFile(filepath.Join("testdata", "bios.golden"))
 	if err != nil {
 		t.Fatalf("read bios.golden: %v", err)
 	}
-	got, err = Render(Loader{EFI: false, Target: "/dev/sda"})
+	got, err = RenderBoot(Loader{EFI: false, Target: "/dev/sda"})
 	if err != nil {
-		t.Fatalf("Render BIOS: %v", err)
+		t.Fatalf("RenderBoot BIOS: %v", err)
 	}
 	if string(got) != string(biosGolden) {
-		t.Errorf("Render BIOS mismatch\n--- got ---\n%s\n--- want ---\n%s", got, biosGolden)
+		t.Errorf("RenderBoot BIOS mismatch\n--- got ---\n%s\n--- want ---\n%s", got, biosGolden)
 	}
 }
 
-func TestRender_ParsesAsNix(t *testing.T) {
+func TestRenderBoot_ParsesAsNix(t *testing.T) {
 	skipIfNoNix(t)
 
 	dir := t.TempDir()
 
-	efiContent, err := Render(Loader{EFI: true, Target: "/boot"})
+	efiContent, err := RenderBoot(Loader{EFI: true, Target: "/boot"})
 	if err != nil {
-		t.Fatalf("Render EFI: %v", err)
+		t.Fatalf("RenderBoot EFI: %v", err)
 	}
 	efiFile := filepath.Join(dir, "efi.nix")
 	if err := os.WriteFile(efiFile, efiContent, 0644); err != nil {
@@ -282,9 +282,9 @@ func TestRender_ParsesAsNix(t *testing.T) {
 		t.Errorf("nix-instantiate --parse efi.nix: %v", err)
 	}
 
-	biosContent, err := Render(Loader{EFI: false, Target: "/dev/sda"})
+	biosContent, err := RenderBoot(Loader{EFI: false, Target: "/dev/sda"})
 	if err != nil {
-		t.Fatalf("Render BIOS: %v", err)
+		t.Fatalf("RenderBoot BIOS: %v", err)
 	}
 	biosFile := filepath.Join(dir, "bios.nix")
 	if err := os.WriteFile(biosFile, biosContent, 0644); err != nil {
@@ -295,7 +295,7 @@ func TestRender_ParsesAsNix(t *testing.T) {
 	}
 }
 
-func TestEnsure_ExistingFileUntouched(t *testing.T) {
+func TestEnsureBoot_ExistingFileUntouched(t *testing.T) {
 	dir := t.TempDir()
 	bootFile := filepath.Join(dir, "boot.nix")
 	original := []byte("{ ... }: { }\n")
@@ -303,12 +303,12 @@ func TestEnsure_ExistingFileUntouched(t *testing.T) {
 		t.Fatalf("write existing boot.nix: %v", err)
 	}
 
-	created, err := Ensure(bootFile, filepath.Join(dir, "sys"), filepath.Join(dir, "mounts"))
+	created, err := EnsureBoot(bootFile, filepath.Join(dir, "sys"), filepath.Join(dir, "mounts"))
 	if err != nil {
-		t.Fatalf("Ensure: %v", err)
+		t.Fatalf("EnsureBoot: %v", err)
 	}
 	if created {
-		t.Errorf("Ensure: created = true, want false")
+		t.Errorf("EnsureBoot: created = true, want false")
 	}
 
 	got, err := os.ReadFile(bootFile)
@@ -316,42 +316,42 @@ func TestEnsure_ExistingFileUntouched(t *testing.T) {
 		t.Fatalf("read boot.nix: %v", err)
 	}
 	if string(got) != string(original) {
-		t.Errorf("Ensure changed content: got %q, want %q", got, original)
+		t.Errorf("EnsureBoot changed content: got %q, want %q", got, original)
 	}
 	info, err := os.Stat(bootFile)
 	if err != nil {
 		t.Fatalf("stat boot.nix: %v", err)
 	}
 	if info.Mode().Perm() != 0600 {
-		t.Errorf("Ensure changed mode: got %v, want 0600", info.Mode().Perm())
+		t.Errorf("EnsureBoot changed mode: got %v, want 0600", info.Mode().Perm())
 	}
 }
 
-func TestEnsure_MissingFileWritesDetected(t *testing.T) {
+func TestEnsureBoot_MissingFileWritesDetected(t *testing.T) {
 	dir := t.TempDir()
 	sysDir := filepath.Join(dir, "sys")
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, dir, "/dev/sda1 /boot vfat rw 0 0")
 	bootFile := filepath.Join(dir, "boot.nix")
 
-	created, err := Ensure(bootFile, sysDir, mountsFile)
+	created, err := EnsureBoot(bootFile, sysDir, mountsFile)
 	if err != nil {
-		t.Fatalf("Ensure: %v", err)
+		t.Fatalf("EnsureBoot: %v", err)
 	}
 	if !created {
-		t.Errorf("Ensure: created = false, want true")
+		t.Errorf("EnsureBoot: created = false, want true")
 	}
 
-	want, err := Render(Loader{EFI: true, Target: "/boot"})
+	want, err := RenderBoot(Loader{EFI: true, Target: "/boot"})
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderBoot: %v", err)
 	}
 	got, err := os.ReadFile(bootFile)
 	if err != nil {
 		t.Fatalf("read boot.nix: %v", err)
 	}
 	if string(got) != string(want) {
-		t.Errorf("Ensure content mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+		t.Errorf("EnsureBoot content mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 
 	info, err := os.Stat(bootFile)
@@ -359,28 +359,28 @@ func TestEnsure_MissingFileWritesDetected(t *testing.T) {
 		t.Fatalf("stat boot.nix: %v", err)
 	}
 	if info.Mode().Perm() != fileMode {
-		t.Errorf("Ensure mode = %v, want %v", info.Mode().Perm(), fileMode)
+		t.Errorf("EnsureBoot mode = %v, want %v", info.Mode().Perm(), fileMode)
 	}
 }
 
-func TestEnsure_UndetectableErrorsMentionsFile(t *testing.T) {
+func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
 	dir := t.TempDir()
 	sysDir := filepath.Join(dir, "sys")
 	// No EFI firmware and no mounts at all: BIOS detection also fails.
 	mountsFile := writeMounts(t, dir)
 	bootFile := filepath.Join(dir, "boot.nix")
 
-	created, err := Ensure(bootFile, sysDir, mountsFile)
+	created, err := EnsureBoot(bootFile, sysDir, mountsFile)
 	if err == nil {
-		t.Fatalf("Ensure: want error, got nil")
+		t.Fatalf("EnsureBoot: want error, got nil")
 	}
 	if created {
-		t.Errorf("Ensure: created = true, want false")
+		t.Errorf("EnsureBoot: created = true, want false")
 	}
 	if !strings.Contains(err.Error(), bootFile) {
-		t.Errorf("Ensure error %q does not mention %q", err.Error(), bootFile)
+		t.Errorf("EnsureBoot error %q does not mention %q", err.Error(), bootFile)
 	}
 	if _, statErr := os.Lstat(bootFile); !os.IsNotExist(statErr) {
-		t.Errorf("Ensure: boot.nix was written despite the error")
+		t.Errorf("EnsureBoot: boot.nix was written despite the error")
 	}
 }

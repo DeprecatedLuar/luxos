@@ -32,6 +32,12 @@ var writeFlakeArgs = []string{"run", "--no-write-lock-file", ".#write-flake"}
 // flakeLockArgs locks missing inputs without moving existing pins.
 var flakeLockArgs = []string{"flake", "lock"}
 
+// hardwareConfigBin generates hardware-configuration.nix for this computer.
+const hardwareConfigBin = "nixos-generate-config"
+
+// hardwareConfigArgs prints the generated file to stdout instead of writing /etc/nixos.
+var hardwareConfigArgs = []string{"--show-hardware-config"}
+
 // rebuildAttr is the nix attribute path to a flake's built nixos-rebuild.
 const rebuildAttr = "config.system.build.nixos-rebuild"
 
@@ -205,4 +211,20 @@ func RebuildFromChannel() (string, error) {
 func Exec(bin string, args []string) error {
 	argv := append([]string{bin}, args...)
 	return syscall.Exec(bin, argv, os.Environ())
+}
+
+// ShowHardwareConfig returns the hardware-configuration.nix that
+// nixos-generate-config generates for this computer.
+func ShowHardwareConfig() ([]byte, error) {
+	cmd := exec.Command(hardwareConfigBin, hardwareConfigArgs...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	line := strings.Join(append([]string{hardwareConfigBin}, hardwareConfigArgs...), " ")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", line, err)
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil, fmt.Errorf("%s: no output", line)
+	}
+	return out, nil
 }

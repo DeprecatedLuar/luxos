@@ -1,8 +1,4 @@
-// Package gpu detects PCI display-class devices (VGA and 3D controllers)
-// from sysfs and renders them as a static Nix fact file. It takes every
-// directory as a parameter: nothing here resolves paths, prints, or exits -
-// same shape as internal/boot.
-package gpu
+package computer
 
 import (
 	"fmt"
@@ -126,11 +122,11 @@ func busID(addr string) (string, error) {
 	return fmt.Sprintf("PCI:%d@%d:%d:%d", bus, domain, dev, fn), nil
 }
 
-// Detect reads <sysDir>/bus/pci/devices and returns every PCI device whose
+// DetectGPUs reads <sysDir>/bus/pci/devices and returns every PCI device whose
 // class is VGA or 3D controller (G1). A missing devices directory returns
 // (nil, nil) - an empty machine or container, not an error. Any other read
 // error is a hard error naming the offending device directory.
-func Detect(sysDir string) ([]GPU, error) {
+func DetectGPUs(sysDir string) ([]GPU, error) {
 	devicesDir := filepath.Join(sysDir, sysfsPCIDevices)
 
 	entries, err := os.ReadDir(devicesDir)
@@ -209,9 +205,9 @@ func Detect(sysDir string) ([]GPU, error) {
 	return gpus, nil
 }
 
-// Render produces a static, dependency-free Nix file setting
+// RenderGPUs produces a static, dependency-free Nix file setting
 // luxos.hardware.gpus from gpus, sorted by BusID for stable output (G3).
-func Render(gpus []GPU) ([]byte, error) {
+func RenderGPUs(gpus []GPU) ([]byte, error) {
 	sorted := make([]GPU, len(gpus))
 	copy(sorted, gpus)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].BusID < sorted[j].BusID })

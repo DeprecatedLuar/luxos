@@ -1,4 +1,4 @@
-package gpu
+package computer
 
 import (
 	"os"
@@ -42,13 +42,13 @@ func device(t *testing.T, sysDir, addr, class, vendor, bootVga string) {
 
 func mustRenderContains(t *testing.T, gpus []GPU, substrs ...string) {
 	t.Helper()
-	out, err := Render(gpus)
+	out, err := RenderGPUs(gpus)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderGPUs: %v", err)
 	}
 	for _, s := range substrs {
 		if !strings.Contains(string(out), s) {
-			t.Errorf("Render output missing %q; got:\n%s", s, out)
+			t.Errorf("RenderGPUs output missing %q; got:\n%s", s, out)
 		}
 	}
 }
@@ -62,14 +62,14 @@ func checkBusIDsMatchRegex(t *testing.T, gpus []GPU) {
 	}
 }
 
-func TestDetect_ParaloidLayout(t *testing.T) {
+func TestDetectGPUs_ParaloidLayout(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "1")
 	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 2 {
 		t.Fatalf("got %d gpus, want 2: %+v", len(gpus), gpus)
@@ -100,14 +100,14 @@ func TestDetect_ParaloidLayout(t *testing.T) {
 	mustRenderContains(t, gpus, `busId = "PCI:0@0:2:0"`, `busId = "PCI:1@0:0:0"`)
 }
 
-func TestDetect_AMDApuPlusNvidiaDGPU(t *testing.T) {
+func TestDetectGPUs_AMDApuPlusNvidiaDGPU(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "0000:00:01.0", "0x030000", "0x1002", "1")
 	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 2 {
 		t.Fatalf("got %d gpus, want 2: %+v", len(gpus), gpus)
@@ -129,13 +129,13 @@ func TestDetect_AMDApuPlusNvidiaDGPU(t *testing.T) {
 	checkBusIDsMatchRegex(t, gpus)
 }
 
-func TestDetect_NvidiaOnly(t *testing.T) {
+func TestDetectGPUs_NvidiaOnly(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "1")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 1 || gpus[0].Vendor != "nvidia" {
 		t.Fatalf("got %+v, want single nvidia gpu", gpus)
@@ -143,13 +143,13 @@ func TestDetect_NvidiaOnly(t *testing.T) {
 	checkBusIDsMatchRegex(t, gpus)
 }
 
-func TestDetect_IntelOnly(t *testing.T) {
+func TestDetectGPUs_IntelOnly(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "1")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 1 || gpus[0].Vendor != "intel" {
 		t.Fatalf("got %+v, want single intel gpu", gpus)
@@ -157,26 +157,26 @@ func TestDetect_IntelOnly(t *testing.T) {
 	checkBusIDsMatchRegex(t, gpus)
 }
 
-func TestDetect_NoDevicesDir(t *testing.T) {
+func TestDetectGPUs_NoDevicesDir(t *testing.T) {
 	sysDir := t.TempDir()
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if gpus != nil {
 		t.Fatalf("got %+v, want nil", gpus)
 	}
 }
 
-func TestDetect_TwoNvidiaGPUsBothKept(t *testing.T) {
+func TestDetectGPUs_TwoNvidiaGPUsBothKept(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "1")
 	device(t, sysDir, "0000:02:00.0", "0x030000", "0x10de", "0")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 2 {
 		t.Fatalf("got %d gpus, want 2 (ambiguity resolution is not this package's job): %+v", len(gpus), gpus)
@@ -184,13 +184,13 @@ func TestDetect_TwoNvidiaGPUsBothKept(t *testing.T) {
 	checkBusIDsMatchRegex(t, gpus)
 }
 
-func TestDetect_NonzeroDomain(t *testing.T) {
+func TestDetectGPUs_NonzeroDomain(t *testing.T) {
 	sysDir := t.TempDir()
 	device(t, sysDir, "00010000:01:00.0", "0x030000", "0x10de", "1")
 
-	gpus, err := Detect(sysDir)
+	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
-		t.Fatalf("Detect: %v", err)
+		t.Fatalf("DetectGPUs: %v", err)
 	}
 	if len(gpus) != 1 {
 		t.Fatalf("got %d gpus, want 1: %+v", len(gpus), gpus)
@@ -201,7 +201,7 @@ func TestDetect_NonzeroDomain(t *testing.T) {
 	checkBusIDsMatchRegex(t, gpus)
 }
 
-func TestDetect_MalformedClassIsHardError(t *testing.T) {
+func TestDetectGPUs_MalformedClassIsHardError(t *testing.T) {
 	sysDir := t.TempDir()
 	dir := filepath.Join(sysDir, "bus", "pci", "devices", "0000:01:00.0")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -214,16 +214,16 @@ func TestDetect_MalformedClassIsHardError(t *testing.T) {
 		t.Fatalf("write vendor: %v", err)
 	}
 
-	_, err := Detect(sysDir)
+	_, err := DetectGPUs(sysDir)
 	if err == nil {
-		t.Fatal("Detect: want error for malformed class file, got nil")
+		t.Fatal("DetectGPUs: want error for malformed class file, got nil")
 	}
 	if !strings.Contains(err.Error(), dir) {
 		t.Errorf("error %q does not name device directory %q", err, dir)
 	}
 }
 
-func TestDetect_MalformedVendorIsHardError(t *testing.T) {
+func TestDetectGPUs_MalformedVendorIsHardError(t *testing.T) {
 	sysDir := t.TempDir()
 	dir := filepath.Join(sysDir, "bus", "pci", "devices", "0000:01:00.0")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -236,38 +236,38 @@ func TestDetect_MalformedVendorIsHardError(t *testing.T) {
 		t.Fatalf("write vendor: %v", err)
 	}
 
-	_, err := Detect(sysDir)
+	_, err := DetectGPUs(sysDir)
 	if err == nil {
-		t.Fatal("Detect: want error for malformed vendor file, got nil")
+		t.Fatal("DetectGPUs: want error for malformed vendor file, got nil")
 	}
 	if !strings.Contains(err.Error(), dir) {
 		t.Errorf("error %q does not name device directory %q", err, dir)
 	}
 }
 
-func TestRender_Empty(t *testing.T) {
-	out, err := Render(nil)
+func TestRenderGPUs_Empty(t *testing.T) {
+	out, err := RenderGPUs(nil)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderGPUs: %v", err)
 	}
 	if !strings.Contains(string(out), "luxos.hardware.gpus = [ ];") {
-		t.Errorf("Render(nil) = %q, want empty-list form", out)
+		t.Errorf("RenderGPUs(nil) = %q, want empty-list form", out)
 	}
 }
 
-func TestRender_SortedByBusID(t *testing.T) {
+func TestRenderGPUs_SortedByBusID(t *testing.T) {
 	gpus := []GPU{
 		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
 		{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", Class: "vga", BootVGA: true},
 	}
-	out, err := Render(gpus)
+	out, err := RenderGPUs(gpus)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderGPUs: %v", err)
 	}
 	first := strings.Index(string(out), "PCI:0@0:2:0")
 	second := strings.Index(string(out), "PCI:1@0:0:0")
 	if first < 0 || second < 0 || first > second {
-		t.Errorf("Render output not sorted by busId:\n%s", out)
+		t.Errorf("RenderGPUs output not sorted by busId:\n%s", out)
 	}
 }
 

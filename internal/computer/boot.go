@@ -1,7 +1,7 @@
-// Package boot detects and writes the computer's boot loader file
-// (/etc/nixos/boot.nix). It takes every path as a parameter: nothing here
-// resolves paths or touches the terminal.
-package boot
+// Package computer detects facts about the physical computer - boot loader, GPUs, hardware
+// configuration - and writes or renders them as Nix. It takes every path as a parameter: nothing here
+// resolves paths, prints, or exits.
+package computer
 
 import (
 	"bytes"
@@ -84,10 +84,10 @@ func parseMounts(mountsFile string) (map[string]mountEntry, error) {
 	return mounts, nil
 }
 
-// Detect determines this computer's boot loader firmware and target from
+// DetectBoot determines this computer's boot loader firmware and target from
 // sysDir (a sysfs root, normally "/sys") and mountsFile (normally
 // "/proc/mounts").
-func Detect(sysDir, mountsFile string) (Loader, error) {
+func DetectBoot(sysDir, mountsFile string) (Loader, error) {
 	mounts, err := parseMounts(mountsFile)
 	if err != nil {
 		return Loader{}, err
@@ -154,37 +154,37 @@ func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
 	return Loader{EFI: false, Target: devPrefix + disk}, nil
 }
 
-// Render renders boot.nix for the detected loader (B10).
-func Render(l Loader) ([]byte, error) {
+// RenderBoot renders boot.nix for the detected loader (B10).
+func RenderBoot(l Loader) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := bootTmpl.Execute(&buf, l); err != nil {
-		return nil, fmt.Errorf("boot.Render: %w", err)
+		return nil, fmt.Errorf("computer.RenderBoot: %w", err)
 	}
 	return buf.Bytes(), nil
 }
 
-// Ensure makes sure bootFile exists, writing it from detection when it does
+// EnsureBoot makes sure bootFile exists, writing it from detection when it does
 // not. An existing entry of any kind is left alone (B1). A detection
 // failure is a hard error naming bootFile (B7).
-func Ensure(bootFile, sysDir, mountsFile string) (created bool, err error) {
+func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
 	if _, err := os.Lstat(bootFile); err == nil {
 		return false, nil
 	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("boot.Ensure: stat %s: %w", bootFile, err)
+		return false, fmt.Errorf("computer.EnsureBoot: stat %s: %w", bootFile, err)
 	}
 
-	loader, err := Detect(sysDir, mountsFile)
+	loader, err := DetectBoot(sysDir, mountsFile)
 	if err != nil {
 		return false, fmt.Errorf("cannot detect the boot loader: %s\nwrite %s by hand to configure the boot loader", err, bootFile)
 	}
 
-	content, err := Render(loader)
+	content, err := RenderBoot(loader)
 	if err != nil {
 		return false, err
 	}
 
 	if err := os.WriteFile(bootFile, content, fileMode); err != nil {
-		return false, fmt.Errorf("boot.Ensure: write %s: %w", bootFile, err)
+		return false, fmt.Errorf("computer.EnsureBoot: write %s: %w", bootFile, err)
 	}
 
 	return true, nil
