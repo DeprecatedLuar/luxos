@@ -1,6 +1,5 @@
 // Package links manages every symlink luxos maintains: the per-host modules
-// mirror, the CONFIG_DIR/local link, /etc/nixos healing, and the lux
-// self-link (G8). Every directory is a parameter; nothing here resolves
+// mirror, the CONFIG_DIR/local link and the modules/local link. Every directory is a parameter; nothing here resolves
 // paths or prints (implementation-plan.md G10, G11).
 package links
 
@@ -12,11 +11,6 @@ import (
 
 const (
 	dirMode = 0755
-
-	etcNixosEnvFile = "env"
-	etcNixosEnvMode = 0600
-
-	configurationNix = "configuration.nix"
 
 	mirrorEntrypoint = "default.nix"
 	selectionFile    = "modules.nix"
@@ -89,58 +83,6 @@ func EnsureLocalModules(localDir, modulesDir, host string) error {
 	}
 
 	return relink(link, rel)
-}
-
-// EnsureEtcNixos ensures etcNixos is a real directory (self-healing a stale
-// symlink from the old single-file scheme), removes a stale
-// configuration.nix symlink left from before the flake migration, and
-// ensures an env file exists for service environmentFiles that expect it
-// even when empty. Returns the actions it took, in order.
-func EnsureEtcNixos(etcNixos string) ([]string, error) {
-	var actions []string
-
-	if info, err := os.Lstat(etcNixos); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(etcNixos); err != nil {
-			return actions, err
-		}
-		actions = append(actions, fmt.Sprintf("converted %s from a symlink to a real directory", etcNixos))
-	} else if err != nil && !os.IsNotExist(err) {
-		return actions, err
-	}
-
-	if _, err := os.Stat(etcNixos); os.IsNotExist(err) {
-		if err := os.MkdirAll(etcNixos, dirMode); err != nil {
-			return actions, err
-		}
-		actions = append(actions, fmt.Sprintf("created %s", etcNixos))
-	} else if err != nil {
-		return actions, err
-	}
-
-	configPath := filepath.Join(etcNixos, configurationNix)
-	if info, err := os.Lstat(configPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(configPath); err != nil {
-			return actions, err
-		}
-		actions = append(actions, fmt.Sprintf("removed stale %s symlink", configPath))
-	} else if err != nil && !os.IsNotExist(err) {
-		return actions, err
-	}
-
-	envPath := filepath.Join(etcNixos, etcNixosEnvFile)
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, nil, etcNixosEnvMode); err != nil {
-			return actions, err
-		}
-		if err := os.Chmod(envPath, etcNixosEnvMode); err != nil {
-			return actions, err
-		}
-		actions = append(actions, fmt.Sprintf("created %s", envPath))
-	} else if err != nil {
-		return actions, err
-	}
-
-	return actions, nil
 }
 
 // refuseRealFile errors if path exists and is not a symlink.

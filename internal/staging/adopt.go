@@ -35,8 +35,8 @@ const (
 
 	backupTimeFormat = "20060102T150405Z"
 
-	changeMoved  = "moved"
-	changeHealed = "healed"
+	ChangeMoved  = "moved"
+	ChangeHealed = "healed"
 )
 
 // ErrNoBackupDir is returned by Adopt when something must be moved but no
@@ -67,7 +67,7 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 		if err := os.Remove(stagingDir); err != nil {
 			return nil, err
 		}
-		changes = append(changes, Change{Kind: changeHealed, Path: stagingDir})
+		changes = append(changes, Change{Kind: ChangeHealed, Path: stagingDir})
 		if err := os.MkdirAll(stagingDir, dirMode); err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 		if err := userfile.ChownTree(dst); err != nil {
 			return nil, fmt.Errorf("chown %s: %w", dst, err)
 		}
-		changes = append(changes, Change{Kind: changeMoved, Path: src, Dest: dst})
+		changes = append(changes, Change{Kind: ChangeMoved, Path: src, Dest: dst})
 	}
 	return changes, nil
 }

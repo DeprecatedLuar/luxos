@@ -91,10 +91,9 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	config := filepath.Join(root, "config")
 	local := filepath.Join(config, ".local")
 	modules := filepath.Join(config, "modules")
-	staging := filepath.Join(root, "staging")
-	etcNixos := filepath.Join(root, "etc-nixos")
-	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
-	bootConfig := filepath.Join(root, "boot.nix")
+	staging := filepath.Join(root, "etc-nixos")
+	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
+	bootConfig := filepath.Join(staging, "boot.nix")
 	sysDir := filepath.Join(root, "sys")
 	mountsFile := filepath.Join(root, "mounts")
 
@@ -136,7 +135,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		Local:          local,
 		Modules:        modules,
 		Staging:        staging,
-		EtcNixos:       etcNixos,
+		Backup:         filepath.Join(root, "backup"),
 		HardwareConfig: hardwareConfig,
 		BootConfig:     bootConfig,
 		Sys:            sysDir,
@@ -174,10 +173,17 @@ func TestRun_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// The pre-written boot.nix was left alone and staged as is.
-	wantBoot := mustReadFile(t, p.BootConfig)
-	if got := mustReadFile(t, filepath.Join(p.Staging, "boot.nix")); got != wantBoot {
-		t.Errorf("staged boot.nix = %q, want %q", got, wantBoot)
+	// The pre-written boot.nix was left alone.
+	if got := mustReadFile(t, p.BootConfig); got != "{ ... }: { }\n" {
+		t.Errorf("boot.nix = %q, want it untouched", got)
+	}
+
+	// Adoption precedes both computer-file steps (N22).
+	adopting := strings.Index(out.String(), "Adopting "+p.Staging)
+	ensuringHW := strings.Index(out.String(), "Ensuring "+p.HardwareConfig)
+	ensuringBoot := strings.Index(out.String(), "Ensuring "+p.BootConfig)
+	if adopting < 0 || !(adopting < ensuringHW && ensuringHW < ensuringBoot) {
+		t.Errorf("want Adopting < Ensuring hardware < Ensuring boot, got:\n%s", out.String())
 	}
 
 	// The pre-written hardware-configuration.nix was left alone.
@@ -289,9 +295,6 @@ func TestRun_BootConfigCreated(t *testing.T) {
 	if got := mustReadFile(t, p.BootConfig); got != string(want) {
 		t.Errorf("boot.nix = %q, want %q", got, want)
 	}
-	if got := mustReadFile(t, filepath.Join(p.Staging, "boot.nix")); got != string(want) {
-		t.Errorf("staged boot.nix = %q, want %q", got, want)
-	}
 	if !strings.Contains(out.String(), "created:") {
 		t.Errorf("output did not report the creation, got:\n%s", out.String())
 	}
@@ -351,10 +354,9 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	config := filepath.Join(root, "config")
 	local := filepath.Join(config, ".local")
 	modules := filepath.Join(config, "modules")
-	staging := filepath.Join(root, "staging")
-	etcNixos := filepath.Join(root, "etc-nixos")
-	hardwareConfig := filepath.Join(root, "hardware-configuration.nix")
-	bootConfig := filepath.Join(root, "boot.nix")
+	staging := filepath.Join(root, "etc-nixos")
+	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
+	bootConfig := filepath.Join(staging, "boot.nix")
 	sysDir := filepath.Join(root, "sys")
 	mountsFile := filepath.Join(root, "mounts")
 
@@ -379,7 +381,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		Local:          local,
 		Modules:        modules,
 		Staging:        staging,
-		EtcNixos:       etcNixos,
+		Backup:         filepath.Join(root, "backup"),
 		HardwareConfig: hardwareConfig,
 		BootConfig:     bootConfig,
 		Sys:            sysDir,
@@ -483,7 +485,54 @@ func TestRun_BoundaryViolation(t *testing.T) {
 		t.Errorf("output did not report the violation, got:\n%s", out.String())
 	}
 
-	if _, statErr := os.Stat(p.Staging); !os.IsNotExist(statErr) {
-		t.Errorf("staging dir %s should not exist after a boundary violation", p.Staging)
+	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
+		t.Errorf("nothing should be staged after a boundary violation, err=%v", statErr)
+	}
+}
+
+func TestRun_StrangerMovedToBackup(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	fakeNix(t)
+	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, false); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+	if _, err := os.Lstat(filepath.Join(p.Staging, "old-config.nix")); !os.IsNotExist(err) {
+		t.Errorf("stranger should have left the staging root, err=%v", err)
+	}
+	moved, err := filepath.Glob(filepath.Join(p.Backup, "*", "old-config.nix"))
+	if err != nil || len(moved) != 1 {
+		t.Fatalf("backup holds %v (err %v), want exactly one old-config.nix", moved, err)
+	}
+	if !strings.Contains(out.String(), "moved: "+filepath.Join(p.Staging, "old-config.nix")+" -> "+moved[0]) {
+		t.Errorf("output did not report the move, got:\n%s", out.String())
+	}
+
+	// hardware-configuration.nix is never on the delete list: it survives a
+	// second run.
+	if err := Run(&out, p, host, false); err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if got := mustReadFile(t, p.HardwareConfig); got != hardwareConfigContent {
+		t.Errorf("hardware-configuration.nix = %q after second run, want %q", got, hardwareConfigContent)
+	}
+}
+
+func TestRun_NoBackupDirNamesFlag(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	fakeNix(t)
+	p.Backup = ""
+	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
+
+	var out bytes.Buffer
+	err := Run(&out, p, host, false)
+	if err == nil || !strings.Contains(err.Error(), "luxos rebuild --backup-dir <path>") {
+		t.Fatalf("err = %v, want the --backup-dir recovery line", err)
 	}
 }

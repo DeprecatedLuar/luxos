@@ -17,10 +17,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
-// Marker marks a directory as a staging tree this package created and may
-// wipe.
-const Marker = ".luxos-staging"
-
 const (
 	dirMode  = 0755
 	fileMode = 0644
@@ -43,26 +39,23 @@ const (
 	stagedModulesDir = "modules"
 	stagedLocalDir   = "local"
 
-	hardwareConfigName = "hardware-configuration.nix"
-	bootConfigName     = "boot.nix"
-	lockFileName       = "flake.lock"
+	lockFileName = "flake.lock"
 )
 
-// Materialize wipes and rebuilds stagingDir: framework/system.nix,
-// framework/shadow.sh, framework/units.nix, framework/overlay.nix, framework/outputs.nix, framework/environment.nix,
-// framework/luxos-hardware.nix, framework/luxos-hardware-defaults.nix, flake.nix,
-// config/modules (from modulesDir), config/local (from hostDir), config/environment (from environmentFile, required),
-// hardware-configuration.nix, boot.nix (from bootConfig, required), and
-// flake.lock if lockFile exists. lockFile is the active host's own
-// flake.lock (hostDir/flake.lock), not a config-root one.
-// Every symlink under modulesDir and hostDir is dereferenced. Refuses to
-// touch stagingDir unless it is empty or a tree this package created
-// (marked with Marker), and refuses a dangling symlink under modulesDir or
-// hostDir, naming it.
-func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lockFile, environmentFile string) error {
-	if err := guard(stagingDir); err != nil {
-		return err
-	}
+// Materialize regenerates the luxos-owned entries of stagingDir: it prunes
+// them (see Prune), then writes framework/system.nix, framework/shadow.sh,
+// framework/units.nix, framework/overlay.nix, framework/outputs.nix,
+// framework/environment.nix, framework/luxos-hardware.nix,
+// framework/luxos-hardware-defaults.nix, flake.nix, config/modules (from
+// modulesDir), config/local (from hostDir), config/environment (from
+// environmentFile, required), and flake.lock if lockFile exists. lockFile is
+// the active host's own flake.lock (hostDir/flake.lock), not a config-root
+// one. Entries outside the owned list, such as hardware-configuration.nix
+// and boot.nix, are left alone; Adopt is what deals with strangers.
+// Every symlink under modulesDir and hostDir is dereferenced. Refuses a
+// dangling symlink under modulesDir or hostDir, naming it, before touching
+// stagingDir.
+func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
 	}
@@ -70,7 +63,7 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lo
 		return err
 	}
 
-	if err := os.RemoveAll(stagingDir); err != nil {
+	if err := Prune(stagingDir); err != nil {
 		return err
 	}
 
@@ -80,9 +73,6 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lo
 		return err
 	}
 	if err := os.MkdirAll(cfgDir, dirMode); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(stagingDir, Marker), nil, fileMode); err != nil {
 		return err
 	}
 
@@ -122,14 +112,6 @@ func Materialize(stagingDir, modulesDir, hostDir, hardwareConfig, bootConfig, lo
 	}
 
 	if err := copyFile(environmentFile, filepath.Join(cfgDir, stagedEnvironment)); err != nil {
-		return err
-	}
-
-	if err := copyFile(hardwareConfig, filepath.Join(stagingDir, hardwareConfigName)); err != nil {
-		return err
-	}
-
-	if err := copyFile(bootConfig, filepath.Join(stagingDir, bootConfigName)); err != nil {
 		return err
 	}
 
@@ -215,22 +197,6 @@ func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
 		return LockInput{}, false, nil
 	}
 	return node.Locked, true, nil
-}
-
-func guard(stagingDir string) error {
-	if _, err := os.Lstat(stagingDir); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(stagingDir, Marker)); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%s exists but isn't a luxos-managed staging tree; remove it manually first if that's intended", stagingDir)
-		}
-		return err
-	}
-	return nil
 }
 
 // checkNoDanglingLinks walks root and errors, naming the culprit, on the

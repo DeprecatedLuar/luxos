@@ -73,7 +73,7 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "bypass:bool prune:bool machine:value config|C:value"
+const rebuildFlagSpec = "bypass:bool prune:bool machine:value config|C:value backup-dir:value"
 
 // flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
@@ -97,6 +97,10 @@ const selfUpdateNotice = "luxos updated, rebuilding with the new version"
 // configDirEnv is the environment variable paths.Resolve honors as the one
 // override for CONFIG_DIR.
 const configDirEnv = "LUXOS_CONFIG_DIR"
+
+// backupDirEnv is the environment variable paths.Resolve honors as the
+// override for the directory adoption moves strangers into.
+const backupDirEnv = "LUXOS_BACKUP_DIR"
 
 // printLogo prints the rebuild header, colored when stdout allows it.
 func printLogo() {
@@ -181,6 +185,16 @@ func Rebuild(args []string) error {
 			return fmt.Errorf("config dir %s does not exist", abs)
 		}
 		if err := os.Setenv(configDirEnv, abs); err != nil {
+			return err
+		}
+	}
+
+	if opts["backup-dir"] != "" {
+		abs, err := filepath.Abs(opts["backup-dir"])
+		if err != nil {
+			return err
+		}
+		if err := os.Setenv(backupDirEnv, abs); err != nil {
 			return err
 		}
 	}

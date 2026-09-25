@@ -127,18 +127,17 @@ func TestResolve_XDGConfigHomeUnset(t *testing.T) {
 	}
 }
 
-func TestResolve_BackupDefaultsToHome(t *testing.T) {
-	home := t.TempDir()
+func TestResolve_BackupEmptyWithoutInvokingUser(t *testing.T) {
 	t.Setenv(sudoUserEnv, "")
 	t.Setenv(backupDirEnv, "")
-	t.Setenv(homeEnv, home)
+	t.Setenv(homeEnv, t.TempDir())
 
 	p, err := Resolve()
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if want := filepath.Join(home, backupDirName); p.Backup != want {
-		t.Fatalf("Backup = %q, want %q", p.Backup, want)
+	if p.Backup != "" {
+		t.Fatalf("Backup = %q, want empty", p.Backup)
 	}
 	if p.SudoUser {
 		t.Fatal("SudoUser = true, want false")

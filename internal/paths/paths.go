@@ -22,8 +22,7 @@ const (
 	localRel        = ".local"
 	modulesRel      = "modules"
 
-	etcNixos       = "/etc/nixos"
-	staging        = "/etc/nixos/luxos"
+	staging        = "/etc/nixos"
 	hardwareConfig = "/etc/nixos/hardware-configuration.nix"
 	bootConfig     = "/etc/nixos/boot.nix"
 	sysDir         = "/sys"
@@ -36,11 +35,10 @@ type Paths struct {
 	Home, User     string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
 	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
 	SudoUser       bool   // $SUDO_USER was set: Home is the invoking user's, not root's
-	Backup         string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here
+	Backup         string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here when $SUDO_USER is set, else empty (no invoking user)
 	Local          string // <Config>/.local
 	Modules        string // <Config>/modules
-	Staging        string // /etc/nixos/luxos
-	EtcNixos       string // /etc/nixos
+	Staging        string // /etc/nixos, the flake root
 	HardwareConfig string // /etc/nixos/hardware-configuration.nix
 	BootConfig     string // /etc/nixos/boot.nix
 	Sys            string // /sys
@@ -66,7 +64,7 @@ func Resolve() (Paths, error) {
 	}
 
 	backup := os.Getenv(backupDirEnv)
-	if backup == "" {
+	if backup == "" && os.Getenv(sudoUserEnv) != "" {
 		backup = filepath.Join(u.HomeDir, backupDirName)
 	}
 
@@ -79,7 +77,6 @@ func Resolve() (Paths, error) {
 		Local:          filepath.Join(config, localRel),
 		Modules:        filepath.Join(config, modulesRel),
 		Staging:        staging,
-		EtcNixos:       etcNixos,
 		HardwareConfig: hardwareConfig,
 		BootConfig:     bootConfig,
 		Sys:            sysDir,

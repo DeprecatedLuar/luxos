@@ -189,7 +189,6 @@ func twoHostScopeFixture(t *testing.T) paths.Paths {
 		Local:          local,
 		Modules:        modules,
 		Staging:        filepath.Join(root, "staging"),
-		EtcNixos:       filepath.Join(root, "etc-nixos"),
 		HardwareConfig: filepath.Join(root, "hardware-configuration.nix"),
 		RunningModules: filepath.Join(root, "run-modules.nix"),
 	}

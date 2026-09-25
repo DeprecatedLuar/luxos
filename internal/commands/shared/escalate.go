@@ -13,6 +13,10 @@ import (
 // resolved config dir is passed through it across the sudo re-exec.
 const configDirEnv = "LUXOS_CONFIG_DIR"
 
+// backupDirEnv mirrors internal/paths' LUXOS_BACKUP_DIR override; it crosses
+// the sudo re-exec only when set.
+const backupDirEnv = "LUXOS_BACKUP_DIR"
+
 // EnsureRoot re-execs the running binary under sudo when not already root
 // (implementation-plan.md G9). args are the original CLI arguments (with
 // the command name prepended by the caller). It returns only on error;
@@ -39,7 +43,11 @@ func EnsureRoot(args []string) error {
 		return err
 	}
 
-	argv := []string{sudoPath, fmt.Sprintf("%s=%s", configDirEnv, p.Config), exe}
+	argv := []string{sudoPath, fmt.Sprintf("%s=%s", configDirEnv, p.Config)}
+	if backup := os.Getenv(backupDirEnv); backup != "" {
+		argv = append(argv, fmt.Sprintf("%s=%s", backupDirEnv, backup))
+	}
+	argv = append(argv, exe)
 	argv = append(argv, args...)
 
 	return syscall.Exec(sudoPath, argv, os.Environ())
