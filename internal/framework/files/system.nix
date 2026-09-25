@@ -1,11 +1,17 @@
 { pkgs, lib, inputs, config, ... }:
 
+# Foundation, not policy: every setting here is a lib.mkDefault so a host module
+# overrides it with a plain assignment. What stays undefaulted is what breaks the
+# system if changed: list options that must merge (systemPackages carries luxos,
+# experimental-features carries flakes), the flake-pinned registry/nixPath, the
+# lockout assertion, and imports/etc plumbing.
+
 {
   imports = [ ../hardware-configuration.nix ../boot.nix ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
 
   #──[Packages]──────────────────────────────────────────────────────────────
 
-  nixpkgs.config.allowUnfree = true;
+  nixpkgs.config.allowUnfree = lib.mkDefault true;
   environment.systemPackages = with pkgs; [
     ncdu
     fastfetch
@@ -39,7 +45,7 @@
     inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 
-  programs.nix-ld.enable = true;
+  programs.nix-ld.enable = lib.mkDefault true;
 
   # Personal bin directories on PATH. luxos links itself into ~/.local/bin/lux,
   # so that one is required for `lux` to resolve on a fresh machine.
@@ -50,8 +56,8 @@
 
   #──[Users]─────────────────────────────────────────────────────────────────
 
-  users.users.root.hashedPassword = "!"; # No password login for root; use sudo or SSH key
-  services.openssh.settings.PermitRootLogin = "prohibit-password";
+  users.users.root.hashedPassword = lib.mkDefault "!"; # No password login for root; use sudo or SSH key
+  services.openssh.settings.PermitRootLogin = lib.mkDefault "prohibit-password";
 
   # Lockout guard (implementation-plan.md #20): root is locked above, and
   # NixOS' own lockout assertion only fires when users.mutableUsers = false.
@@ -79,9 +85,11 @@
 
   #──[Services]──────────────────────────────────────────────────────────────
 
-  services.openssh.enable = true;
-  services.atd.enable = true;
-  services.cron.enable = true;
+  networking.networkmanager.enable = lib.mkDefault true;
+
+  services.openssh.enable = lib.mkDefault true;
+  services.atd.enable = lib.mkDefault true;
+  services.cron.enable = lib.mkDefault true;
 
   # Strict rpfilter drops a full-tunnel VPN's own encrypted replies once the
   # default route moves onto the tunnel (Tailscale exit node, wg-quick 0.0.0.0/0).
@@ -91,20 +99,20 @@
 
   # tmpfs for /tmp - clears on reboot (modern standard)
   boot.tmp = {
-    useTmpfs = true;
-    tmpfsSize = "50%";  # limit to 50% of RAM
+    useTmpfs = lib.mkDefault true;
+    tmpfsSize = lib.mkDefault "50%";  # limit to 50% of RAM
   };
 
-  zramSwap.enable = true; # 50% RAM compressed swap, no disk needed
+  zramSwap.enable = lib.mkDefault true; # 50% RAM compressed swap, no disk needed
 
   # A frozen kernel leaves no logs; panicking is what gets a crash into pstore.
   boot.kernel.sysctl = {
-    "kernel.hardlockup_panic" = 1;
-    "kernel.panic_on_oops" = 1;
-    "kernel.panic" = 10;
+    "kernel.hardlockup_panic" = lib.mkDefault 1;
+    "kernel.panic_on_oops" = lib.mkDefault 1;
+    "kernel.panic" = lib.mkDefault 10;
   };
 
-  systemd.settings.Manager.RuntimeWatchdogSec = "30s";
+  systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "30s";
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.registry.nixpkgs.flake = inputs.nixpkgs;
@@ -116,6 +124,6 @@
     dates = lib.mkDefault "weekly";
     options = lib.mkDefault "--delete-older-than 14d";
   };
-  nix.optimise.automatic = true;
-  nix.settings.auto-optimise-store = true;
+  nix.optimise.automatic = lib.mkDefault true;
+  nix.settings.auto-optimise-store = lib.mkDefault true;
 }
