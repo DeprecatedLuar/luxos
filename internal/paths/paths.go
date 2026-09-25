@@ -11,11 +11,13 @@ import (
 
 const (
 	configDirEnv     = "LUXOS_CONFIG_DIR"
+	backupDirEnv     = "LUXOS_BACKUP_DIR"
 	sudoUserEnv      = "SUDO_USER"
 	homeEnv          = "HOME"
 	xdgConfigHomeEnv = "XDG_CONFIG_HOME"
 
 	configDirName   = "luxos"
+	backupDirName   = "your-old-nixos-config-is-here"
 	configRelToHome = ".config/luxos"
 	localRel        = ".local"
 	modulesRel      = "modules"
@@ -33,6 +35,8 @@ const (
 type Paths struct {
 	Home, User     string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
 	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
+	SudoUser       bool   // $SUDO_USER was set: Home is the invoking user's, not root's
+	Backup         string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here
 	Local          string // <Config>/.local
 	Modules        string // <Config>/modules
 	Staging        string // /etc/nixos/luxos
@@ -61,9 +65,16 @@ func Resolve() (Paths, error) {
 		}
 	}
 
+	backup := os.Getenv(backupDirEnv)
+	if backup == "" {
+		backup = filepath.Join(u.HomeDir, backupDirName)
+	}
+
 	return Paths{
 		Home:           u.HomeDir,
 		User:           u.Username,
+		SudoUser:       os.Getenv(sudoUserEnv) != "",
+		Backup:         backup,
 		Config:         config,
 		Local:          filepath.Join(config, localRel),
 		Modules:        filepath.Join(config, modulesRel),

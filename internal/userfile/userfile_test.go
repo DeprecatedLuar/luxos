@@ -86,3 +86,61 @@ func TestCreateExistingDir(t *testing.T) {
 		t.Fatalf("created=%v err=%v", created, err)
 	}
 }
+
+func TestMkdir_ErrorsWhenExists(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "d")
+	if err := Mkdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mkdir(dir); err == nil {
+		t.Fatal("Mkdir on an existing path succeeded")
+	}
+}
+
+func TestMkdir_NeedsParent(t *testing.T) {
+	if err := Mkdir(filepath.Join(t.TempDir(), "a", "b")); err == nil {
+		t.Fatal("Mkdir created a missing parent")
+	}
+}
+
+func TestMkdirAll_CreatesParentsAndIsIdempotent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a", "b", "c")
+	if err := MkdirAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := MkdirAll(dir); err != nil {
+		t.Fatalf("second MkdirAll: %v", err)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("dir not created: %v", err)
+	}
+}
+
+func TestChownTree_DoesNotFollowSymlink(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(outside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(outside, "target.txt")
+	if err := os.WriteFile(target, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "tree")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ChownTree(root); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("link is no longer a symlink: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "x" {
+		t.Fatalf("target changed: %q %v", b, err)
+	}
+}

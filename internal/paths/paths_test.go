@@ -126,3 +126,34 @@ func TestResolve_XDGConfigHomeUnset(t *testing.T) {
 		t.Fatalf("Config = %q, want %q", p.Config, want)
 	}
 }
+
+func TestResolve_BackupDefaultsToHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(sudoUserEnv, "")
+	t.Setenv(backupDirEnv, "")
+	t.Setenv(homeEnv, home)
+
+	p, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := filepath.Join(home, backupDirName); p.Backup != want {
+		t.Fatalf("Backup = %q, want %q", p.Backup, want)
+	}
+	if p.SudoUser {
+		t.Fatal("SudoUser = true, want false")
+	}
+}
+
+func TestResolve_BackupEnvOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "backup")
+	t.Setenv(backupDirEnv, override)
+
+	p, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if p.Backup != override {
+		t.Fatalf("Backup = %q, want %q", p.Backup, override)
+	}
+}

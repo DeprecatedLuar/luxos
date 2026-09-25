@@ -2,6 +2,7 @@ package staging
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -502,5 +503,223 @@ func TestReadLockInputMissingFile(t *testing.T) {
 func TestReadLockInputMalformed(t *testing.T) {
 	if _, _, err := ReadLockInput(writeLock(t, "{not json"), "luxos"); err == nil {
 		t.Error("want error")
+	}
+}
+
+const testHeader = "# LUXOS property - keep walking buddy\n"
+
+func writeTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func adoptedFiles() map[string]string {
+	return map[string]string{
+		"framework/system.nix": testHeader + "{ }",
+		"config/x.nix":         "{ }",
+		"flake.nix":            "{ }",
+		"flake-file.nix":       "{ }",
+		"configuration.nix":    "{ }",
+		"flake.lock":           "{ }",
+	}
+}
+
+func exists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+func TestAdopt_EmptyDir(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	changes, err := Adopt(stage, backup)
+	if err != nil || len(changes) != 0 {
+		t.Fatalf("changes=%v err=%v", changes, err)
+	}
+	if exists(backup) {
+		t.Fatal("backup dir created for nothing")
+	}
+}
+
+func TestAdopt_AlreadyAdoptedNoStrangers(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	writeTree(t, stage, adoptedFiles())
+	changes, err := Adopt(stage, backup)
+	if err != nil || len(changes) != 0 {
+		t.Fatalf("changes=%v err=%v", changes, err)
+	}
+	if exists(backup) {
+		t.Fatal("backup dir created for nothing")
+	}
+}
+
+func TestAdopt_MovesStranger(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	files := adoptedFiles()
+	files["strange.nix"] = "strange"
+	writeTree(t, stage, files)
+	changes, err := Adopt(stage, backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Kind != "moved" || changes[0].Path != filepath.Join(stage, "strange.nix") {
+		t.Fatalf("changes = %+v", changes)
+	}
+	if exists(filepath.Join(stage, "strange.nix")) {
+		t.Fatal("stranger still in staging")
+	}
+	if b, err := os.ReadFile(changes[0].Dest); err != nil || string(b) != "strange" {
+		t.Fatalf("moved file: %q %v", b, err)
+	}
+	if filepath.Dir(filepath.Dir(changes[0].Dest)) != backup {
+		t.Fatalf("dest %q not in a timestamped leaf of %q", changes[0].Dest, backup)
+	}
+	for name := range adoptedFiles() {
+		if !exists(filepath.Join(stage, name)) {
+			t.Fatalf("%s was moved", name)
+		}
+	}
+}
+
+func TestAdopt_VanillaTree(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	writeTree(t, stage, map[string]string{
+		"configuration.nix":          "{ }",
+		"hardware-configuration.nix": "{ }",
+		"flake.nix":                  "{ }",
+	})
+	changes, err := Adopt(stage, backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 2 {
+		t.Fatalf("changes = %+v", changes)
+	}
+	if exists(filepath.Join(stage, "configuration.nix")) || exists(filepath.Join(stage, "flake.nix")) {
+		t.Fatal("user config left in staging")
+	}
+	if !exists(filepath.Join(stage, "hardware-configuration.nix")) {
+		t.Fatal("hardware-configuration.nix was moved")
+	}
+}
+
+func TestAdopt_SystemNixWithoutHeaderIsNotAdopted(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	writeTree(t, stage, map[string]string{"framework/system.nix": "{ }\n", "flake.nix": "{ }"})
+	changes, err := Adopt(stage, backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 2 || exists(filepath.Join(stage, "framework")) {
+		t.Fatalf("changes = %+v", changes)
+	}
+}
+
+func TestAdopt_NoBackupDir(t *testing.T) {
+	stage := t.TempDir()
+	writeTree(t, stage, map[string]string{"configuration.nix": "{ }"})
+	if _, err := Adopt(stage, ""); !errors.Is(err, ErrNoBackupDir) {
+		t.Fatalf("err = %v, want ErrNoBackupDir", err)
+	}
+	if !exists(filepath.Join(stage, "configuration.nix")) {
+		t.Fatal("file moved despite error")
+	}
+}
+
+func TestAdopt_SymlinkedStaging(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "nixos")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := Adopt(link, filepath.Join(base, "backup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Kind != "healed" {
+		t.Fatalf("changes = %+v", changes)
+	}
+	if info, err := os.Lstat(link); err != nil || !info.IsDir() {
+		t.Fatalf("staging is not a real directory: %v", err)
+	}
+}
+
+func TestAdopt_ChownWalkDoesNotFollowSymlink(t *testing.T) {
+	stage, backup := t.TempDir(), filepath.Join(t.TempDir(), "backup")
+	outside := t.TempDir()
+	target := filepath.Join(outside, "t.txt")
+	if err := os.WriteFile(target, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stage, "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(stage, "dir", "link")); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := Adopt(stage, backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(changes[0].Dest, "link")
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("link not preserved as symlink: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "keep" {
+		t.Fatalf("target changed: %q %v", b, err)
+	}
+}
+
+func TestCopyTreePreservesSymlinks(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	writeTree(t, src, map[string]string{"a/f.txt": "x"})
+	if err := os.Symlink("/nonexistent", filepath.Join(src, "l")); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(base, "dst")
+	if err := copyTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(filepath.Join(dst, "l")); err != nil || got != "/nonexistent" {
+		t.Fatalf("readlink = %q %v", got, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dst, "a", "f.txt")); err != nil || string(b) != "x" {
+		t.Fatalf("copied file: %q %v", b, err)
+	}
+}
+
+func TestPrune(t *testing.T) {
+	stage := t.TempDir()
+	files := adoptedFiles()
+	files["hardware-configuration.nix"] = "{ }"
+	files["boot.nix"] = "{ }"
+	writeTree(t, stage, files)
+	if err := Prune(stage); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range owned {
+		if exists(filepath.Join(stage, name)) {
+			t.Fatalf("%s survived", name)
+		}
+	}
+	for _, name := range preserved {
+		if !exists(filepath.Join(stage, name)) {
+			t.Fatalf("%s removed", name)
+		}
+	}
+	if err := Prune(stage); err != nil {
+		t.Fatalf("second Prune: %v", err)
 	}
 }
