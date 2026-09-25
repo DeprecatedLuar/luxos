@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
 func testLockGraph() staging.LockGraph {
@@ -170,5 +172,173 @@ func TestFlakeUpstreamNotesUnsupportedIsUnknown(t *testing.T) {
 	}
 	if _, ok := notes["ff"]; ok {
 		t.Error("flake-file must not be checked")
+	}
+}
+
+//──[show]─────────────────────────────────────────────────────────────────
+
+const (
+	showLocked = "1e9592a000000000000000000000000000000000"
+	showTip    = "2a704c4300000000000000000000000000000000"
+	showTag138 = "c62a7ac000000000000000000000000000000000"
+	showMid    = "3333333000000000000000000000000000000000"
+)
+
+func showGraph() staging.LockGraph {
+	gh := func(rev string) staging.LockRef {
+		return staging.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst", Rev: rev}
+	}
+	return staging.LockGraph{
+		Root: []string{"ambxst", "old", "unstable"},
+		Nodes: map[string]staging.LockNode{
+			staging.LockRootNode: {Inputs: map[string]string{"ambxst": "ambxst", "old": "old", "unstable": "unstable"}},
+			"ambxst":             {Inputs: map[string]string{"nixpkgs": "nixpkgs_2", "axctl": "axctl"}, Original: staging.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst"}, Locked: gh(showLocked)},
+			"axctl":              {Original: staging.LockRef{Type: "github", Owner: "Axenide", Repo: "axctl"}, Locked: gh(showLocked)},
+			"nixpkgs_2":          {},
+			"old":                {Original: staging.LockRef{Type: "git", URL: "https://example.org/x.git", Ref: "main"}, Locked: staging.LockRef{Rev: showLocked}},
+			"unstable":           {Original: staging.LockRef{Type: "github", Owner: "NixOS", Repo: "nixpkgs", Ref: "nixpkgs-unstable"}, Locked: gh(showLocked)},
+		},
+	}
+}
+
+func showSites() map[string][]flakeDecl {
+	return map[string][]flakeDecl{
+		"ambxst": {{unit: "desktop/shells/ambxst", file: "modules/desktop/shells/ambxst/module.nix", line: 8, url: "github:Axenide/Ambxst"}},
+		"unstable": {
+			{unit: "desktop/compositors/hyprland", file: "modules/desktop/compositors/hyprland.nix", line: 3},
+			{unit: "services/docker", file: "modules/services/docker.nix", line: 4},
+		},
+		"newone": {{unit: "local/x", file: "local/modules/x.nix", line: 2, url: "github:o/newone"}},
+	}
+}
+
+func showRender(t *testing.T, name string, fetch func(staging.LockRef, string) *flakeUpstream) string {
+	t.Helper()
+	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	flakeRenderView(&b, v, treePalette{})
+	return b.String()
+}
+
+func TestFlakeShowBehindWithTagAndCommits(t *testing.T) {
+	fetch := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{
+			tip:   showTip,
+			tags:  map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
+			ahead: 55,
+			shas:  []string{"x", showTag138, showMid, showTip},
+		}
+	}
+	want := `◉ ambxst ↑
+├── source    github:Axenide/Ambxst (default branch)
+├── declared  modules/desktop/shells/ambxst/module.nix:8
+├── version
+│   ├── current  1.3.4
+│   └── latest   1.3.8  +55 commits
+└── pulls in
+    └── axctl, nixpkgs
+`
+	if got := showRender(t, "ambxst", fetch); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFlakeShowUntaggedAndMultipleDeclarations(t *testing.T) {
+	fetch := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{tip: showTip, ahead: 7853, shas: []string{showMid, showTip}}
+	}
+	want := `◉ unstable ↑
+├── source    github:NixOS/nixpkgs/nixpkgs-unstable
+├── declared
+│   ├── modules/desktop/compositors/hyprland.nix:3
+│   └── modules/services/docker.nix:4
+└── version
+    ├── current  1e9592a
+    └── latest   2a704c4  +7853 commits
+`
+	if got := showRender(t, "unstable", fetch); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFlakeShowUpToDate(t *testing.T) {
+	fetch := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
+	want := `◍ axctl
+├── source    github:Axenide/axctl (default branch)
+├── declared  pulled in by ambxst
+└── version
+    └── current  1e9592a  up to date
+`
+	if got := showRender(t, "ambxst/axctl", fetch); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFlakeShowFailuresRenderQuestionMark(t *testing.T) {
+	boom := errors.New("boom")
+	tip := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tipErr: boom} }
+	got := showRender(t, "unstable", tip)
+	if !strings.Contains(got, "unstable ?\n") || !strings.Contains(got, "latest   ?\n") {
+		t.Errorf("tip failure:\n%s", got)
+	}
+
+	cmp := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showTip, compareErr: boom} }
+	got = showRender(t, "unstable", cmp)
+	if !strings.Contains(got, "unstable ↑\n") || !strings.Contains(got, "latest   ?\n") || strings.Contains(got, "commits") {
+		t.Errorf("compare failure:\n%s", got)
+	}
+
+	tags := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{tip: showTip, tagsErr: boom, ahead: 3, shas: []string{showTip}}
+	}
+	got = showRender(t, "unstable", tags)
+	if !strings.Contains(got, "current  1e9592a\n") || !strings.Contains(got, "latest   ?\n") {
+		t.Errorf("tags failure:\n%s", got)
+	}
+}
+
+func TestFlakeShowUnsupportedCompareUsesTagOnTip(t *testing.T) {
+	fetch := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{tip: showTip, tags: map[string]string{showTip: "v2"}, compareErr: upstream.ErrUnsupported}
+	}
+	got := showRender(t, "old", fetch)
+	if !strings.Contains(got, "source    https://example.org/x.git\n") || !strings.Contains(got, "latest   v2\n") || strings.Contains(got, "commits") {
+		t.Errorf("got:\n%s", got)
+	}
+}
+
+func TestFlakeShowOfflineAndUnlocked(t *testing.T) {
+	got := showRender(t, "ambxst", nil)
+	if !strings.Contains(got, "current  1e9592a\n") || strings.Contains(got, "latest") || strings.Contains(got, "↑") {
+		t.Errorf("offline:\n%s", got)
+	}
+
+	want := `⊕ newone
+├── source    github:o/newone
+├── declared  local/modules/x.nix:2
+└── version
+    └── current  not locked yet (the next rebuild locks it)
+`
+	if got := showRender(t, "newone", nil); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	if got := showRender(t, "luxos", nil); !strings.Contains(got, "declared  built in\n") || strings.Contains(got, "source") {
+		t.Errorf("built in:\n%s", got)
+	}
+	if got := showRender(t, "old", nil); !strings.Contains(got, "⊘ old\n") || !strings.Contains(got, "no longer declared") {
+		t.Errorf("gone:\n%s", got)
+	}
+}
+
+func TestFlakeShowUnknownInput(t *testing.T) {
+	for _, name := range []string{"nope", "flake-file", "ambxst/nope", "newone/x", "nope/x"} {
+		_, err := flakeBuildView(name, "h", showSites(), showGraph(), nil)
+		if err == nil || !strings.Contains(err.Error(), "no input '"+name+"' for h\n  list them with: luxos flakes") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
