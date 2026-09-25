@@ -26,7 +26,7 @@ const (
 	bootConfig     = "/etc/nixos/boot.nix"
 	sysDir         = "/sys"
 	mountsFile     = "/proc/mounts"
-	runningModules = "/run/current-system/etc/luxos/modules.nix"
+	runningModules = "/run/current-system/luxos/modules.nix"
 )
 
 // Paths holds every directory luxos needs, resolved once per invocation.
@@ -41,7 +41,7 @@ type Paths struct {
 	BootConfig     string // /etc/nixos/boot.nix
 	Sys            string // /sys
 	Mounts         string // /proc/mounts
-	RunningModules string // /run/current-system/etc/luxos/modules.nix
+	RunningModules string // /run/current-system/luxos/modules.nix
 }
 
 // Resolve determines the invoking user (honoring $SUDO_USER) and builds

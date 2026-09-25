@@ -1,3 +1,4 @@
+# LUXOS property - keep walking buddy
 { pkgs, lib, inputs, config, ... }:
 
 # Foundation, not policy: every setting here is a lib.mkDefault so a host module
@@ -47,12 +48,17 @@
 
   programs.nix-ld.enable = lib.mkDefault true;
 
-  # Personal bin directories on PATH. luxos links itself into ~/.local/bin/lux,
-  # so that one is required for `lux` to resolve on a fresh machine.
+  # Put personal bin directories on PATH.
   environment.localBinInPath = lib.mkDefault true;
   environment.homeBinInPath = lib.mkDefault true;
 
-  environment.etc."luxos/modules.nix".source = ../config/modules/default.nix;
+  # The active host's selection, baked into the generation so `luxos module
+  # list` can tell enabled-and-running from enabled-but-staged. Deliberately
+  # not an environment.etc entry: nothing ever reads it from /etc.
+  system.extraSystemBuilderCmds = ''
+    mkdir -p $out/luxos
+    cp ${../config/modules/default.nix} $out/luxos/modules.nix
+  '';
 
   #──[Users]─────────────────────────────────────────────────────────────────
 

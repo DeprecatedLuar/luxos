@@ -67,7 +67,7 @@ func assertNixParses(t *testing.T, content []byte) {
 }
 
 func TestConfiguration_Golden(t *testing.T) {
-	out, err := Configuration("paraloid", "/etc/luxos/bin/luxos")
+	out, err := Configuration("paraloid")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}
@@ -75,12 +75,25 @@ func TestConfiguration_Golden(t *testing.T) {
 	assertNixParses(t, out)
 }
 
-func TestConfiguration_Deterministic(t *testing.T) {
-	a, err := Configuration("paraloid", "/x/luxos")
+func TestConfiguration_NoEtcLuxosBin(t *testing.T) {
+	out, err := Configuration("paraloid")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}
-	b, err := Configuration("paraloid", "/x/luxos")
+	if strings.Contains(string(out), `environment.etc."luxos/bin"`) {
+		t.Errorf("configuration.nix still declares environment.etc.\"luxos/bin\"")
+	}
+	if !strings.Contains(string(out), "inputs.luxos.packages") {
+		t.Errorf("configuration.nix does not reference inputs.luxos.packages")
+	}
+}
+
+func TestConfiguration_Deterministic(t *testing.T) {
+	a, err := Configuration("paraloid")
+	if err != nil {
+		t.Fatalf("Configuration: %v", err)
+	}
+	b, err := Configuration("paraloid")
 	if err != nil {
 		t.Fatalf("Configuration: %v", err)
 	}

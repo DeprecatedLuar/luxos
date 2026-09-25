@@ -17,13 +17,12 @@ import (
 type shadow struct {
 	Name string
 	Args string
-	Real string
 }
 
 // hardShadows is the fixed set of hard shadows configuration.nix installs.
 var hardShadows = []shadow{
-	{Name: "nixos-rebuild", Args: "rebuild", Real: "${config.system.build.nixos-rebuild}/bin/nixos-rebuild"},
-	{Name: "nixos", Args: "", Real: ""},
+	{Name: "nixos-rebuild", Args: "rebuild"},
+	{Name: "nixos", Args: ""},
 }
 
 //go:embed templates/*.tmpl
@@ -37,18 +36,15 @@ var (
 // configurationData feeds templates/configuration.nix.tmpl.
 type configurationData struct {
 	Host        string
-	Exe         string
 	HardShadows []shadow
 }
 
-// Configuration renders configuration.nix for host and the absolute path to
-// the luxos binary. Its imports are fixed (L9): time zone, locale and
+// Configuration renders configuration.nix for host. Its imports are fixed (L9): time zone, locale and
 // stateVersion come from machine.nix/.plsdonttouch.nix via those imports,
 // not from any value passed here.
-func Configuration(host, exe string) ([]byte, error) {
+func Configuration(host string) ([]byte, error) {
 	data := configurationData{
 		Host:        host,
-		Exe:         exe,
 		HardShadows: hardShadows,
 	}
 

@@ -59,11 +59,9 @@ const (
 // validate module boundaries, ensure /etc/nixos/boot.nix, materialize
 // staging, generate+install flake-file.nix, detect GPUs and install
 // framework/gpu.nix, then flake.nix via flake-file, and configuration.nix.
-// exe is the absolute path to the running
-// luxos binary, used by generate.Configuration for the shadow scripts.
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
-func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
+func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	hostDir := filepath.Join(p.Local, host)
 
 	// 1. gitignore
@@ -244,7 +242,7 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 10. generate and install configuration.nix
 	fmt.Fprintln(w, "Generating configuration.nix...")
-	configContent, err := generate.Configuration(host, exe)
+	configContent, err := generate.Configuration(host)
 	if err != nil {
 		return err
 	}

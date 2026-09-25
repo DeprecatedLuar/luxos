@@ -74,12 +74,8 @@ func flakeUpdate(args []string) error {
 		return err
 	}
 
-	exe, err := shared.Executable()
-	if err != nil {
-		return err
-	}
 
-	if err := heal.Run(os.Stdout, p, host, exe, false); err != nil {
+	if err := heal.Run(os.Stdout, p, host, false); err != nil {
 		return err
 	}
 

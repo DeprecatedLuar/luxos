@@ -150,11 +150,10 @@ func TestRun_EndToEnd(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	exe := "/etc/luxos/bin/luxos"
 	calls := fakeNix(t)
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, exe, false); err != nil {
+	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -231,7 +230,7 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	// A second run finds nothing left to heal.
 	var out2 bytes.Buffer
-	if err := Run(&out2, p, host, exe, false); err != nil {
+	if err := Run(&out2, p, host, false); err != nil {
 		t.Fatalf("second Run: %v\noutput:\n%s", err, out2.String())
 	}
 	for _, marker := range []string{"-> ./", "Warning:", "scaffolded:", "added:", "created:", "removed ./"} {
@@ -250,7 +249,7 @@ func TestRun_ExistingEnvironmentUntouched(t *testing.T) {
 	write(t, envPath, "")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 	if got := mustReadFile(t, envPath); got != "" {
@@ -278,7 +277,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 	write(t, p.Mounts, "/dev/sda1 /boot vfat rw 0 0\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -320,7 +319,7 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 	writeGPUDevice(t, p.Sys, "0000:01:00.0", "0x030200", "0x10de")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, "/etc/luxos/bin/luxos", false); err != nil {
+	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -391,7 +390,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	fakeNix(t)
 
 	var out bytes.Buffer
-	if err := Run(&out, p, "host1", "/etc/luxos/bin/luxos", false); err != nil {
+	if err := Run(&out, p, "host1", false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -430,14 +429,13 @@ func TestRun_StrayHostFileFails(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	exe := "/etc/luxos/bin/luxos"
 	fakeNix(t)
 
 	stray := filepath.Join(p.Local, host, "hardware.nix")
 	write(t, stray, "{ }\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, exe, false)
+	err := Run(&out, p, host, false)
 	if err == nil {
 		t.Fatal("expected an error for the stray host file, got nil")
 	}
@@ -450,14 +448,13 @@ func TestRun_UnimportedViolationIgnored(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	exe := "/etc/luxos/bin/luxos"
 	fakeNix(t)
 
 	// Broken, but no host imports it: it is never built, so never checked.
 	write(t, filepath.Join(p.Modules, "unused.nix"), "{ imports = [ ../outside.nix ]; }\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, exe, false); err != nil {
+	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 }
@@ -466,7 +463,6 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	exe := "/etc/luxos/bin/luxos"
 	fakeNix(t)
 
 	// A module referencing a path outside its own module - a boundary
@@ -476,7 +472,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, exe, false)
+	err := Run(&out, p, host, false)
 	if err == nil {
 		t.Fatal("expected an error for the boundary violation, got nil")
 	}

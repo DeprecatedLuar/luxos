@@ -221,12 +221,7 @@ func Rebuild(args []string) error {
 
 	printLogo()
 
-	exe, err := shared.Executable()
-	if err != nil {
-		return err
-	}
-
-	if err := heal.Run(os.Stdout, p, host, exe, prune); err != nil {
+	if err := heal.Run(os.Stdout, p, host, prune); err != nil {
 		return err
 	}
 
