@@ -73,14 +73,81 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "bypass:bool update-lock:bool prune:bool machine:value config|C:value"
+const rebuildFlagSpec = "bypass:bool prune:bool machine:value config|C:value"
 
 // flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
 
+// luxosInputName is the flake input that provides this binary, by convention.
+const luxosInputName = "luxos"
+
+// nixStorePrefix marks a binary installed by a generation; anything else is
+// a hand-built binary that must never replace itself.
+const nixStorePrefix = "/nix/store/"
+
+// luxosBinRelpath is the binary's location inside its derivation output.
+const luxosBinRelpath = "bin/luxos"
+
+// githubLockType is the only flake.lock node type the self-update understands.
+const githubLockType = "github"
+
+// selfUpdateNotice is printed once, right before the swap.
+const selfUpdateNotice = "luxos updated, rebuilding with the new version"
+
 // configDirEnv is the environment variable paths.Resolve honors as the one
 // override for CONFIG_DIR.
 const configDirEnv = "LUXOS_CONFIG_DIR"
+
+// printLogo prints the rebuild header, colored when stdout allows it.
+func printLogo() {
+	tty := false
+	if fi, err := os.Stdout.Stat(); err == nil {
+		tty = fi.Mode()&os.ModeCharDevice != 0
+	}
+	if colorsEnabled(tty) {
+		fmt.Print(gradientLogo())
+	} else {
+		fmt.Print(rebuildHeader)
+	}
+}
+
+// selfUpdate re-executes this process as the luxos revision pinned in
+// hostLock when the running binary is not already that revision. It returns
+// nil when no swap is needed and does not return when one happens.
+func selfUpdate(hostLock string, args []string) error {
+	in, ok, err := staging.ReadLockInput(hostLock, luxosInputName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if in.Type != githubLockType {
+		return fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
+	}
+
+	exe, err := shared.Executable()
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(exe, nixStorePrefix) {
+		return nil
+	}
+
+	ref := fmt.Sprintf("github:%s/%s/%s", in.Owner, in.Repo, in.Rev)
+	out, err := nix.BuildFlakeRef(ref)
+	if err != nil {
+		return fmt.Errorf("build pinned luxos %s: %w", ref, err)
+	}
+
+	pinned := filepath.Join(out, luxosBinRelpath)
+	if pinned == exe {
+		return nil
+	}
+
+	fmt.Println(selfUpdateNotice)
+	return nix.Exec(pinned, append([]string{"rebuild"}, args...))
+}
 
 // Rebuild implements `luxos rebuild`, escalating to root and delegating to
 // heal.Run before exec'ing the real nixos-rebuild.
@@ -93,23 +160,12 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	tty := false
-	if fi, err := os.Stdout.Stat(); err == nil {
-		tty = fi.Mode()&os.ModeCharDevice != 0
-	}
-	if colorsEnabled(tty) {
-		fmt.Print(gradientLogo())
-	} else {
-		fmt.Print(rebuildHeader)
-	}
-
 	opts, rest, err := shared.ParsePassthrough(rebuildFlagSpec, args)
 	if err != nil {
 		return err
 	}
 
 	bypass := opts["bypass"] != ""
-	updateLock := opts["update-lock"] != ""
 	prune := opts["prune"] != ""
 
 	if bypass && opts["config"] != "" {
@@ -133,6 +189,7 @@ func Rebuild(args []string) error {
 		if opts["machine"] != "" {
 			return fmt.Errorf("--bypass and --machine cannot be combined - --bypass never reads .local")
 		}
+		printLogo()
 		bin, err := nix.RebuildFromChannel()
 		if err != nil {
 			return err
@@ -158,6 +215,12 @@ func Rebuild(args []string) error {
 		return err
 	}
 
+	if err := selfUpdate(filepath.Join(hostDir, flakeLockName), args); err != nil {
+		return err
+	}
+
+	printLogo()
+
 	exe, err := shared.Executable()
 	if err != nil {
 		return err
@@ -167,22 +230,12 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	if updateLock {
-		hostLock := filepath.Join(hostDir, flakeLockName)
-		if err := staging.UpdateLock(p.Staging, hostLock); err != nil {
-			return err
-		}
-	}
-
 	rebuildBin, err := nix.RebuildFromFlake(p.Staging, host)
 	if err != nil {
 		return err
 	}
 
-	flakeArgs := []string{"--flake", p.Staging + "#" + host}
-	if !updateLock {
-		flakeArgs = append(flakeArgs, "--no-write-lock-file")
-	}
+	flakeArgs := []string{"--flake", p.Staging + "#" + host, "--no-write-lock-file"}
 	flakeArgs = append(flakeArgs, rest...)
 
 	return nix.Exec(rebuildBin, flakeArgs)

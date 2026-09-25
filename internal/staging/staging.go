@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
-	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
@@ -156,16 +155,6 @@ func Install(stagingDir, rel string, content []byte) error {
 		return err
 	}
 	return os.Chmod(dest, fileMode)
-}
-
-// UpdateLock re-locks the staged flake and copies the result back to
-// hostLock (the active host's flake.lock) via CopyLockBack, to be committed.
-// Not exercised by unit tests: it requires real network/nix flake access.
-func UpdateLock(stagingDir, hostLock string) error {
-	if err := nix.FlakeUpdate(stagingDir); err != nil {
-		return err
-	}
-	return CopyLockBack(stagingDir, hostLock)
 }
 
 // LockChanged reports whether the staged flake.lock differs from hostLock.
