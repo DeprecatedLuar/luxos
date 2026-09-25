@@ -43,7 +43,7 @@ func TestFlakeBuildRowsMarkersAndPlacement(t *testing.T) {
 		"flake-file": {"y.nix"},
 		"nixpkgs":    {"nixpkgs.nix"},
 	}
-	rows := flakeBuildRows(decls, testLockGraph())
+	rows := flakeBuildRows(decls, testLockGraph(), nil)
 
 	cases := []struct {
 		name, marker string
@@ -78,7 +78,7 @@ func TestFlakeBuildRowsMarkersAndPlacement(t *testing.T) {
 }
 
 func TestFlakeBuildRowsBuiltinsWithoutDeclarationsOrLock(t *testing.T) {
-	rows := flakeBuildRows(nil, staging.LockGraph{})
+	rows := flakeBuildRows(nil, staging.LockGraph{}, nil)
 	for _, name := range []string{"luxos", "nixpkgs"} {
 		r, ok := rowByName(rows, name)
 		if !ok || r.marker != markerEnabledOnly || len(r.category) != 0 {
@@ -88,7 +88,7 @@ func TestFlakeBuildRowsBuiltinsWithoutDeclarationsOrLock(t *testing.T) {
 }
 
 func TestFlakeBuildRowsTransitive(t *testing.T) {
-	rows := flakeBuildRows(map[string][]string{"ambxst": {"a.nix"}}, testLockGraph())
+	rows := flakeBuildRows(map[string][]string{"ambxst": {"a.nix"}}, testLockGraph(), nil)
 	r, _ := rowByName(rows, "ambxst")
 
 	axctl, ok := rowByName(r.children, "axctl")
@@ -108,7 +108,7 @@ func TestFlakeBuildRowsTransitive(t *testing.T) {
 }
 
 func TestFlakeRenderTreeAndPlain(t *testing.T) {
-	rows := flakeBuildRows(map[string][]string{"ambxst": {"desktop/shells/ambxst"}}, testLockGraph())
+	rows := flakeBuildRows(map[string][]string{"ambxst": {"desktop/shells/ambxst"}}, testLockGraph(), nil)
 
 	var tty strings.Builder
 	moduleRenderTTY(&tty, rows, flakeInputsLabel, treePalette{})
@@ -134,5 +134,41 @@ func TestFlakeRenderTreeAndPlain(t *testing.T) {
 	wantPlain := "ambxst/axctl\nambxst/axctl/deep\nambxst/nixpkgs\ndesktop/shells/ambxst\nluxos\nnixpkgs\nold\nshared\n"
 	if plain.String() != wantPlain {
 		t.Errorf("plain:\n%q\nwant:\n%q", plain.String(), wantPlain)
+	}
+}
+
+func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
+	notes := map[string]string{"ambxst": flakeNoteBehind, "axctl": flakeNoteUnknown}
+	rows := flakeBuildRows(map[string][]string{"ambxst": {"a.nix"}}, testLockGraph(), notes)
+
+	var tty strings.Builder
+	moduleRenderTTY(&tty, rows, flakeInputsLabel, treePalette{})
+	for _, want := range []string{"◉ ambxst ↑\n", "◍ axctl ?\n"} {
+		if !strings.Contains(tty.String(), want) {
+			t.Errorf("tree missing %q:\n%s", want, tty.String())
+		}
+	}
+
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows)
+	if strings.ContainsAny(plain.String(), "↑?") {
+		t.Errorf("plain output must stay parseable:\n%s", plain.String())
+	}
+}
+
+func TestFlakeUpstreamNotesUnsupportedIsUnknown(t *testing.T) {
+	graph := staging.LockGraph{
+		Nodes: map[string]staging.LockNode{
+			staging.LockRootNode: {Inputs: map[string]string{"a": "a", "flake-file": "ff"}},
+			"a":                  {Original: staging.LockRef{Type: "path"}, Locked: staging.LockRef{Type: "path", Rev: "abc"}},
+			"ff":                 {Original: staging.LockRef{Type: "path"}, Locked: staging.LockRef{Rev: "abc"}},
+		},
+	}
+	notes := flakeUpstreamNotes(graph)
+	if notes["a"] != flakeNoteUnknown {
+		t.Errorf("a = %q, want %q", notes["a"], flakeNoteUnknown)
+	}
+	if _, ok := notes["ff"]; ok {
+		t.Error("flake-file must not be checked")
 	}
 }

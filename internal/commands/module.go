@@ -183,6 +183,7 @@ type moduleRow struct {
 	rank     int
 	pulledBy []string    // non-nil only for a non-enabled, pulled-in unit
 	children []moduleRow // rows nested beneath this one (flake list's transitive inputs)
+	note     string      // status glyph shown after the name in the TTY tree (flake list's upstream check)
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -356,11 +357,23 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 	}
 }
 
+// noteColor returns the palette color of a row note: teal for an available
+// update, the off color for an unknown state.
+func noteColor(pal treePalette, note string) string {
+	if note == flakeNoteBehind {
+		return pal.teal
+	}
+	return pal.off
+}
+
 // renderRow prints one row on its own line, then its children beneath it
 // continuing with childPrefix.
 func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
 	mc := markerColor(pal, r.marker)
 	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, r.name, pal.reset)
+	if r.note != "" {
+		fmt.Fprintf(w, " %s%s%s", noteColor(pal, r.note), r.note, pal.reset)
+	}
 	if len(r.pulledBy) > 0 {
 		fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(r.pulledBy, ", "), pal.reset)
 	}

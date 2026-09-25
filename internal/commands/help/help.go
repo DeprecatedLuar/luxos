@@ -69,13 +69,15 @@ func flakePage() *gohelp.Page {
 		Section("Flags",
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
-			gohelp.Item("--offline", "list: do not touch the network"),
+			gohelp.Item("--offline", "list: skip the upstream check and make no network request"),
 		).
 		Section("Markers (list)",
 			gohelp.Item("◉", "declared by a module and locked"),
 			gohelp.Item("⊕", "declared but not locked yet; the next rebuild fetches it"),
 			gohelp.Item("⊘", "locked but no longer declared; the next rebuild prunes it"),
 			gohelp.Item("◍", "never declared, pulled in by another input"),
+			gohelp.Item("↑", "after a name: upstream has moved past the locked revision"),
+			gohelp.Item("?", "after a name: upstream could not be checked (unsupported source or request failed)"),
 		).
 		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, it prints one path per line without markers. With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, nixpkgs, unstable. Transitive inputs are addressed by path, e.g. ambxst/axctl.")
 }

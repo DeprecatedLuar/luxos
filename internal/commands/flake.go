@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
@@ -18,6 +19,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/units"
+	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
 // flakeFlagSpec is the flag spec passed to shared.Parse.
@@ -33,6 +35,11 @@ const (
 	// flakeFileInput is flake-file's own input: rev-pinned in the embedded
 	// bootstrap, never actionable, never listed.
 	flakeFileInput = "flake-file"
+
+	// flakeNoteBehind marks an input whose upstream tip differs from its
+	// locked rev; flakeNoteUnknown one whose tip could not be determined.
+	flakeNoteBehind  = "↑"
+	flakeNoteUnknown = "?"
 )
 
 // flakeBuiltinInputs are declared by the embedded bootstrap flake, so they
@@ -150,7 +157,11 @@ func flakeList(args []string) error {
 		return err
 	}
 
-	rows := flakeBuildRows(decls, graph)
+	var notes map[string]string
+	if opts["offline"] == "" {
+		notes = flakeUpstreamNotes(graph)
+	}
+	rows := flakeBuildRows(decls, graph, notes)
 
 	tty := stdoutIsTTY()
 	pal := treePalette{}
@@ -166,6 +177,60 @@ func flakeList(args []string) error {
 	}
 	fmt.Print(out.String())
 	return nil
+}
+
+// flakeUpstreamNotes checks the upstream tip of every locked node reachable
+// from the root (flake-file excluded), one goroutine per node, and returns
+// node key -> note: flakeNoteBehind when the tip differs from the locked rev,
+// flakeNoteUnknown on any failure, absent when equal.
+func flakeUpstreamNotes(graph staging.LockGraph) map[string]string {
+	rootInputs := graph.Nodes[staging.LockRootNode].Inputs
+	keys := map[string]bool{}
+	var walk func(key string)
+	walk = func(key string) {
+		if keys[key] {
+			return
+		}
+		keys[key] = true
+		for _, target := range graph.Nodes[key].Inputs {
+			walk(target)
+		}
+	}
+	for name, key := range rootInputs {
+		if name != flakeFileInput {
+			walk(key)
+		}
+	}
+	delete(keys, staging.LockRootNode)
+
+	notes := map[string]string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for key := range keys {
+		node := graph.Nodes[key]
+		if node.Locked.Rev == "" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			note := ""
+			tip, err := upstream.Tip(node.Original)
+			switch {
+			case err != nil:
+				note = flakeNoteUnknown
+			case tip != node.Locked.Rev:
+				note = flakeNoteBehind
+			}
+			if note != "" {
+				mu.Lock()
+				notes[key] = note
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return notes
 }
 
 // flakeDeclarations returns, per input name, the sorted unit paths that
@@ -234,7 +299,8 @@ func flakeDeclarations(p paths.Paths, hostDir string) (map[string][]string, erro
 
 // flakeBuildRows builds the input tree's rows from declarations (input name
 // -> declaring unit paths) and the lock graph. Pure given its inputs.
-func flakeBuildRows(decls map[string][]string, graph staging.LockGraph) []moduleRow {
+// notes maps a lock node key to the row note for that node (nil: no notes).
+func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes map[string]string) []moduleRow {
 	builtin := map[string]bool{}
 	declared := map[string]bool{}
 	for _, name := range flakeBuiltinInputs {
@@ -280,15 +346,20 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph) []module
 
 		var children []moduleRow
 		if locked[name] {
-			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true})
+			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true}, notes)
 		}
 
+		var note string
+		if locked[name] {
+			note = notes[rootInputs[name]]
+		}
 		rows = append(rows, moduleRow{
 			category: category,
 			name:     name,
 			marker:   marker,
 			rank:     moduleMarkerRank(marker),
 			children: children,
+			note:     note,
 		})
 	}
 	return rows
@@ -297,7 +368,7 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph) []module
 // flakeTransitiveRows returns the inputs of lock node key as pulled-in rows,
 // recursing without depth limit. ancestors holds the node keys on the path
 // from the root input, so a cyclic lock cannot recurse forever.
-func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[string]bool) []moduleRow {
+func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[string]bool, notes map[string]string) []moduleRow {
 	var rows []moduleRow
 	for name, target := range graph.Nodes[key].Inputs {
 		if ancestors[target] {
@@ -308,7 +379,8 @@ func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[stri
 			name:     name,
 			marker:   markerPulled,
 			rank:     moduleMarkerRank(markerPulled),
-			children: flakeTransitiveRows(graph, target, ancestors),
+			children: flakeTransitiveRows(graph, target, ancestors, notes),
+			note:     notes[target],
 		})
 		delete(ancestors, target)
 	}
