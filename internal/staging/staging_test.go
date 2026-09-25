@@ -558,14 +558,13 @@ func TestAdopt_VanillaTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 2 {
+	if len(changes) != 3 {
 		t.Fatalf("changes = %+v", changes)
 	}
-	if exists(filepath.Join(stage, "configuration.nix")) || exists(filepath.Join(stage, "flake.nix")) {
-		t.Fatal("user config left in staging")
-	}
-	if !exists(filepath.Join(stage, "hardware-configuration.nix")) {
-		t.Fatal("hardware-configuration.nix was moved")
+	for _, name := range []string{"configuration.nix", "flake.nix", "hardware-configuration.nix"} {
+		if exists(filepath.Join(stage, name)) {
+			t.Fatalf("%s left in staging", name)
+		}
 	}
 }
 
@@ -662,8 +661,7 @@ func TestCopyTreePreservesSymlinks(t *testing.T) {
 func TestPrune(t *testing.T) {
 	stage := t.TempDir()
 	files := adoptedFiles()
-	files["hardware-configuration.nix"] = "{ }"
-	files["boot.nix"] = "{ }"
+	files["stranger.nix"] = "{ }"
 	writeTree(t, stage, files)
 	if err := Prune(stage); err != nil {
 		t.Fatal(err)
@@ -673,10 +671,8 @@ func TestPrune(t *testing.T) {
 			t.Fatalf("%s survived", name)
 		}
 	}
-	for _, name := range preserved {
-		if !exists(filepath.Join(stage, name)) {
-			t.Fatalf("%s removed", name)
-		}
+	if !exists(filepath.Join(stage, "stranger.nix")) {
+		t.Fatal("stranger.nix removed")
 	}
 	if err := Prune(stage); err != nil {
 		t.Fatalf("second Prune: %v", err)

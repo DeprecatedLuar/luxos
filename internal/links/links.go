@@ -16,6 +16,7 @@ const (
 	selectionFile    = "modules.nix"
 	modulesRel       = "modules"
 	localLinkName    = "local"
+	hardwareLinkName = "hardware"
 )
 
 // localModulesLinkName is the reserved entry at modulesDir's own root that
@@ -83,6 +84,38 @@ func EnsureLocalModules(machinesDir, modulesDir, host string) error {
 	}
 
 	return relink(link, rel)
+}
+
+// EnsureHardwareLink ensures <machinesDir>/<host>/hardware is a symlink to
+// <hardwareRoot>/<key> (relative target ../../hardware/<key>) and that every
+// other machine folder holds no such link. A real file or directory named
+// hardware in any machine folder is an error.
+func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
+	entries, err := os.ReadDir(machinesDir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		link := filepath.Join(machinesDir, e.Name(), hardwareLinkName)
+		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
+			return err
+		}
+		if e.Name() == host {
+			continue
+		}
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	hostDir := filepath.Join(machinesDir, host)
+	rel, err := filepath.Rel(hostDir, filepath.Join(hardwareRoot, key))
+	if err != nil {
+		return err
+	}
+	return relink(filepath.Join(hostDir, hardwareLinkName), rel)
 }
 
 // refuseRealFile errors if path exists and is not a symlink.

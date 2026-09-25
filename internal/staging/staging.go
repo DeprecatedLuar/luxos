@@ -51,8 +51,8 @@ const (
 // modulesDir), config/local (from hostDir), config/environment (from
 // environmentFile, required), and flake.lock if lockFile exists. lockFile is
 // the active host's own flake.lock (hostDir/flake.lock), not a config-root
-// one. Entries outside the owned list, such as hardware-configuration.nix
-// and boot.nix, are left alone; Adopt is what deals with strangers.
+// one. Entries outside the owned list are left alone; Adopt is what deals
+// with strangers.
 // Every symlink under modulesDir and hostDir is dereferenced. Refuses a
 // dangling symlink under modulesDir or hostDir, naming it, before touching
 // stagingDir.

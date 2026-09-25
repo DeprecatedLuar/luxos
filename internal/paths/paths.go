@@ -20,11 +20,10 @@ const (
 	backupDirName   = "your-old-nixos-config-is-here"
 	configRelToHome = ".config/luxos"
 	machinesRel     = ".local/machines"
+	hardwareRel     = ".local/hardware"
 	modulesRel      = "modules"
 
 	staging        = "/etc/nixos"
-	hardwareConfig = "/etc/nixos/hardware-configuration.nix"
-	bootConfig     = "/etc/nixos/boot.nix"
 	sysDir         = "/sys"
 	mountsFile     = "/proc/mounts"
 	runningModules = "/run/current-system/luxos/modules.nix"
@@ -39,8 +38,7 @@ type Paths struct {
 	Machines       string // <Config>/.local/machines
 	Modules        string // <Config>/modules
 	Staging        string // /etc/nixos, the flake root
-	HardwareConfig string // /etc/nixos/hardware-configuration.nix
-	BootConfig     string // /etc/nixos/boot.nix
+	HardwareRoot   string // <Config>/.local/hardware
 	Sys            string // /sys
 	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/luxos/modules.nix
@@ -77,8 +75,7 @@ func Resolve() (Paths, error) {
 		Machines:       filepath.Join(config, machinesRel),
 		Modules:        filepath.Join(config, modulesRel),
 		Staging:        staging,
-		HardwareConfig: hardwareConfig,
-		BootConfig:     bootConfig,
+		HardwareRoot:   filepath.Join(config, hardwareRel),
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: runningModules,

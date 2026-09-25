@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 // efivarsRel is the sysfs path (relative to sysDir) whose presence means EFI.
@@ -34,9 +36,6 @@ const vfat = "vfat"
 
 // devPrefix is the prefix every BIOS boot device must have.
 const devPrefix = "/dev/"
-
-// fileMode is the mode boot.nix is written with.
-const fileMode = 0644
 
 // configurationLimit is the number of generations GRUB keeps in the boot
 // menu. nixpkgs defaults to 100, which no small EFI system partition can
@@ -194,7 +193,7 @@ func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
 		return false, err
 	}
 
-	if err := os.WriteFile(bootFile, content, fileMode); err != nil {
+	if err := userfile.Write(bootFile, content); err != nil {
 		return false, fmt.Errorf("computer.EnsureBoot: write %s: %w", bootFile, err)
 	}
 

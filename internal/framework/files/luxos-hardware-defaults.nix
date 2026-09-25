@@ -8,10 +8,6 @@ let
   # 100 (so a host module setting the option directly still wins).
   offloadPriority = 900;
 
-  # How long PID 1 may go without pinging the hardware watchdog before the
-  # machine is reset. Without a watchdog device systemd ignores it.
-  runtimeWatchdog = "20s";
-
   gpus = config.luxos.hardware.gpus;
 
   nvidiaGpus = builtins.filter (g: g.vendor == "nvidia") gpus;
@@ -41,7 +37,6 @@ in
   # short-circuits, so integrated.vendor is only forced once havePair is
   # already known true.
   config = lib.mkMerge [
-    { systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault runtimeWatchdog; }
     (lib.mkIf havePair {
       hardware.nvidia.prime = {
         nvidiaBusId = lib.mkDefault nvidia.busId;

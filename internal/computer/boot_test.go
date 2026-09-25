@@ -358,8 +358,8 @@ func TestEnsureBoot_MissingFileWritesDetected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat boot.nix: %v", err)
 	}
-	if info.Mode().Perm() != fileMode {
-		t.Errorf("EnsureBoot mode = %v, want %v", info.Mode().Perm(), fileMode)
+	if info.Mode().Perm() != 0644 {
+		t.Errorf("EnsureBoot mode = %v, want %v", info.Mode().Perm(), 0644)
 	}
 }
 

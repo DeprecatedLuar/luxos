@@ -1,5 +1,6 @@
 // Package config validates the fixed .local/machines/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
-// modules.nix, an optional flake.lock, and an optional modules/ directory.
+// modules.nix, an optional flake.lock, an optional modules/ directory and the
+// hardware symlink to this computer's hardware folder.
 package config
 
 import (
@@ -12,7 +13,7 @@ import (
 // Fixed entries under .local/machines/<host>/ (L1). plsDontTouchFile, MachineFile
 // and selectionFile are required regular files (symlinks followed);
 // lockFile is an optional regular file; localModulesDir is an optional
-// directory. Nothing else may live there. MachineFile is exported so the
+// directory; hardwareLink is an optional symlink (target not checked). Nothing else may live there. MachineFile is exported so the
 // caller that creates it from a template names it without repeating the
 // string.
 const (
@@ -21,6 +22,7 @@ const (
 	selectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"
+	hardwareLink     = "hardware"
 
 	plsDontTouchMode = 0444
 )
@@ -68,6 +70,12 @@ func ValidateHost(hostDir string) error {
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {
+				problems = append(problems, name+" does not belong here")
+			}
+		case hardwareLink:
+			seen[name] = true
+			info, statErr := os.Lstat(path)
+			if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
 				problems = append(problems, name+" does not belong here")
 			}
 		case localModulesDir:

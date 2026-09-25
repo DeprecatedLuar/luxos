@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/computer"
+	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
@@ -17,6 +18,19 @@ import (
 // fixtures, distinct from the bogus one written at the config root so a
 // test can tell which one staging.Materialize actually copied.
 const hostFlakeLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstable":"unstable_2"}}}}` + "\n"
+
+// fixtureUUID is the product_uuid every fixture exposes under its fake sysfs.
+const fixtureUUID = "4c4c4544-0042-5110-8042-cac04f375433"
+
+// hardwareDir returns the hardware folder Run uses for p.
+func hardwareDir(t *testing.T, p paths.Paths) string {
+	t.Helper()
+	key, err := computer.HardwareKey(p.Sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(p.HardwareRoot, key)
+}
 
 // hardwareConfigContent is the pre-written hardware-configuration.nix.
 const hardwareConfigContent = "{ }\n"
@@ -92,8 +106,6 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	local := filepath.Join(config, ".local", "machines")
 	modules := filepath.Join(config, "modules")
 	staging := filepath.Join(root, "etc-nixos")
-	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
-	bootConfig := filepath.Join(staging, "boot.nix")
 	sysDir := filepath.Join(root, "sys")
 	mountsFile := filepath.Join(root, "mounts")
 
@@ -123,9 +135,14 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host2", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	write(t, hardwareConfig, hardwareConfigContent)
-	write(t, bootConfig, "{ ... }: { }\n")
-	mustMkdirAll(t, sysDir)
+	hardwareRoot := filepath.Join(config, ".local", "hardware")
+	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
+	key, err := computer.HardwareKey(sysDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(hardwareRoot, key, config_.HardwareConfigFile), hardwareConfigContent)
+	write(t, filepath.Join(hardwareRoot, key, config_.BootFile), "{ ... }: { }\n")
 	write(t, mountsFile, "")
 
 	p := paths.Paths{
@@ -136,8 +153,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		Modules:        modules,
 		Staging:        staging,
 		Backup:         filepath.Join(root, "backup"),
-		HardwareConfig: hardwareConfig,
-		BootConfig:     bootConfig,
+		HardwareRoot:   hardwareRoot,
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
@@ -178,25 +194,47 @@ func TestRun_EndToEnd(t *testing.T) {
 		}
 	}
 
+	hw := hardwareDir(t, p)
+
 	// The pre-written boot.nix was left alone.
-	if got := mustReadFile(t, p.BootConfig); got != "{ ... }: { }\n" {
+	if got := mustReadFile(t, filepath.Join(hw, "boot.nix")); got != "{ ... }: { }\n" {
 		t.Errorf("boot.nix = %q, want it untouched", got)
 	}
 
-	// Adoption precedes both computer-file steps (N22).
-	adopting := strings.Index(out.String(), "Adopting "+p.Staging)
-	ensuringHW := strings.Index(out.String(), "Ensuring "+p.HardwareConfig)
-	ensuringBoot := strings.Index(out.String(), "Ensuring "+p.BootConfig)
-	if adopting < 0 || !(adopting < ensuringHW && ensuringHW < ensuringBoot) {
-		t.Errorf("want Adopting < Ensuring hardware < Ensuring boot, got:\n%s", out.String())
+	// The hardware folder is ensured before anything is staged.
+	ensuringHW := strings.Index(out.String(), "Ensuring "+hw)
+	materializing := strings.Index(out.String(), "Materializing "+p.Staging)
+	if ensuringHW < 0 || ensuringHW > materializing {
+		t.Errorf("want Ensuring hardware before Materializing, got:\n%s", out.String())
 	}
 
-	// The pre-written hardware-configuration.nix was left alone.
-	if got := mustReadFile(t, p.HardwareConfig); got != hardwareConfigContent {
+	// The pre-written hardware-configuration.nix was left alone; hardware.nix
+	// was created from the template.
+	hwConfig := filepath.Join(hw, "hardware-configuration.nix")
+	if got := mustReadFile(t, hwConfig); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q, want %q", got, hardwareConfigContent)
 	}
-	if strings.Contains(out.String(), "created: "+p.HardwareConfig) {
-		t.Errorf("output reported creating %s, got:\n%s", p.HardwareConfig, out.String())
+	if strings.Contains(out.String(), "created: "+hwConfig) {
+		t.Errorf("output reported creating %s, got:\n%s", hwConfig, out.String())
+	}
+	hwTmpl, err := framework.File("templates/hardware.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, filepath.Join(hw, "hardware.nix")); got != string(hwTmpl) {
+		t.Errorf("hardware.nix differs from the template:\n%s", got)
+	}
+
+	// The host folder links to it, and it is staged under config/local/hardware.
+	target, err := os.Readlink(filepath.Join(p.Machines, host, "hardware"))
+	if err != nil || target != "../../hardware/"+filepath.Base(hw) {
+		t.Errorf("hardware link = %q (%v)", target, err)
+	}
+	for _, name := range []string{"hardware-configuration.nix", "boot.nix", "hardware.nix"} {
+		staged := filepath.Join(p.Staging, "config", "local", "hardware", name)
+		if _, err := os.Stat(staged); err != nil {
+			t.Errorf("expected %s staged: %v", staged, err)
+		}
 	}
 
 	// The staged flake.lock came from .local/machines/host1/flake.lock, not the
@@ -279,7 +317,8 @@ func TestRun_BootConfigCreated(t *testing.T) {
 
 	// No pre-written boot.nix this time: fixture wrote one, so remove it and
 	// fake an EFI sysfs with vfat mounted at /boot.
-	if err := os.Remove(p.BootConfig); err != nil {
+	bootConfig := filepath.Join(hardwareDir(t, p), "boot.nix")
+	if err := os.Remove(bootConfig); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(p.Sys, "firmware", "efi", "efivars"), 0755); err != nil {
@@ -297,7 +336,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := mustReadFile(t, p.BootConfig); got != string(want) {
+	if got := mustReadFile(t, bootConfig); got != string(want) {
 		t.Errorf("boot.nix = %q, want %q", got, want)
 	}
 	if !strings.Contains(out.String(), "created:") {
@@ -360,8 +399,6 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	local := filepath.Join(config, ".local", "machines")
 	modules := filepath.Join(config, "modules")
 	staging := filepath.Join(root, "etc-nixos")
-	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
-	bootConfig := filepath.Join(staging, "boot.nix")
 	sysDir := filepath.Join(root, "sys")
 	mountsFile := filepath.Join(root, "mounts")
 
@@ -374,9 +411,14 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	write(t, filepath.Join(local, "host1", "machine.nix"),
 		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	write(t, hardwareConfig, hardwareConfigContent)
-	write(t, bootConfig, "{ ... }: { }\n")
-	mustMkdirAll(t, sysDir)
+	hardwareRoot := filepath.Join(config, ".local", "hardware")
+	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
+	key, err := computer.HardwareKey(sysDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(hardwareRoot, key, config_.HardwareConfigFile), hardwareConfigContent)
+	write(t, filepath.Join(hardwareRoot, key, config_.BootFile), "{ ... }: { }\n")
 	write(t, mountsFile, "")
 
 	p := paths.Paths{
@@ -387,8 +429,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		Modules:        modules,
 		Staging:        staging,
 		Backup:         filepath.Join(root, "backup"),
-		HardwareConfig: hardwareConfig,
-		BootConfig:     bootConfig,
+		HardwareRoot:   hardwareRoot,
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: filepath.Join(root, "run-modules.nix"),
@@ -517,12 +558,11 @@ func TestRun_StrangerMovedToBackup(t *testing.T) {
 		t.Errorf("output did not report the move, got:\n%s", out.String())
 	}
 
-	// hardware-configuration.nix is never on the delete list: it survives a
-	// second run.
+	// The hardware folder is not in /etc/nixos, so a second run leaves it be.
 	if err := Run(&out, p, host, false); err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
-	if got := mustReadFile(t, p.HardwareConfig); got != hardwareConfigContent {
+	if got := mustReadFile(t, filepath.Join(hardwareDir(t, p), "hardware-configuration.nix")); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q after second run, want %q", got, hardwareConfigContent)
 	}
 }
@@ -606,6 +646,61 @@ func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
 		if !strings.Contains(string(sys), want) {
 			t.Errorf("system.nix missing %q", want)
 		}
+	}
+}
+
+func TestSystemNix_ImportsHardwareFolder(t *testing.T) {
+	sys, err := framework.File("system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"../config/local/hardware/hardware-configuration.nix",
+		"../config/local/hardware/boot.nix",
+		"../config/local/hardware/hardware.nix",
+	} {
+		if !strings.Contains(string(sys), want) {
+			t.Errorf("system.nix missing import %q", want)
+		}
+	}
+	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
+		t.Error("system.nix must not set RuntimeWatchdogSec")
+	}
+}
+
+func TestMachineTemplate_NoGC(t *testing.T) {
+	tmpl, err := framework.File(machineTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(tmpl), "nix.gc") {
+		t.Error("machine template must not define nix.gc")
+	}
+}
+
+func TestHardwareTemplate_Parses(t *testing.T) {
+	skipIfNoNix(t)
+	tmpl, err := framework.File(hardwareTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "hardware.nix")
+	write(t, path, string(tmpl))
+	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
+		t.Fatalf("template does not parse: %v\n%s", err, out)
+	}
+}
+
+func TestRun_MissingProductUUIDFails(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	fakeNix(t)
+	if err := os.Remove(filepath.Join(p.Sys, "class", "dmi", "id", "product_uuid")); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "product_uuid") {
+		t.Fatalf("err = %v, want the product_uuid error", err)
 	}
 }
 

@@ -13,7 +13,7 @@ let
   cronPriority = 900;
 in
 {
-  imports = [ ../hardware-configuration.nix ../boot.nix ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
+  imports = [ ../config/local/hardware/hardware-configuration.nix ../config/local/hardware/boot.nix ../config/local/hardware/hardware.nix ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
 
   #──[Packages]──────────────────────────────────────────────────────────────
 
@@ -122,8 +122,6 @@ in
     "kernel.panic_on_oops" = lib.mkDefault 1;
     "kernel.panic" = lib.mkDefault 10;
   };
-
-  systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "30s";
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.registry.nixpkgs.flake = inputs.nixpkgs;

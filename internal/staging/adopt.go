@@ -17,14 +17,10 @@ import (
 )
 
 // owned lists every entry in the staging root luxos generates and may
-// delete. Everything not listed here and not in preserved is a stranger.
+// delete. Everything not listed here is a stranger.
 var owned = []string{
 	"framework", "config", "flake.nix", "flake.lock",
 }
-
-// preserved lists entries luxos never touches: facts about the computer,
-// written once and then hand-edited.
-var preserved = []string{"hardware-configuration.nix", "boot.nix"}
 
 const (
 	// adoptionMarker is the file whose presence means luxos already owns the
@@ -53,8 +49,8 @@ type Change struct {
 // from a symlink to a real directory, creates it when missing, and moves
 // every entry luxos does not own into a fresh timestamped subdirectory of
 // backupDir. On first adoption (adoptionMarker absent or not carrying
-// luxosHeader) every entry except those in preserved is a stranger,
-// because the files at owned paths are the user's real configuration.
+// luxosHeader) every entry is a stranger, because the files at owned paths are the
+// user's real configuration.
 // backupDir may be empty; it is only required when something must move,
 // and Adopt returns ErrNoBackupDir in that case.
 func Adopt(stagingDir, backupDir string) ([]Change, error) {
@@ -90,7 +86,7 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 	var strangers []string
 	for _, e := range entries {
 		name := e.Name()
-		if slices.Contains(preserved, name) || (adopted && slices.Contains(owned, name)) {
+		if adopted && slices.Contains(owned, name) {
 			continue
 		}
 		strangers = append(strangers, name)

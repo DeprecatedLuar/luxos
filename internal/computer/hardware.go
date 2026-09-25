@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 // EnsureHardwareConfig writes hardwareFile from nixos-generate-config when
@@ -22,7 +23,7 @@ func EnsureHardwareConfig(hardwareFile string) (created bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("cannot generate %s: %w\nrun by hand: nixos-generate-config --show-hardware-config > %s", hardwareFile, err, hardwareFile)
 	}
-	if err := os.WriteFile(hardwareFile, content, fileMode); err != nil {
+	if err := userfile.Write(hardwareFile, content); err != nil {
 		return false, fmt.Errorf("computer.EnsureHardwareConfig: write %s: %w", hardwareFile, err)
 	}
 	return true, nil
