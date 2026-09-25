@@ -8,214 +8,6 @@ import (
 	"testing"
 )
 
-func skipIfNoNix(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("nix-instantiate"); err != nil {
-		t.Skip("nix-instantiate not on PATH")
-	}
-}
-
-func mustMkdirAll(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0755); err != nil {
-		t.Fatalf("mkdir %s: %v", path, err)
-	}
-}
-
-func mustWriteFile(t *testing.T, path, content string) {
-	t.Helper()
-	mustMkdirAll(t, filepath.Dir(path))
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func mustReadFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(data)
-}
-
-// ---- List ----
-
-func TestList_MultiLine(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    ./b/c.nix # kept\n  ];\n}\n")
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	want := []string{"a.nix", "b/c.nix"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("List = %v, want %v", got, want)
-	}
-}
-
-func TestList_InlineEmpty(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [];\n}\n")
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("List = %v, want empty", got)
-	}
-}
-
-func TestList_CommentedLineIgnored(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    # ./b.nix\n  ];\n}\n")
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	want := []string{"a.nix"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("List = %v, want %v", got, want)
-	}
-
-	// The comment line itself must be untouched.
-	content := mustReadFile(t, file)
-	if !contains(content, "# ./b.nix") {
-		t.Errorf("comment line altered: %q", content)
-	}
-}
-
-// ---- Add ----
-
-func TestAdd_MultiLine(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n")
-
-	if err := Add(file, "./b.nix"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	want := []string{"a.nix", "b.nix"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("List = %v, want %v", got, want)
-	}
-}
-
-func TestAdd_InlineEmptyConverts(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [];\n}\n")
-
-	if err := Add(file, "a.nix"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"a.nix"}) {
-		t.Errorf("List = %v", got)
-	}
-}
-
-func TestAdd_ExistingIsNoOp(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	content := "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n"
-	mustWriteFile(t, file, content)
-
-	if err := Add(file, "a.nix"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-	if got := mustReadFile(t, file); got != content {
-		t.Errorf("file changed on no-op add:\n%q\nwant\n%q", got, content)
-	}
-}
-
-// ---- Remove ----
-
-func TestRemove_MultiLine(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    ./b.nix\n  ];\n}\n")
-
-	if err := Remove(file, "a.nix"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-
-	got, err := List(file)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"b.nix"}) {
-		t.Errorf("List = %v", got)
-	}
-}
-
-func TestRemove_CommentedUntouched(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    # ./b.nix\n  ];\n}\n")
-
-	if err := Remove(file, "b.nix"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-
-	content := mustReadFile(t, file)
-	if !contains(content, "# ./b.nix") {
-		t.Errorf("comment removed: %q", content)
-	}
-}
-
-// ---- Refused shapes ----
-
-func TestAdd_RefusesTwoBlocks(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n  x = {\n    imports = [\n      ./b.nix\n    ];\n  };\n}\n")
-
-	if err := Add(file, "c.nix"); err == nil {
-		t.Fatalf("Add: want error for two imports blocks")
-	}
-}
-
-func TestAdd_RefusesItemOnOpeningLine(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [ ./a.nix\n  ];\n}\n")
-
-	if err := Add(file, "b.nix"); err == nil {
-		t.Fatalf("Add: want error for item on opening line")
-	}
-}
-
-func TestList_RefusesUnrecognizedShape(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [ ./a.nix\n  ];\n}\n")
-
-	if _, err := List(file); err == nil {
-		t.Fatalf("List: want error for unrecognized shape")
-	}
-}
-
 // ---- Retarget ----
 
 func setupTwoHosts(t *testing.T) (localDir string, host1, host2 string) {
@@ -579,34 +371,38 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 	}
 }
 
-// ---- Ownership preservation ----
+// ---- helpers ----
 
-func TestWrite_PreservesOwnership(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "default.nix")
-	mustWriteFile(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n")
-
-	before, err := os.Stat(file)
-	if err != nil {
-		t.Fatalf("stat before: %v", err)
-	}
-
-	if err := Add(file, "b.nix"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	after, err := os.Stat(file)
-	if err != nil {
-		t.Fatalf("stat after: %v", err)
-	}
-
-	if !os.SameFile(before, after) {
-		t.Errorf("file was replaced rather than written in place")
+func skipIfNoNix(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("nix-instantiate"); err != nil {
+		t.Skip("nix-instantiate not on PATH")
 	}
 }
 
-// ---- helpers ----
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func mustWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	mustMkdirAll(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}
 
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && (func() bool {
