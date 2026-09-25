@@ -106,8 +106,8 @@ func checkMachineFile(path string) error {
 // validate and protect the host folder (L1-L3), heal host entrypoints,
 // validate module boundaries, adopt /etc/nixos (moving entries luxos does
 // not own into the backup directory), ensure /etc/nixos/hardware-configuration.nix
-// and boot.nix, materialize staging, generate+install flake-file.nix, detect GPUs and install
-// framework/gpu.nix, then flake.nix via flake-file, and configuration.nix.
+// and boot.nix, materialize staging, generate+install framework/flake-file.nix, detect GPUs and install
+// framework/gpu.nix, then flake.nix via flake-file, and framework/configuration.nix.
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
 func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
@@ -272,13 +272,13 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		return err
 	}
 
-	// 9. generate flake-file.nix, let flake-file write flake.nix, lock
+	// 9. generate framework/flake-file.nix, let flake-file write flake.nix, lock
 	fmt.Fprintln(w, "Generating flake.nix with flake-file...")
 	bootstrap, err := generate.FlakeBootstrap(host)
 	if err != nil {
 		return err
 	}
-	if err := staging.Install(p.Staging, "flake-file.nix", bootstrap); err != nil {
+	if err := staging.Install(p.Staging, "framework/flake-file.nix", bootstrap); err != nil {
 		return err
 	}
 
@@ -317,13 +317,13 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		fmt.Fprintf(w, "  locked new inputs: %s\n", hostLock)
 	}
 
-	// 10. generate and install configuration.nix
+	// 10. generate and install framework/configuration.nix
 	fmt.Fprintln(w, "Generating configuration.nix...")
 	configContent, err := generate.Configuration(host)
 	if err != nil {
 		return err
 	}
-	if err := staging.Install(p.Staging, "configuration.nix", configContent); err != nil {
+	if err := staging.Install(p.Staging, "framework/configuration.nix", configContent); err != nil {
 		return err
 	}
 

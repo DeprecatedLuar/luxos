@@ -74,7 +74,6 @@ func flakeUpdate(args []string) error {
 		return err
 	}
 
-
 	if err := heal.Run(os.Stdout, p, host, false); err != nil {
 		return err
 	}

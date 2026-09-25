@@ -482,12 +482,12 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 
 func adoptedFiles() map[string]string {
 	return map[string]string{
-		"framework/system.nix": testHeader + "{ }",
-		"config/x.nix":         "{ }",
-		"flake.nix":            "{ }",
-		"flake-file.nix":       "{ }",
-		"configuration.nix":    "{ }",
-		"flake.lock":           "{ }",
+		"framework/system.nix":        testHeader + "{ }",
+		"config/x.nix":                "{ }",
+		"flake.nix":                   "{ }",
+		"framework/flake-file.nix":    "{ }",
+		"framework/configuration.nix": "{ }",
+		"flake.lock":                  "{ }",
 	}
 }
 

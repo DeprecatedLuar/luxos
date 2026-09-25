@@ -1,5 +1,5 @@
 # LUXOS property - keep walking buddy
-# Written into $STAGING_DIR; its imports below only resolve there.
+# Written into framework/; its imports below only resolve there.
 
 { config, pkgs, lib, inputs, ... }:
 
@@ -14,10 +14,10 @@
   };
 
   imports = [
-    ./framework/system.nix
-    ./config/modules
-    ./config/local/.plsdonttouch.nix
-    ./config/local/machine.nix
+    ./system.nix
+    ../config/modules
+    ../config/local/.plsdonttouch.nix
+    ../config/local/machine.nix
   ];
 
   config.networking.hostName = "{{.Host}}";
@@ -26,7 +26,7 @@
 {{range .HardShadows}}    (pkgs.writeShellScriptBin "{{.Name}}" ''
       LUXOS_ARGS=({{.Args}})
       LUXOS="${inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/luxos"
-      ${builtins.readFile ./framework/shadow.sh}
+      ${builtins.readFile ./shadow.sh}
     '')
 {{end}}  ];
 }

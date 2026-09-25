@@ -1,5 +1,5 @@
 # LUXOS property - keep walking buddy
-# Written into $STAGING_DIR next to flake.nix, which loads it as a flake-file
+# Written into framework/ beside configuration.nix; the flake outputs load it as a flake-file
 # module. Inputs are declared by the modules that consume them.
 
 { lib, config, inputs, luxos, ... }:
@@ -8,11 +8,11 @@ let
   system = "x86_64-linux";
 
   # flake.nix is the one place flake-file and the default nixpkgs are pinned.
-  pinned = (import ./flake.nix).inputs;
+  pinned = (import ../flake.nix).inputs;
 
   pkgs = import inputs.nixpkgs { inherit system; };
 
-  channelOverlay = import ./framework/overlay.nix { inherit lib inputs system; };
+  channelOverlay = import ./overlay.nix { inherit lib inputs system; };
 
   mkHost = hostName: inputs.nixpkgs.lib.nixosSystem {
     specialArgs = { inherit inputs hostName luxos; };
@@ -28,7 +28,7 @@ in
   _module.freeformType = lib.types.lazyAttrsOf lib.types.unspecified;
   _module.args = { inherit pkgs; hostName = "{{.Host}}"; };
 
-  imports = [ ./config/modules ];
+  imports = [ ../config/modules ];
 
   # write-flake regenerates flake.nix from exactly these declarations, so the
   # bootstrap inputs must be declared here or the regenerated flake loses them.

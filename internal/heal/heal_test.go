@@ -39,7 +39,7 @@ func fakeNix(t *testing.T) *[]string {
 
 	writeFlake = func(stagingDir string) error {
 		*calls = append(*calls, "write-flake")
-		if _, err := os.Stat(filepath.Join(stagingDir, "flake-file.nix")); err != nil {
+		if _, err := os.Stat(filepath.Join(stagingDir, "framework", "flake-file.nix")); err != nil {
 			t.Errorf("write-flake ran before flake-file.nix was installed: %v", err)
 		}
 		return nil
@@ -162,14 +162,19 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	mustExist := []string{
 		filepath.Join(p.Staging, "flake.nix"),
-		filepath.Join(p.Staging, "flake-file.nix"),
-		filepath.Join(p.Staging, "configuration.nix"),
+		filepath.Join(p.Staging, "framework", "flake-file.nix"),
+		filepath.Join(p.Staging, "framework", "configuration.nix"),
 		filepath.Join(p.Staging, "framework", "system.nix"),
 		filepath.Join(p.Staging, "config", "modules", "system", "desktop.nix"),
 	}
 	for _, f := range mustExist {
 		if _, err := os.Stat(f); err != nil {
 			t.Errorf("expected %s to exist: %v", f, err)
+		}
+	}
+	for _, name := range []string{"flake-file.nix", "configuration.nix"} {
+		if _, err := os.Stat(filepath.Join(p.Staging, name)); err == nil {
+			t.Errorf("%s must not exist at the staging root", name)
 		}
 	}
 
@@ -410,8 +415,8 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", stagedFoo, err)
 	}
 
-	flakeFile := mustReadFile(t, filepath.Join(staging, "flake-file.nix"))
-	for _, want := range []string{"import ./framework/overlay.nix", "nixosConfigurations.host1"} {
+	flakeFile := mustReadFile(t, filepath.Join(staging, "framework", "flake-file.nix"))
+	for _, want := range []string{"import ./overlay.nix", "nixosConfigurations.host1"} {
 		if !strings.Contains(flakeFile, want) {
 			t.Errorf("flake-file.nix missing %q, got:\n%s", want, flakeFile)
 		}

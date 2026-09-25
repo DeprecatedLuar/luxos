@@ -19,8 +19,7 @@ import (
 // owned lists every entry in the staging root luxos generates and may
 // delete. Everything not listed here and not in preserved is a stranger.
 var owned = []string{
-	"framework", "config", "flake.nix", "flake-file.nix",
-	"configuration.nix", "flake.lock",
+	"framework", "config", "flake.nix", "flake.lock",
 }
 
 // preserved lists entries luxos never touches: facts about the computer,

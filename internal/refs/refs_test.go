@@ -98,16 +98,16 @@ func TestValidate_Boundary(t *testing.T) {
 	// expected. Every path counts (#25): no narrower "nix files only"
 	// scope.
 	expected := map[string]string{
-		"abs.nix":                           "outside",
-		"desktop/compositors/hyprland.nix":  "outside",
-		"dyn/default.nix":                   "dynamic",
-		"foo/default.nix":                   "outside",
-		"hidden-user.nix":                   "outside",
-		"system/wayland.nix":                "outside",
-		"theme/single.nix":                  "outside",
-		"theme/uses-dir.nix":                "outside",
-		"users/bob/default.nix":             "outside",
-		"users/luar/leak.nix":               "outside",
+		"abs.nix":                          "outside",
+		"desktop/compositors/hyprland.nix": "outside",
+		"dyn/default.nix":                  "dynamic",
+		"foo/default.nix":                  "outside",
+		"hidden-user.nix":                  "outside",
+		"system/wayland.nix":               "outside",
+		"theme/single.nix":                 "outside",
+		"theme/uses-dir.nix":               "outside",
+		"users/bob/default.nix":            "outside",
+		"users/luar/leak.nix":              "outside",
 	}
 
 	violationsFor := func(modulesDir string) map[string]string {

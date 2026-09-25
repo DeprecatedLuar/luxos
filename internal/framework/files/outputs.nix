@@ -18,7 +18,7 @@ in
   };
   modules = [
     inputs.flake-file.flakeModules.flake
-    ../flake-file.nix
+    ./flake-file.nix
   ];
 }).config.outputs
   inputs
