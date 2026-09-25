@@ -423,7 +423,7 @@ func TestCopyLockBack(t *testing.T) {
 	}
 }
 
-const luxosLockFixture = `{"nodes":{"luxos":{"locked":{"lastModified":1790088510,"narHash":"sha256-7Qp0Ew+0CZeNZjnKSuWI4GTdNllVrPPYzAcTcSGAybw=","owner":"DeprecatedLuar","repo":"luxos","rev":"769dcdb00b27f4aea190db70d1a9d65d858c788d","type":"github"},"original":{"owner":"DeprecatedLuar","ref":"go-rebuild","repo":"luxos","type":"github"}},"root":{"inputs":{"luxos":"luxos"}}},"root":"root","version":7}`
+const luxosLockFixture = `{"nodes":{"luxos":{"locked":{"lastModified":1790088510,"narHash":"sha256-7Qp0Ew+0CZeNZjnKSuWI4GTdNllVrPPYzAcTcSGAybw=","owner":"DeprecatedLuar","repo":"luxos","rev":"769dcdb00b27f4aea190db70d1a9d65d858c788d","type":"github"},"original":{"owner":"DeprecatedLuar","ref":"main","repo":"luxos","type":"github"}},"root":{"inputs":{"luxos":"luxos"}}},"root":"root","version":7}`
 
 func writeLock(t *testing.T, content string) string {
 	t.Helper()
