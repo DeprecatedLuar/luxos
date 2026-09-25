@@ -38,6 +38,13 @@ const devPrefix = "/dev/"
 // fileMode is the mode boot.nix is written with.
 const fileMode = 0644
 
+// configurationLimit is the number of generations GRUB keeps in the boot
+// menu. nixpkgs defaults to 100, which no small EFI system partition can
+// hold - at roughly 39M per distinct kernel+initrd pair a 196M partition
+// fits four. Installing the loader is the only thing that prunes /boot;
+// nix.gc never touches it.
+const configurationLimit = 4
+
 // efiMounts are the mount points checked in order for a vfat EFI system
 // partition.
 var efiMounts = []string{"/boot/efi", "/boot"}
@@ -157,7 +164,11 @@ func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
 // RenderBoot renders boot.nix for the detected loader (B10).
 func RenderBoot(l Loader) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := bootTmpl.Execute(&buf, l); err != nil {
+	data := struct {
+		Loader
+		ConfigurationLimit int
+	}{l, configurationLimit}
+	if err := bootTmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("computer.RenderBoot: %w", err)
 	}
 	return buf.Bytes(), nil
