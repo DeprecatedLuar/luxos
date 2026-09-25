@@ -18,8 +18,8 @@ func TestResolve_ConfigDirOverride(t *testing.T) {
 	if p.Config != override {
 		t.Fatalf("Config = %q, want %q", p.Config, override)
 	}
-	if want := filepath.Join(override, localRel); p.Local != want {
-		t.Fatalf("Local = %q, want %q", p.Local, want)
+	if want := filepath.Join(override, machinesRel); p.Machines != want {
+		t.Fatalf("Machines = %q, want %q", p.Machines, want)
 	}
 	if want := filepath.Join(override, modulesRel); p.Modules != want {
 		t.Fatalf("Modules = %q, want %q", p.Modules, want)

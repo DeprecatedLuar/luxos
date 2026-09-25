@@ -111,7 +111,7 @@ func checkMachineFile(path string) error {
 // prune, when true, removes unresolvable import lines from the active
 // host's entrypoint instead of erroring.
 func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
-	hostDir := filepath.Join(p.Local, host)
+	hostDir := filepath.Join(p.Machines, host)
 
 	// 1. gitignore
 	fmt.Fprintln(w, "Ensuring .gitignore...")
@@ -173,19 +173,19 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 4. ensure modules mirror
 	fmt.Fprintf(w, "Ensuring %s's modules mirror...\n", host)
-	if err := links.EnsureMirror(p.Local, p.Modules, host); err != nil {
+	if err := links.EnsureMirror(p.Machines, p.Modules, host); err != nil {
 		return err
 	}
 
-	// 4b. ensure modules/local -> .local/<host>/modules link
-	fmt.Fprintf(w, "Ensuring modules/local -> .local/%s/modules link...\n", host)
-	if err := links.EnsureLocalModules(p.Local, p.Modules, host); err != nil {
+	// 4b. ensure modules/local -> .local/machines/<host>/modules link
+	fmt.Fprintf(w, "Ensuring modules/local -> .local/machines/%s/modules link...\n", host)
+	if err := links.EnsureLocalModules(p.Machines, p.Modules, host); err != nil {
 		return err
 	}
 
 	// 5. heal imports
 	fmt.Fprintln(w, "Healing modules imports...")
-	healChanges, healWarnings, err := imports.Heal(p.Local, p.Modules, host, prune)
+	healChanges, healWarnings, err := imports.Heal(p.Machines, p.Modules, host, prune)
 	for _, c := range healChanges {
 		fmt.Fprintln(w, formatImportChange(c))
 	}
@@ -223,8 +223,8 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	}
 
 	// 7. ensure local link
-	fmt.Fprintf(w, "Ensuring local -> .local/%s link...\n", host)
-	if err := links.EnsureLocalLink(p.Config, p.Local, host); err != nil {
+	fmt.Fprintf(w, "Ensuring local -> .local/machines/%s link...\n", host)
+	if err := links.EnsureLocalLink(p.Config, p.Machines, host); err != nil {
 		return err
 	}
 

@@ -172,7 +172,7 @@ func twoHostScopeFixture(t *testing.T) paths.Paths {
 	t.Helper()
 	root := t.TempDir()
 	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local")
+	local := filepath.Join(config, ".local", "machines")
 	modules := filepath.Join(config, "modules")
 	mustMkdirAll(t, modules)
 
@@ -186,7 +186,7 @@ func twoHostScopeFixture(t *testing.T) paths.Paths {
 		Home:           root,
 		User:           "test",
 		Config:         config,
-		Local:          local,
+		Machines:       local,
 		Modules:        modules,
 		Staging:        filepath.Join(root, "staging"),
 		HardwareConfig: filepath.Join(root, "hardware-configuration.nix"),
@@ -198,18 +198,18 @@ func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
 
-	write(t, filepath.Join(p.Local, "host1", "modules", "foo.nix"), "{ }\n")
-	write(t, filepath.Join(p.Local, "host2", "modules", "foo.nix"), "{ }\n")
-	write(t, filepath.Join(p.Local, "host1", "modules.nix"),
+	write(t, filepath.Join(p.Machines, "host1", "modules", "foo.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host2", "modules", "foo.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host1", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(p.Local, "host2", "modules.nix"),
+	write(t, filepath.Join(p.Machines, "host2", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
 
 	if err := moduleRemove(p, []string{"foo", "-y"}); err != nil {
 		t.Fatalf("moduleRemove: %v", err)
 	}
 
-	host1Names, err := imports.List(filepath.Join(p.Local, "host1", "modules.nix"))
+	host1Names, err := imports.List(filepath.Join(p.Machines, "host1", "modules.nix"))
 	if err != nil {
 		t.Fatalf("List(host1): %v", err)
 	}
@@ -217,14 +217,14 @@ func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 		t.Errorf("host1 modules.nix = %v, want empty (import removed)", host1Names)
 	}
 
-	host2Content := mustReadFile(t, filepath.Join(p.Local, "host2", "modules.nix"))
+	host2Content := mustReadFile(t, filepath.Join(p.Machines, "host2", "modules.nix"))
 	if !strings.Contains(host2Content, "./local/foo.nix") {
 		t.Errorf("host2 modules.nix was touched, want untouched:\n%s", host2Content)
 	}
-	if _, err := os.Stat(filepath.Join(p.Local, "host2", "modules", "foo.nix")); err != nil {
+	if _, err := os.Stat(filepath.Join(p.Machines, "host2", "modules", "foo.nix")); err != nil {
 		t.Errorf("host2's local foo.nix should still exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(p.Local, "host1", "modules", "foo.nix")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(p.Machines, "host1", "modules", "foo.nix")); !os.IsNotExist(err) {
 		t.Errorf("host1's local foo.nix should have been removed, stat err = %v", err)
 	}
 }
@@ -234,23 +234,23 @@ func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) 
 	p := twoHostScopeFixture(t)
 
 	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
-	write(t, filepath.Join(p.Local, "host2", "modules", "x.nix"),
+	write(t, filepath.Join(p.Machines, "host2", "modules", "x.nix"),
 		`{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`+"\n")
-	write(t, filepath.Join(p.Local, "host1", "modules.nix"),
+	write(t, filepath.Join(p.Machines, "host1", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./wayland.nix\n  ];\n}\n")
-	write(t, filepath.Join(p.Local, "host2", "modules.nix"),
+	write(t, filepath.Join(p.Machines, "host2", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./local/x.nix\n  ];\n}\n")
 
 	if err := moduleRename(p, []string{"wayland", "wl", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
 	}
 
-	host2Content := mustReadFile(t, filepath.Join(p.Local, "host2", "modules", "x.nix"))
+	host2Content := mustReadFile(t, filepath.Join(p.Machines, "host2", "modules", "x.nix"))
 	if !strings.Contains(host2Content, `"wl"`) || strings.Contains(host2Content, `"wayland"`) {
 		t.Errorf("host2's local x.nix not rewritten: %q", host2Content)
 	}
 
-	host1Content := mustReadFile(t, filepath.Join(p.Local, "host1", "modules.nix"))
+	host1Content := mustReadFile(t, filepath.Join(p.Machines, "host1", "modules.nix"))
 	if !strings.Contains(host1Content, "./wl.nix") {
 		t.Errorf("host1 modules.nix not rewritten to wl.nix: %q", host1Content)
 	}

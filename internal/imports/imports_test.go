@@ -10,11 +10,11 @@ import (
 
 // ---- Retarget ----
 
-func setupTwoHosts(t *testing.T) (localDir string, host1, host2 string) {
+func setupTwoHosts(t *testing.T) (machinesDir string, host1, host2 string) {
 	t.Helper()
-	localDir = t.TempDir()
-	host1 = filepath.Join(localDir, "host1", "modules.nix")
-	host2 = filepath.Join(localDir, "host2", "modules.nix")
+	machinesDir = t.TempDir()
+	host1 = filepath.Join(machinesDir, "host1", "modules.nix")
+	host2 = filepath.Join(machinesDir, "host2", "modules.nix")
 	mustWriteFile(t, host1, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	mustWriteFile(t, host2, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	return
@@ -22,9 +22,9 @@ func setupTwoHosts(t *testing.T) (localDir string, host1, host2 string) {
 
 func TestRetarget_Rename(t *testing.T) {
 	skipIfNoNix(t)
-	localDir, host1, host2 := setupTwoHosts(t)
+	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(localDir, "foo", "b/foo.nix", "")
+	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	// Second run: no changes (idempotent).
-	changes2, err := Retarget(localDir, "foo", "b/foo.nix", "")
+	changes2, err := Retarget(machinesDir, "foo", "b/foo.nix", "")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -54,9 +54,9 @@ func TestRetarget_Rename(t *testing.T) {
 
 func TestRetarget_Delete(t *testing.T) {
 	skipIfNoNix(t)
-	localDir, host1, host2 := setupTwoHosts(t)
+	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(localDir, "foo", "", "")
+	changes, err := Retarget(machinesDir, "foo", "", "")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestRetarget_Delete(t *testing.T) {
 		}
 	}
 
-	changes2, err := Retarget(localDir, "foo", "", "")
+	changes2, err := Retarget(machinesDir, "foo", "", "")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -90,9 +90,9 @@ func TestRetarget_Delete(t *testing.T) {
 
 func TestRetarget_HostScoped(t *testing.T) {
 	skipIfNoNix(t)
-	localDir, host1, host2 := setupTwoHosts(t)
+	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(localDir, "foo", "b/foo.nix", "host1")
+	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "host1")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -119,19 +119,19 @@ func TestRetarget_HostScoped(t *testing.T) {
 
 // ---- Heal ----
 
-func setupHealFixture(t *testing.T) (localDir, modulesDir string) {
+func setupHealFixture(t *testing.T) (machinesDir, modulesDir string) {
 	t.Helper()
 	root := t.TempDir()
-	localDir = filepath.Join(root, "local")
+	machinesDir = filepath.Join(root, "local")
 	modulesDir = filepath.Join(root, "modules")
 
 	// The real unit now lives at "a/foo.nix".
 	mustWriteFile(t, filepath.Join(modulesDir, "a", "foo.nix"), "{ }")
 
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
 
-	other := filepath.Join(localDir, "other-host", "modules.nix")
+	other := filepath.Join(machinesDir, "other-host", "modules.nix")
 	mustWriteFile(t, other, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
 
 	return
@@ -139,10 +139,10 @@ func setupHealFixture(t *testing.T) (localDir, modulesDir string) {
 
 func TestHeal_Move(t *testing.T) {
 	skipIfNoNix(t)
-	localDir, modulesDir := setupHealFixture(t)
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	machinesDir, modulesDir := setupHealFixture(t)
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 
-	changes, warnings, err := Heal(localDir, modulesDir, "active-host", false)
+	changes, warnings, err := Heal(machinesDir, modulesDir, "active-host", false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestHeal_Move(t *testing.T) {
 	}
 
 	// Idempotent: second run makes no changes.
-	changes2, warnings2, err := Heal(localDir, modulesDir, "active-host", false)
+	changes2, warnings2, err := Heal(machinesDir, modulesDir, "active-host", false)
 	if err != nil {
 		t.Fatalf("Heal (2nd): %v", err)
 	}
@@ -174,14 +174,14 @@ func TestHeal_Move(t *testing.T) {
 func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	_, _, err := Heal(localDir, modulesDir, "active-host", false)
+	_, _, err := Heal(machinesDir, modulesDir, "active-host", false)
 	if err == nil {
 		t.Fatalf("Heal: want error for unresolved active import")
 	}
@@ -199,14 +199,14 @@ func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 func TestHeal_UnresolvedActivePruned(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	changes, _, err := Heal(localDir, modulesDir, "active-host", true)
+	changes, _, err := Heal(machinesDir, modulesDir, "active-host", true)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -226,17 +226,17 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [];\n}\n")
 
-	otherFile := filepath.Join(localDir, "other-host", "modules.nix")
+	otherFile := filepath.Join(machinesDir, "other-host", "modules.nix")
 	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	changes, warnings, err := Heal(localDir, modulesDir, "active-host", false)
+	changes, warnings, err := Heal(machinesDir, modulesDir, "active-host", false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -259,21 +259,21 @@ func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
 	// Both hosts select "local/foo" but each host's "foo" lives at a
 	// different path within its own local modules dir.
-	mustWriteFile(t, filepath.Join(localDir, "host1", "modules", "a", "foo.nix"), "{ }")
-	mustWriteFile(t, filepath.Join(localDir, "host2", "modules", "b", "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machinesDir, "host1", "modules", "a", "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machinesDir, "host2", "modules", "b", "foo.nix"), "{ }")
 
-	host1File := filepath.Join(localDir, "host1", "modules.nix")
+	host1File := filepath.Join(machinesDir, "host1", "modules.nix")
 	mustWriteFile(t, host1File, "{ ... }:\n{\n  imports = [\n    ./local/old/foo.nix\n  ];\n}\n")
-	host2File := filepath.Join(localDir, "host2", "modules.nix")
+	host2File := filepath.Join(machinesDir, "host2", "modules.nix")
 	mustWriteFile(t, host2File, "{ ... }:\n{\n  imports = [\n    ./local/old/foo.nix\n  ];\n}\n")
 
-	changes, warnings, err := Heal(localDir, modulesDir, "host1", false)
+	changes, warnings, err := Heal(machinesDir, modulesDir, "host1", false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -304,17 +304,17 @@ func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
 func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 
 	mustWriteFile(t, filepath.Join(modulesDir, "b", "shared.nix"), "{ }")
 
-	host1File := filepath.Join(localDir, "host1", "modules.nix")
+	host1File := filepath.Join(machinesDir, "host1", "modules.nix")
 	mustWriteFile(t, host1File, "{ ... }:\n{\n  imports = [\n    ./a/shared.nix\n  ];\n}\n")
-	host2File := filepath.Join(localDir, "host2", "modules.nix")
+	host2File := filepath.Join(machinesDir, "host2", "modules.nix")
 	mustWriteFile(t, host2File, "{ ... }:\n{\n  imports = [\n    ./a/shared.nix\n  ];\n}\n")
 
-	_, warnings, err := Heal(localDir, modulesDir, "host1", false)
+	_, warnings, err := Heal(machinesDir, modulesDir, "host1", false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -336,22 +336,22 @@ func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
-	localDir := filepath.Join(root, "local")
+	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
 	// active-host has a local "foo.nix"; other-host does not, and its own
 	// "./local/foo.nix" line must not be treated as existing just because
 	// the active host's local dir happens to have a "foo.nix".
-	mustWriteFile(t, filepath.Join(localDir, "active-host", "modules", "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machinesDir, "active-host", "modules", "foo.nix"), "{ }")
 
-	activeFile := filepath.Join(localDir, "active-host", "modules.nix")
+	activeFile := filepath.Join(machinesDir, "active-host", "modules.nix")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
 
-	otherFile := filepath.Join(localDir, "other-host", "modules.nix")
+	otherFile := filepath.Join(machinesDir, "other-host", "modules.nix")
 	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
 
-	changes, warnings, err := Heal(localDir, modulesDir, "active-host", false)
+	changes, warnings, err := Heal(machinesDir, modulesDir, "active-host", false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}

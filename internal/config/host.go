@@ -1,4 +1,4 @@
-// Package config validates the fixed .local/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
+// Package config validates the fixed .local/machines/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
 // modules.nix, an optional flake.lock, and an optional modules/ directory.
 package config
 
@@ -9,7 +9,7 @@ import (
 	"sort"
 )
 
-// Fixed entries under .local/<host>/ (L1). plsDontTouchFile, MachineFile
+// Fixed entries under .local/machines/<host>/ (L1). plsDontTouchFile, MachineFile
 // and selectionFile are required regular files (symlinks followed);
 // lockFile is an optional regular file; localModulesDir is an optional
 // directory. Nothing else may live there. MachineFile is exported so the
@@ -25,13 +25,17 @@ const (
 	plsDontTouchMode = 0444
 )
 
-// ResolveHost resolves a host name to its directory under localDir. A
+// ResolveHost resolves a host name to its directory under machinesDir. A
 // host is a directory there holding modules.nix.
-func ResolveHost(localDir, name string) (string, error) {
-	dir := filepath.Join(localDir, name)
+func ResolveHost(machinesDir, name string) (string, error) {
+	dir := filepath.Join(machinesDir, name)
 	selection := filepath.Join(dir, selectionFile)
 
 	if _, err := os.Stat(selection); err != nil {
+		old := filepath.Join(filepath.Dir(machinesDir), name)
+		if _, oldErr := os.Stat(filepath.Join(old, selectionFile)); oldErr == nil {
+			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
+		}
 		return "", fmt.Errorf("no %s under %s\n  Pass --machine <name> if this host was renamed or isn't named after $(hostname).", selectionFile, dir)
 	}
 

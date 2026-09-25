@@ -24,10 +24,10 @@ const (
 const localModulesLinkName = "local"
 
 // EnsureMirror ensures <modulesDir>/default.nix is a symlink to
-// <localDir>/<host>/modules.nix (L4), creating the host's local modules
+// <machinesDir>/<host>/modules.nix (L4), creating the host's local modules
 // directory if needed. Errors if a real file already occupies that path.
-func EnsureMirror(localDir, modulesDir, host string) error {
-	hostDir := filepath.Join(localDir, host)
+func EnsureMirror(machinesDir, modulesDir, host string) error {
+	hostDir := filepath.Join(machinesDir, host)
 	if err := os.MkdirAll(filepath.Join(hostDir, modulesRel), dirMode); err != nil {
 		return err
 	}
@@ -48,12 +48,12 @@ func EnsureMirror(localDir, modulesDir, host string) error {
 }
 
 // EnsureLocalLink ensures <configDir>/local is a symlink to
-// <localDir>/<host>: the active host's whole private tree, visible at root
+// <machinesDir>/<host>: the active host's whole private tree, visible at root
 // alongside the shared kind folders. Errors if a real file/dir already
 // occupies that name.
-func EnsureLocalLink(configDir, localDir, host string) error {
+func EnsureLocalLink(configDir, machinesDir, host string) error {
 	link := filepath.Join(configDir, localLinkName)
-	target := filepath.Join(localDir, host)
+	target := filepath.Join(machinesDir, host)
 
 	if err := refuseRealFile(link, "reserved for the link to the active host's "+target+"; nothing else may claim it"); err != nil {
 		return err
@@ -63,11 +63,11 @@ func EnsureLocalLink(configDir, localDir, host string) error {
 }
 
 // EnsureLocalModules ensures <modulesDir>/local is a symlink to
-// <localDir>/<host>/modules (L5), creating the target directory if needed.
+// <machinesDir>/<host>/modules (L5), creating the target directory if needed.
 // Errors if a real file or directory already occupies that name — nothing
 // else may claim it.
-func EnsureLocalModules(localDir, modulesDir, host string) error {
-	target := filepath.Join(localDir, host, modulesRel)
+func EnsureLocalModules(machinesDir, modulesDir, host string) error {
+	target := filepath.Join(machinesDir, host, modulesRel)
 	if err := os.MkdirAll(target, dirMode); err != nil {
 		return err
 	}

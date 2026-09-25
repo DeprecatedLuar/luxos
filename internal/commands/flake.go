@@ -69,7 +69,7 @@ func flakeUpdate(args []string) error {
 		return err
 	}
 
-	hostDir, err := config.ResolveHost(p.Local, host)
+	hostDir, err := config.ResolveHost(p.Machines, host)
 	if err != nil {
 		return err
 	}

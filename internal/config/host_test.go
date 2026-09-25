@@ -207,3 +207,28 @@ func TestProtectHost_ChangesModeOnce(t *testing.T) {
 		t.Fatalf("2nd changed = true, want false")
 	}
 }
+
+func TestResolveHostOldLayoutHint(t *testing.T) {
+	root := t.TempDir()
+	machines := filepath.Join(root, ".local", "machines")
+	if err := os.MkdirAll(machines, 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldHost := filepath.Join(root, ".local", "h1")
+	if err := os.MkdirAll(oldHost, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldHost, "modules.nix"), []byte("{ }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ResolveHost(machines, "h1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	newHost := filepath.Join(machines, "h1")
+	want := "host folder " + oldHost + " must move to " + newHost + ":\n  mv " + oldHost + " " + newHost
+	if err.Error() != want {
+		t.Fatalf("got %q, want %q", err.Error(), want)
+	}
+}

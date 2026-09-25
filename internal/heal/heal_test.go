@@ -13,7 +13,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
-// hostFlakeLock is the content written to .local/<host>/flake.lock in
+// hostFlakeLock is the content written to .local/machines/<host>/flake.lock in
 // fixtures, distinct from the bogus one written at the config root so a
 // test can tell which one staging.Materialize actually copied.
 const hostFlakeLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstable":"unstable_2"}}}}` + "\n"
@@ -89,7 +89,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	root := t.TempDir()
 
 	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local")
+	local := filepath.Join(config, ".local", "machines")
 	modules := filepath.Join(config, "modules")
 	staging := filepath.Join(root, "etc-nixos")
 	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
@@ -112,7 +112,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host1", "flake.lock"), hostFlakeLock)
 
 	// A flake.lock at the config root, which must be ignored: only the
-	// active host's own .local/<host>/flake.lock is ever staged.
+	// active host's own .local/machines/<host>/flake.lock is ever staged.
 	write(t, filepath.Join(config, "flake.lock"), "{ \"root-lock\": true }\n")
 
 	// host2: other host, already correct - imports.Heal must leave it be.
@@ -132,7 +132,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 		Home:           root,
 		User:           "test",
 		Config:         config,
-		Local:          local,
+		Machines:       local,
 		Modules:        modules,
 		Staging:        staging,
 		Backup:         filepath.Join(root, "backup"),
@@ -199,7 +199,7 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("output reported creating %s, got:\n%s", p.HardwareConfig, out.String())
 	}
 
-	// The staged flake.lock came from .local/host1/flake.lock, not the
+	// The staged flake.lock came from .local/machines/host1/flake.lock, not the
 	// config root - the root copy (ignored) must not be what got staged.
 	stagedLock := mustReadFile(t, filepath.Join(p.Staging, "flake.lock"))
 	if stagedLock != hostFlakeLock {
@@ -207,7 +207,7 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 
 	// The moved import was rewritten in host1's real entrypoint.
-	entrypoint := filepath.Join(p.Local, host, "modules.nix")
+	entrypoint := filepath.Join(p.Machines, host, "modules.nix")
 	content := mustReadFile(t, entrypoint)
 	if strings.Contains(content, "old/foo.nix") {
 		t.Errorf("entrypoint %s still references old/foo.nix:\n%s", entrypoint, content)
@@ -357,7 +357,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 
 	root := t.TempDir()
 	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local")
+	local := filepath.Join(config, ".local", "machines")
 	modules := filepath.Join(config, "modules")
 	staging := filepath.Join(root, "etc-nixos")
 	hardwareConfig := filepath.Join(staging, "hardware-configuration.nix")
@@ -383,7 +383,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		Home:           root,
 		User:           "test",
 		Config:         config,
-		Local:          local,
+		Machines:       local,
 		Modules:        modules,
 		Staging:        staging,
 		Backup:         filepath.Join(root, "backup"),
@@ -438,7 +438,7 @@ func TestRun_StrayHostFileFails(t *testing.T) {
 	p, host := fixture(t)
 	fakeNix(t)
 
-	stray := filepath.Join(p.Local, host, "hardware.nix")
+	stray := filepath.Join(p.Machines, host, "hardware.nix")
 	write(t, stray, "{ }\n")
 
 	var out bytes.Buffer
@@ -475,7 +475,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.
 	write(t, filepath.Join(p.Modules, "bad.nix"), "{ imports = [ ../outside.nix ]; }\n")
-	write(t, filepath.Join(p.Local, host, "modules.nix"),
+	write(t, filepath.Join(p.Machines, host, "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
@@ -644,7 +644,7 @@ func TestRun_MachineFilePathStopsBeforeStaging(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
 	fakeNix(t)
-	write(t, filepath.Join(p.Local, host, "machine.nix"), "{ imports = [ ./x.nix ]; }\n")
+	write(t, filepath.Join(p.Machines, host, "machine.nix"), "{ imports = [ ./x.nix ]; }\n")
 
 	var out bytes.Buffer
 	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "machine.nix") {

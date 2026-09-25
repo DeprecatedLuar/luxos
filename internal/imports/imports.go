@@ -1,5 +1,5 @@
 // Package imports is the sole reader/writer of host entrypoints
-// (implementation-plan.md #18): .local/<host>/modules.nix files, the
+// (implementation-plan.md #18): .local/machines/<host>/modules.nix files, the
 // host's selection (L4). The block's syntax (recognizing, reading and
 // editing the single "imports = [ ... ];" block) lives in internal/nixsrc;
 // this package owns which hosts and names. A file with more than one
@@ -71,12 +71,12 @@ func Remove(file, path string) error {
 
 // Importers returns every entrypoint file with a line whose name (from its
 // path, per NameFromPath) matches name — stale paths included. Read-only.
-// host == "" scans every <localDir>/*/modules.nix; otherwise only
-// <localDir>/<host>/modules.nix is considered. A host whose file isn't
+// host == "" scans every <machinesDir>/*/modules.nix; otherwise only
+// <machinesDir>/<host>/modules.nix is considered. A host whose file isn't
 // recognizable is silently skipped (same tolerance as Retarget/Heal — it
 // just can't be a hit).
-func Importers(localDir, name, host string) ([]string, error) {
-	files, err := entrypointsFor(localDir, host)
+func Importers(machinesDir, name, host string) ([]string, error) {
+	files, err := entrypointsFor(machinesDir, host)
 	if err != nil {
 		return nil, err
 	}
@@ -102,19 +102,19 @@ func Importers(localDir, name, host string) ([]string, error) {
 
 // Retarget is the writer of host entrypoints (#18): rewrite every import
 // line whose name matches name to newPath, or delete it when newPath is
-// "". host == "" reaches every <localDir>/*/modules.nix (the cross-host
-// case, for a shared unit); otherwise only <localDir>/<host>/modules.nix is
+// "". host == "" reaches every <machinesDir>/*/modules.nix (the cross-host
+// case, for a shared unit); otherwise only <machinesDir>/<host>/modules.nix is
 // touched (the local-unit case, L7). Returns every change made; a no-op
 // line (already at newPath) is left untouched and unreported, so a second
 // run returns no changes. A host whose file isn't recognizable is warned
 // about and left untouched.
-func Retarget(localDir, name, newPath, host string) ([]Change, error) {
-	changes, _, err := retarget(localDir, name, newPath, host)
+func Retarget(machinesDir, name, newPath, host string) ([]Change, error) {
+	changes, _, err := retarget(machinesDir, name, newPath, host)
 	return changes, err
 }
 
-func retarget(localDir, name, newPath, host string) ([]Change, []string, error) {
-	files, err := entrypointsFor(localDir, host)
+func retarget(machinesDir, name, newPath, host string) ([]Change, []string, error) {
+	files, err := entrypointsFor(machinesDir, host)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,7 +145,7 @@ func retarget(localDir, name, newPath, host string) ([]Change, []string, error) 
 // Heal rewrites every broken import line in every host's entrypoint,
 // per host (L7): each host's selection lines are checked and resolved
 // against that host's own unit set (shared units plus that host's own
-// local/ units, per units.Walk(modulesDir, <localDir>/<host>/modules)).
+// local/ units, per units.Walk(modulesDir, <machinesDir>/<host>/modules)).
 //   - path exists (local/ prefixed against that host's local modules dir,
 //     otherwise against modulesDir): keep.
 //   - name resolves to a local/ unit: retarget scoped to this host only.
@@ -158,8 +158,8 @@ func retarget(localDir, name, newPath, host string) ([]Change, []string, error) 
 // A host whose own units.Walk fails errors the whole call when it's
 // activeHost, otherwise adds a warning ("<host>: <err>") and skips that
 // host entirely. Heal is idempotent.
-func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
-	files, err := hostEntrypoints(localDir)
+func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
+	files, err := hostEntrypoints(machinesDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -178,7 +178,7 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 	for _, file := range files {
 		host := filepath.Base(filepath.Dir(file))
 
-		us, err := units.Walk(modulesDir, filepath.Join(localDir, host, localModulesSubdir))
+		us, err := units.Walk(modulesDir, filepath.Join(machinesDir, host, localModulesSubdir))
 		if err != nil {
 			if host == activeHost {
 				return nil, nil, err
@@ -201,7 +201,7 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 		for _, itPath := range paths {
 			var fullPath string
 			if rest, cut := strings.CutPrefix(itPath, localPrefix); cut {
-				fullPath = filepath.Join(localDir, host, localModulesSubdir, rest)
+				fullPath = filepath.Join(machinesDir, host, localModulesSubdir, rest)
 			} else {
 				fullPath = filepath.Join(modulesDir, itPath)
 			}
@@ -217,7 +217,7 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 						continue
 					}
 					handledLocal[key] = true
-					rc, rw, err := retarget(localDir, name, resolved, host)
+					rc, rw, err := retarget(machinesDir, name, resolved, host)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -228,7 +228,7 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 						continue
 					}
 					handledShared[name] = true
-					rc, rw, err := retarget(localDir, name, resolved, "")
+					rc, rw, err := retarget(machinesDir, name, resolved, "")
 					if err != nil {
 						return nil, nil, err
 					}
@@ -263,10 +263,10 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 
 //──[private helpers]─────────────────────────────────────────────────────
 
-// hostEntrypoints returns every <localDir>/*/modules.nix that exists,
+// hostEntrypoints returns every <machinesDir>/*/modules.nix that exists,
 // sorted for deterministic iteration.
-func hostEntrypoints(localDir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(localDir, "*", entrypointName))
+func hostEntrypoints(machinesDir string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(machinesDir, "*", entrypointName))
 	if err != nil {
 		return nil, err
 	}
@@ -281,13 +281,13 @@ func hostEntrypoints(localDir string) ([]string, error) {
 }
 
 // entrypointsFor returns the entrypoint file(s) a host-scoped call should
-// act on: every <localDir>/*/modules.nix when host is "", or just
-// <localDir>/<host>/modules.nix (if it exists) otherwise.
-func entrypointsFor(localDir, host string) ([]string, error) {
+// act on: every <machinesDir>/*/modules.nix when host is "", or just
+// <machinesDir>/<host>/modules.nix (if it exists) otherwise.
+func entrypointsFor(machinesDir, host string) ([]string, error) {
 	if host == "" {
-		return hostEntrypoints(localDir)
+		return hostEntrypoints(machinesDir)
 	}
-	file := filepath.Join(localDir, host, entrypointName)
+	file := filepath.Join(machinesDir, host, entrypointName)
 	if fi, err := os.Stat(file); err != nil || fi.IsDir() {
 		if err != nil && os.IsNotExist(err) {
 			return nil, nil

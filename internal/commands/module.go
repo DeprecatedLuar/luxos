@@ -822,7 +822,7 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 // activeHost resolves the active host's name from modules/local (L5),
 // the symlink links.EnsureLocalModules maintains to
-// <p.Local>/<host>/modules — its parent directory's base name.
+// <p.Machines>/<host>/modules — its parent directory's base name.
 func activeHost(p paths.Paths) (string, error) {
 	real, err := filepath.EvalSymlinks(filepath.Join(p.Modules, localLinkName))
 	if err != nil {
@@ -840,10 +840,10 @@ func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []strin
 		if err != nil {
 			return "", nil, err
 		}
-		return host, []string{filepath.Join(p.Local, host, "modules")}, nil
+		return host, []string{filepath.Join(p.Machines, host, "modules")}, nil
 	}
 
-	matches, err := filepath.Glob(filepath.Join(p.Local, "*", "modules"))
+	matches, err := filepath.Glob(filepath.Join(p.Machines, "*", "modules"))
 	if err != nil {
 		return "", nil, err
 	}
@@ -901,7 +901,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return err
 	}
 
-	importers, err := imports.Importers(p.Local, name, host)
+	importers, err := imports.Importers(p.Machines, name, host)
 	if err != nil {
 		return err
 	}
@@ -930,7 +930,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if _, err := refs.Retarget(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Local, name, "", host); err != nil {
+	if _, err := imports.Retarget(p.Machines, name, "", host); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
@@ -1034,7 +1034,7 @@ func moduleRename(p paths.Paths, args []string) error {
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Local, oldName, newPath, host); err != nil {
+	if _, err := imports.Retarget(p.Machines, oldName, newPath, host); err != nil {
 		return err
 	}
 
