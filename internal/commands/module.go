@@ -212,7 +212,7 @@ func nameSet(file string) (map[string]bool, error) {
 		return nil, err
 	}
 	for _, p := range itemPaths {
-		set[imports.NameFromPath(p)] = true
+		set[units.NameFromPath(p)] = true
 	}
 	return set, nil
 }
@@ -761,7 +761,7 @@ func enabledPathForName(file, name string) (string, bool, error) {
 		return "", false, err
 	}
 	for _, path := range itemPaths {
-		if imports.NameFromPath(path) == name {
+		if units.NameFromPath(path) == name {
 			return path, true, nil
 		}
 	}
@@ -830,13 +830,13 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 //──[scoping]──────────────────────────────────────────────────────────────
 
-// activeHost resolves the active machine's name from modules/local (L5),
+// activeHost resolves the active host's name from modules/local (L5),
 // the symlink links.EnsureLocalModules maintains to
 // <p.Local>/<host>/modules — its parent directory's base name.
 func activeHost(p paths.Paths) (string, error) {
 	real, err := filepath.EvalSymlinks(filepath.Join(p.Modules, localLinkName))
 	if err != nil {
-		return "", fmt.Errorf("no active machine: modules/local is missing, run luxos rebuild first")
+		return "", fmt.Errorf("no active host: modules/local is missing, run luxos rebuild first")
 	}
 	return filepath.Base(filepath.Dir(real)), nil
 }

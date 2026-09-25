@@ -108,10 +108,10 @@ func Run(w io.Writer, p paths.Paths, host, exe string, prune bool) error {
 
 	// 3. validate and protect the host folder
 	fmt.Fprintf(w, "Validating %s...\n", hostDir)
-	if err := config.ValidateMachine(hostDir); err != nil {
+	if err := config.ValidateHost(hostDir); err != nil {
 		return err
 	}
-	protected, err := config.ProtectMachine(hostDir)
+	protected, err := config.ProtectHost(hostDir)
 	if err != nil {
 		return err
 	}

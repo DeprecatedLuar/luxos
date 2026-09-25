@@ -23,26 +23,26 @@ const (
 	plsDontTouchMode = 0444
 )
 
-// ResolveMachine resolves a machine name to its directory under localDir. A
-// machine is a directory there holding modules.nix.
-func ResolveMachine(localDir, name string) (string, error) {
+// ResolveHost resolves a host name to its directory under localDir. A
+// host is a directory there holding modules.nix.
+func ResolveHost(localDir, name string) (string, error) {
 	dir := filepath.Join(localDir, name)
 	selection := filepath.Join(dir, selectionFile)
 
 	if _, err := os.Stat(selection); err != nil {
-		return "", fmt.Errorf("no %s under %s\n  Pass --machine <name> if this machine was renamed or isn't named after $(hostname).", selectionFile, dir)
+		return "", fmt.Errorf("no %s under %s\n  Pass --machine <name> if this host was renamed or isn't named after $(hostname).", selectionFile, dir)
 	}
 
 	return dir, nil
 }
 
-// ValidateMachine checks hostDir against the fixed host folder layout (L1).
+// ValidateHost checks hostDir against the fixed host folder layout (L1).
 // Every missing required file is reported as "missing <name>"; every entry
 // that isn't one of the allowed names, or is the wrong type (a required
 // file/flake.lock that isn't a regular file, or modules/ that isn't a
 // directory), is reported as "<name> does not belong here". Problems are
 // sorted and collected into one error; a clean layout returns nil.
-func ValidateMachine(hostDir string) error {
+func ValidateHost(hostDir string) error {
 	entries, err := os.ReadDir(hostDir)
 	if err != nil {
 		return err
@@ -86,16 +86,16 @@ func ValidateMachine(hostDir string) error {
 	}
 
 	sort.Strings(problems)
-	msg := fmt.Sprintf("invalid machine folder %s", hostDir)
+	msg := fmt.Sprintf("invalid host folder %s", hostDir)
 	for _, p := range problems {
 		msg += "\n  - " + p
 	}
 	return fmt.Errorf("%s", msg)
 }
 
-// ProtectMachine chmods hostDir/.plsdonttouch.nix to plsDontTouchMode if its
+// ProtectHost chmods hostDir/.plsdonttouch.nix to plsDontTouchMode if its
 // mode differs, reporting whether it changed.
-func ProtectMachine(hostDir string) (bool, error) {
+func ProtectHost(hostDir string) (bool, error) {
 	path := filepath.Join(hostDir, plsDontTouchFile)
 
 	info, err := os.Stat(path)

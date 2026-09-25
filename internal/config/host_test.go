@@ -24,24 +24,24 @@ func writeRequiredFiles(t *testing.T, hostDir string) {
 	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ imports = []; }\n")
 }
 
-func TestResolveMachine_Found(t *testing.T) {
+func TestResolveHost_Found(t *testing.T) {
 	localDir := t.TempDir()
 	machineDir := filepath.Join(localDir, "paraloid")
 	writeFile(t, filepath.Join(machineDir, "modules.nix"), "{ imports = []; }\n")
 
-	dir, err := ResolveMachine(localDir, "paraloid")
+	dir, err := ResolveHost(localDir, "paraloid")
 	if err != nil {
-		t.Fatalf("ResolveMachine: %v", err)
+		t.Fatalf("ResolveHost: %v", err)
 	}
 	if dir != machineDir {
 		t.Fatalf("dir = %q, want %q", dir, machineDir)
 	}
 }
 
-func TestResolveMachine_NotFound(t *testing.T) {
+func TestResolveHost_NotFound(t *testing.T) {
 	localDir := t.TempDir()
 
-	_, err := ResolveMachine(localDir, "nuremberg")
+	_, err := ResolveHost(localDir, "nuremberg")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -49,44 +49,44 @@ func TestResolveMachine_NotFound(t *testing.T) {
 	if !strings.Contains(err.Error(), "no modules.nix under "+wantDir) {
 		t.Errorf("error %q missing dir mention", err.Error())
 	}
-	if !strings.Contains(err.Error(), "Pass --machine <name> if this machine was renamed or isn't named after $(hostname).") {
+	if !strings.Contains(err.Error(), "Pass --machine <name> if this host was renamed or isn't named after $(hostname).") {
 		t.Errorf("error %q missing hint", err.Error())
 	}
 }
 
-func TestValidateMachine_Valid(t *testing.T) {
+func TestValidateHost_Valid(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 
-	if err := ValidateMachine(dir); err != nil {
-		t.Fatalf("ValidateMachine: %v", err)
+	if err := ValidateHost(dir); err != nil {
+		t.Fatalf("ValidateHost: %v", err)
 	}
 }
 
-func TestValidateMachine_ValidWithLockAndModules(t *testing.T) {
+func TestValidateHost_ValidWithLockAndModules(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	writeFile(t, filepath.Join(dir, "flake.lock"), "{}\n")
 	writeFile(t, filepath.Join(dir, "modules", "foo.nix"), "{ }\n")
 
-	if err := ValidateMachine(dir); err != nil {
-		t.Fatalf("ValidateMachine: %v", err)
+	if err := ValidateHost(dir); err != nil {
+		t.Fatalf("ValidateHost: %v", err)
 	}
 }
 
-func TestValidateMachine_ValidWithEmptyModulesDir(t *testing.T) {
+func TestValidateHost_ValidWithEmptyModulesDir(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := ValidateMachine(dir); err != nil {
-		t.Fatalf("ValidateMachine: %v", err)
+	if err := ValidateHost(dir); err != nil {
+		t.Fatalf("ValidateHost: %v", err)
 	}
 }
 
-func TestValidateMachine_MissingEach(t *testing.T) {
+func TestValidateHost_MissingEach(t *testing.T) {
 	for _, missing := range []string{".plsdonttouch.nix", "machine.nix", "modules.nix"} {
 		t.Run(missing, func(t *testing.T) {
 			dir := t.TempDir()
@@ -95,7 +95,7 @@ func TestValidateMachine_MissingEach(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err := ValidateMachine(dir)
+			err := ValidateHost(dir)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -107,12 +107,12 @@ func TestValidateMachine_MissingEach(t *testing.T) {
 	}
 }
 
-func TestValidateMachine_StrayFile(t *testing.T) {
+func TestValidateHost_StrayFile(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	writeFile(t, filepath.Join(dir, "hardware.nix"), "{ }\n")
 
-	err := ValidateMachine(dir)
+	err := ValidateHost(dir)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -122,12 +122,12 @@ func TestValidateMachine_StrayFile(t *testing.T) {
 	}
 }
 
-func TestValidateMachine_ModulesAsFile(t *testing.T) {
+func TestValidateHost_ModulesAsFile(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	writeFile(t, filepath.Join(dir, "modules"), "not a dir\n")
 
-	err := ValidateMachine(dir)
+	err := ValidateHost(dir)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -137,14 +137,14 @@ func TestValidateMachine_ModulesAsFile(t *testing.T) {
 	}
 }
 
-func TestValidateMachine_LockAsDirectory(t *testing.T) {
+func TestValidateHost_LockAsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	if err := os.MkdirAll(filepath.Join(dir, "flake.lock"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	err := ValidateMachine(dir)
+	err := ValidateHost(dir)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -154,14 +154,14 @@ func TestValidateMachine_LockAsDirectory(t *testing.T) {
 	}
 }
 
-func TestValidateMachine_MultipleProblemsInOneError(t *testing.T) {
+func TestValidateHost_MultipleProblemsInOneError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "machine.nix"), "{ }\n")
 	writeFile(t, filepath.Join(dir, "modules.nix"), "{ imports = []; }\n")
 	writeFile(t, filepath.Join(dir, "hardware.nix"), "{ }\n")
 	// .plsdonttouch.nix missing entirely.
 
-	err := ValidateMachine(dir)
+	err := ValidateHost(dir)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -175,7 +175,7 @@ func TestValidateMachine_MultipleProblemsInOneError(t *testing.T) {
 	}
 }
 
-func TestProtectMachine_ChangesModeOnce(t *testing.T) {
+func TestProtectHost_ChangesModeOnce(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
 	path := filepath.Join(dir, ".plsdonttouch.nix")
@@ -183,9 +183,9 @@ func TestProtectMachine_ChangesModeOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := ProtectMachine(dir)
+	changed, err := ProtectHost(dir)
 	if err != nil {
-		t.Fatalf("ProtectMachine: %v", err)
+		t.Fatalf("ProtectHost: %v", err)
 	}
 	if !changed {
 		t.Fatalf("changed = false, want true")
@@ -199,9 +199,9 @@ func TestProtectMachine_ChangesModeOnce(t *testing.T) {
 		t.Fatalf("mode = %o, want 0444", info.Mode().Perm())
 	}
 
-	changed2, err := ProtectMachine(dir)
+	changed2, err := ProtectHost(dir)
 	if err != nil {
-		t.Fatalf("ProtectMachine (2nd): %v", err)
+		t.Fatalf("ProtectHost (2nd): %v", err)
 	}
 	if changed2 {
 		t.Fatalf("2nd changed = true, want false")

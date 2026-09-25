@@ -210,7 +210,7 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	hostDir, err := config.ResolveMachine(p.Local, host)
+	hostDir, err := config.ResolveHost(p.Local, host)
 	if err != nil {
 		return err
 	}

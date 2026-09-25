@@ -83,13 +83,6 @@ type item struct {
 	leading string
 }
 
-// NameFromPath is the public wrapper for §3 "Name from an import path",
-// re-exported here since other callers (e.g. `lux module`'s state markers)
-// need the same logic imports itself uses.
-func NameFromPath(path string) string {
-	return units.NameFromPath(path)
-}
-
 // List returns the active import paths in file, bare (no leading "./"),
 // in file order. Hard error if file doesn't have exactly one recognizable
 // imports block.
@@ -226,7 +219,7 @@ func Importers(localDir, name, host string) ([]string, error) {
 			continue
 		}
 		for _, it := range items {
-			if NameFromPath(it.path) == name {
+			if units.NameFromPath(it.path) == name {
 				out = append(out, file)
 				break
 			}
@@ -281,7 +274,7 @@ func retarget(localDir, name, newPath, host string) ([]Change, []string, error) 
 		changed := false
 
 		for _, it := range items {
-			if NameFromPath(it.path) != name {
+			if units.NameFromPath(it.path) != name {
 				continue
 			}
 
@@ -393,7 +386,7 @@ func Heal(localDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 				continue
 			}
 
-			name := NameFromPath(it.path)
+			name := units.NameFromPath(it.path)
 			if resolved, ok := units.Resolve(us, name); ok {
 				if strings.HasPrefix(resolved, localPrefix) {
 					key := host + "\x00" + name
