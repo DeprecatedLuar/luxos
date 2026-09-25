@@ -181,7 +181,8 @@ type moduleRow struct {
 	name     string
 	marker   string
 	rank     int
-	pulledBy []string // non-nil only for a non-enabled, pulled-in unit
+	pulledBy []string    // non-nil only for a non-enabled, pulled-in unit
+	children []moduleRow // rows nested beneath this one (flake list's transitive inputs)
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -337,17 +338,11 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 
 	for _, r := range node.rows {
 		i++
-		connector := "├── "
+		connector, childPrefix := "├── ", prefix+"│   "
 		if i == total {
-			connector = "└── "
+			connector, childPrefix = "└── ", prefix+"    "
 		}
-
-		mc := markerColor(pal, r.marker)
-		fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, r.name, pal.reset)
-		if len(r.pulledBy) > 0 {
-			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(r.pulledBy, ", "), pal.reset)
-		}
-		w.WriteString("\n")
+		renderRow(w, r, prefix, connector, childPrefix, pal)
 	}
 
 	for _, cat := range cats {
@@ -358,6 +353,26 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 		}
 		fmt.Fprintf(w, "%s%s%s%s%s%s/%s\n", pal.line, prefix, connector, pal.reset, pal.title, cat, pal.reset)
 		renderTreeNode(w, node.children[cat], childPrefix, pal)
+	}
+}
+
+// renderRow prints one row on its own line, then its children beneath it
+// continuing with childPrefix.
+func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
+	mc := markerColor(pal, r.marker)
+	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, r.name, pal.reset)
+	if len(r.pulledBy) > 0 {
+		fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(r.pulledBy, ", "), pal.reset)
+	}
+	w.WriteString("\n")
+
+	moduleSortRows(r.children)
+	for i, c := range r.children {
+		childConnector, grandPrefix := "├── ", childPrefix+"│   "
+		if i == len(r.children)-1 {
+			childConnector, grandPrefix = "└── ", childPrefix+"    "
+		}
+		renderRow(w, c, childPrefix, childConnector, grandPrefix, pal)
 	}
 }
 
@@ -402,18 +417,36 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	if len(rows) == 0 {
 		return
 	}
-	lines := make([]string, 0, len(rows))
+	var lines []string
 	for _, r := range rows {
 		if len(r.category) == 0 {
 			lines = append(lines, r.name)
 		} else {
 			lines = append(lines, strings.Join(r.category, "/")+"/"+r.name)
 		}
+		lines = appendChildPaths(lines, r.name, r.children)
 	}
 	sort.Strings(lines)
 	for _, l := range lines {
 		fmt.Fprintln(w, l)
 	}
+}
+
+// appendChildPaths appends one "parent/child" path per nested row, recursing
+// with the child's path as the next parent.
+func appendChildPaths(lines []string, parent string, children []moduleRow) []string {
+	for _, c := range children {
+		path := parent + "/" + c.name
+		lines = append(lines, path)
+		lines = appendChildPaths(lines, path, c.children)
+	}
+	return lines
+}
+
+// stdoutIsTTY reports whether stdout is a terminal.
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // moduleList implements `module list [category-path]`.
@@ -451,10 +484,7 @@ func moduleList(p paths.Paths, args []string) error {
 
 	entrypoint := filepath.Join(p.Modules, entrypointName)
 
-	tty := false
-	if fi, err := os.Stdout.Stat(); err == nil {
-		tty = fi.Mode()&os.ModeCharDevice != 0
-	}
+	tty := stdoutIsTTY()
 
 	if _, err := os.Stat(p.RunningModules); err != nil {
 		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)

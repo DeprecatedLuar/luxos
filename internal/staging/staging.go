@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
@@ -198,6 +199,77 @@ func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
 		return LockInput{}, false, nil
 	}
 	return node.Locked, true, nil
+}
+
+// LockRootNode is the key of the root node in a flake.lock's node table.
+const LockRootNode = "root"
+
+// LockRef is the identity of one side (original or locked) of a lock node.
+type LockRef struct {
+	Type  string `json:"type"`
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+	Ref   string `json:"ref"`
+	Rev   string `json:"rev"`
+	URL   string `json:"url"`
+}
+
+// LockNode is one node of a flake.lock. Inputs maps an input name to the
+// node key it points at; `follows` entries (array values) are skipped.
+type LockNode struct {
+	Inputs   map[string]string
+	Original LockRef
+	Locked   LockRef
+}
+
+// LockGraph is a flake.lock's node table. Root is the root node's input
+// names, sorted; Nodes includes the root node under LockRootNode.
+type LockGraph struct {
+	Root  []string
+	Nodes map[string]LockNode
+}
+
+// ReadLockGraph reads lockFile into a LockGraph. A missing file returns an
+// empty graph and no error; malformed JSON is an error.
+func ReadLockGraph(lockFile string) (LockGraph, error) {
+	graph := LockGraph{Nodes: map[string]LockNode{}}
+
+	data, err := os.ReadFile(lockFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return graph, nil
+		}
+		return LockGraph{}, err
+	}
+
+	var lock struct {
+		Nodes map[string]struct {
+			Inputs   map[string]json.RawMessage `json:"inputs"`
+			Original LockRef                    `json:"original"`
+			Locked   LockRef                    `json:"locked"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return LockGraph{}, fmt.Errorf("parse %s: %w", lockFile, err)
+	}
+
+	for key, raw := range lock.Nodes {
+		node := LockNode{Inputs: map[string]string{}, Original: raw.Original, Locked: raw.Locked}
+		for name, target := range raw.Inputs {
+			var nodeKey string
+			if err := json.Unmarshal(target, &nodeKey); err != nil {
+				continue // a follows array
+			}
+			node.Inputs[name] = nodeKey
+		}
+		graph.Nodes[key] = node
+	}
+
+	for name := range graph.Nodes[LockRootNode].Inputs {
+		graph.Root = append(graph.Root, name)
+	}
+	sort.Strings(graph.Root)
+	return graph, nil
 }
 
 // checkNoDanglingLinks walks root and errors, naming the culprit, on the

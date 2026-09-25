@@ -101,7 +101,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 		unitPath := queue[0]
 		queue = queue[1:]
 
-		files, err := unitFiles(filepath.Join(root, unitPath))
+		files, err := UnitFiles(filepath.Join(root, unitPath))
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +195,7 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 		queue = queue[1:]
 		unitName := units.NameFromPath(unitPath)
 
-		files, err := unitFiles(filepath.Join(root, unitPath))
+		files, err := UnitFiles(filepath.Join(root, unitPath))
 		if err != nil {
 			return nil, err
 		}
@@ -323,9 +323,9 @@ func Retarget(modulesDir string, localModulesDirs []string, name, newName string
 
 //──[private: tree walk]──────────────────────────────────────────────────────
 
-// unitFiles returns the *.nix files a unit consists of: the file itself for
+// UnitFiles returns the *.nix files a unit consists of: the file itself for
 // a file unit, every *.nix beneath it (sorted) for a folder unit.
-func unitFiles(unit string) ([]string, error) {
+func UnitFiles(unit string) ([]string, error) {
 	info, err := os.Stat(unit)
 	if err != nil {
 		return nil, err

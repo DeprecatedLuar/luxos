@@ -14,7 +14,7 @@ const binaryName = "luxos"
 const (
 	rootDescription    = "manages NixOS machine configuration"
 	rebuildDescription = "rebuild the system from CONFIG_DIR"
-	flakeDescription   = "update the host's flake inputs"
+	flakeDescription   = "list and update the host's flake inputs"
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
@@ -30,6 +30,7 @@ func rootPage() *gohelp.Page {
 		Section("Commands",
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
+			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
 			gohelp.Item("module|modules list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
 			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
@@ -60,12 +61,23 @@ func rebuildPage() *gohelp.Page {
 // flakePage documents `luxos flake`.
 func flakePage() *gohelp.Page {
 	return gohelp.NewPage("flake", flakeDescription).
-		Usage(binaryName+" flake update [inputs...]").
+		Usage(binaryName+" flake <list|ls|update> ...").
+		Section("Commands",
+			gohelp.Item("list|ls", "List the host's inputs as a tree; 'luxos flakes' is a shortcut for this"),
+			gohelp.Item("update [inputs...]", "Update the host's inputs"),
+		).
 		Section("Flags",
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
+			gohelp.Item("--offline", "list: do not touch the network"),
 		).
-		Text("With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, nixpkgs, unstable. Transitive inputs are addressed by path, e.g. ambxst/axctl.")
+		Section("Markers (list)",
+			gohelp.Item("◉", "declared by a module and locked"),
+			gohelp.Item("⊕", "declared but not locked yet; the next rebuild fetches it"),
+			gohelp.Item("⊘", "locked but no longer declared; the next rebuild prunes it"),
+			gohelp.Item("◍", "never declared, pulled in by another input"),
+		).
+		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, it prints one path per line without markers. With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, nixpkgs, unstable. Transitive inputs are addressed by path, e.g. ambxst/axctl.")
 }
 
 // modulePage documents every `luxos module` verb.
