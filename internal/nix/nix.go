@@ -213,6 +213,18 @@ func Exec(bin string, args []string) error {
 	return syscall.Exec(bin, argv, os.Environ())
 }
 
+// Run runs bin with args as a child process, wiring stdin, stdout and
+// stderr straight through, and returns its exit status as an error. Unlike
+// Exec it returns, so the caller can act on the result; callers that have
+// nothing left to do should use Exec.
+func Run(bin string, args []string) error {
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // ShowHardwareConfig returns the hardware-configuration.nix that
 // nixos-generate-config generates for this computer.
 func ShowHardwareConfig() ([]byte, error) {

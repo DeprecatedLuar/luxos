@@ -73,7 +73,17 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value"
+const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value"
+
+// goodbyeNixExt marks the entries a replacement configuration folder must
+// contain at least one of.
+const goodbyeNixExt = ".nix"
+
+// goodbyeFarewell is printed after a successful goodbye build.
+const goodbyeFarewell = "SEE YOU NIX COWBOY..."
+
+// ansiItalic starts italic text.
+const ansiItalic = "\x1b[3m"
 
 // flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
@@ -194,6 +204,10 @@ func Rebuild(args []string) error {
 		}
 	}
 
+	if opts["goodbye-luxos"] != "" {
+		return goodbye(opts["goodbye-luxos"], rest)
+	}
+
 	host := opts["machine"]
 	if host == "" {
 		host, err = os.Hostname()
@@ -231,4 +245,73 @@ func Rebuild(args []string) error {
 	flakeArgs = append(flakeArgs, rest...)
 
 	return nix.Exec(rebuildBin, flakeArgs)
+}
+
+// goodbye replaces /etc/nixos with the folder dir, then builds it with a
+// channel-built nixos-rebuild as a child process so the result is known.
+func goodbye(dir string, rest []string) error {
+	p, err := paths.Resolve()
+	if err != nil {
+		return err
+	}
+
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.IsDir() {
+		return fmt.Errorf("--goodbye-luxos: %s does not exist or is not a directory", abs)
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return err
+	}
+	hasNix := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), goodbyeNixExt) {
+			hasNix = true
+			break
+		}
+	}
+	if !hasNix {
+		return fmt.Errorf("--goodbye-luxos: %s contains no %s entry", abs, goodbyeNixExt)
+	}
+
+	fmt.Printf("The contents of %s will replace %s verbatim.\n", abs, p.Staging)
+	fmt.Println("These entries will be removed from " + p.Staging + ":")
+	for _, name := range staging.Owned() {
+		fmt.Println("  " + name)
+	}
+	ok, err := shared.Confirm("Proceed? [y/N] ", false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Println("Nothing changed.")
+		return nil
+	}
+
+	if err := staging.Replace(abs, p.Staging); err != nil {
+		return err
+	}
+
+	bin, err := nix.RebuildFromChannel()
+	if err != nil {
+		return err
+	}
+	if err := nix.Run(bin, rest); err != nil {
+		return err
+	}
+
+	tty := false
+	if fi, err := os.Stdout.Stat(); err == nil {
+		tty = fi.Mode()&os.ModeCharDevice != 0
+	}
+	msg := goodbyeFarewell
+	if colorsEnabled(tty) {
+		msg = ansiItalic + goodbyeFarewell + colorReset
+	}
+	fmt.Print("\n\n" + msg + "\n")
+	return nil
 }

@@ -53,6 +53,7 @@ func rebuildPage() *gohelp.Page {
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--backup-dir <dir>", "Move unrecognized /etc/nixos entries here (sets LUXOS_BACKUP_DIR)"),
+			gohelp.Item("--goodbye-luxos <dir>", "Replace /etc/nixos with <dir> and build it without luxos"),
 		)
 }
 
