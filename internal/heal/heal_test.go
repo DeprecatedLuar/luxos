@@ -536,3 +536,70 @@ func TestRun_NoBackupDirNamesFlag(t *testing.T) {
 		t.Fatalf("err = %v, want the --backup-dir recovery line", err)
 	}
 }
+
+func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
+	hostDir := t.TempDir()
+	var out bytes.Buffer
+	if err := ensureMachineFile(&out, hostDir); err != nil {
+		t.Fatal(err)
+	}
+	want, err := framework.File(machineTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(hostDir, "machine.nix")
+	if got := mustReadFile(t, path); got != string(want) {
+		t.Errorf("machine.nix differs from template:\n%s", got)
+	}
+	if !strings.Contains(out.String(), path) {
+		t.Errorf("output %q does not name %s", out.String(), path)
+	}
+}
+
+func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
+	hostDir := t.TempDir()
+	path := filepath.Join(hostDir, "machine.nix")
+	const own = "{ ... }: { }\n"
+	write(t, path, own)
+	var out bytes.Buffer
+	if err := ensureMachineFile(&out, hostDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, path); got != own {
+		t.Errorf("machine.nix changed: %q", got)
+	}
+	if out.Len() != 0 {
+		t.Errorf("unexpected output %q", out.String())
+	}
+}
+
+func TestMachineTemplate_Parses(t *testing.T) {
+	skipIfNoNix(t)
+	tmpl, err := framework.File(machineTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "machine.nix")
+	write(t, path, string(tmpl))
+	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
+		t.Fatalf("template does not parse: %v\n%s", err, out)
+	}
+}
+
+func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
+	sys, err := framework.File("system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sys), "nix.gc") {
+		t.Error("system.nix must not define nix.gc")
+	}
+	for _, want := range []string{
+		"nix.optimise.automatic = lib.mkDefault true;",
+		"nix.settings.auto-optimise-store = lib.mkDefault true;",
+	} {
+		if !strings.Contains(string(sys), want) {
+			t.Errorf("system.nix missing %q", want)
+		}
+	}
+}

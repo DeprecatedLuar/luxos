@@ -51,7 +51,30 @@ const (
 	// environmentTemplate is the embedded template written when it is missing.
 	environmentFile     = "environment"
 	environmentTemplate = "templates/environment"
+
+	// machineTemplate is the embedded template written as the active host's
+	// machine.nix when that file is missing.
+	machineTemplate = "templates/machine.nix"
 )
+
+// ensureMachineFile writes the embedded machine.nix template into hostDir
+// when nothing is there, and prints one line naming the created path. An
+// existing entry, including a symlink, is left alone silently.
+func ensureMachineFile(w io.Writer, hostDir string) error {
+	tmpl, err := framework.File(machineTemplate)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(hostDir, config.MachineFile)
+	created, err := userfile.Create(path, tmpl)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(w, "  created: %s\n", path)
+	}
+	return nil
+}
 
 // Run performs the full self-heal sequence for host, in the order the bash
 // self-heal.sh used: ensure the .gitignore, ensure the global environment file (created from
@@ -104,6 +127,11 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		} else {
 			fmt.Fprintln(w, "Warning: "+line)
 		}
+	}
+
+	// 2b. machine.nix from the template when missing
+	if err := ensureMachineFile(w, hostDir); err != nil {
+		return err
 	}
 
 	// 3. validate and protect the host folder

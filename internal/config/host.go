@@ -9,13 +9,15 @@ import (
 	"sort"
 )
 
-// Fixed entries under .local/<host>/ (L1). plsDontTouchFile, machineFile
+// Fixed entries under .local/<host>/ (L1). plsDontTouchFile, MachineFile
 // and selectionFile are required regular files (symlinks followed);
 // lockFile is an optional regular file; localModulesDir is an optional
-// directory. Nothing else may live there.
+// directory. Nothing else may live there. MachineFile is exported so the
+// caller that creates it from a template names it without repeating the
+// string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
-	machineFile      = "machine.nix"
+	MachineFile      = "machine.nix"
 	selectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"
@@ -48,7 +50,7 @@ func ValidateHost(hostDir string) error {
 		return err
 	}
 
-	requiredFiles := []string{plsDontTouchFile, machineFile, selectionFile}
+	requiredFiles := []string{plsDontTouchFile, MachineFile, selectionFile}
 
 	seen := make(map[string]bool, len(entries))
 	var problems []string
@@ -58,7 +60,7 @@ func ValidateHost(hostDir string) error {
 		path := filepath.Join(hostDir, name)
 
 		switch name {
-		case plsDontTouchFile, machineFile, selectionFile, lockFile:
+		case plsDontTouchFile, MachineFile, selectionFile, lockFile:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {

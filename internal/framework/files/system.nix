@@ -124,12 +124,6 @@
   nix.registry.nixpkgs.flake = inputs.nixpkgs;
   nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
 
-  # Self-cleanup: prune old generations weekly, dedupe the store.
-  nix.gc = {
-    automatic = lib.mkDefault true;
-    dates = lib.mkDefault "weekly";
-    options = lib.mkDefault "--delete-older-than 14d";
-  };
   nix.optimise.automatic = lib.mkDefault true;
   nix.settings.auto-optimise-store = lib.mkDefault true;
 }
