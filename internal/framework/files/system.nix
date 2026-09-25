@@ -7,6 +7,11 @@
 # experimental-features carries flakes), the flake-pinned registry/nixPath, the
 # lockout assertion, and imports/etc plumbing.
 
+let
+  # nixpkgs sets services.cron.enable itself with mkDefault (1000), so a second
+  # mkDefault conflicts. Just above it, still below a plain host assignment (100).
+  cronPriority = 900;
+in
 {
   imports = [ ../hardware-configuration.nix ../boot.nix ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
 
@@ -55,7 +60,7 @@
   # The active host's selection, baked into the generation so `luxos module
   # list` can tell enabled-and-running from enabled-but-staged. Deliberately
   # not an environment.etc entry: nothing ever reads it from /etc.
-  system.extraSystemBuilderCmds = ''
+  system.systemBuilderCommands = ''
     mkdir -p $out/luxos
     cp ${../config/modules/default.nix} $out/luxos/modules.nix
   '';
@@ -95,7 +100,7 @@
 
   services.openssh.enable = lib.mkDefault true;
   services.atd.enable = lib.mkDefault true;
-  services.cron.enable = lib.mkDefault true;
+  services.cron.enable = lib.mkOverride cronPriority true;
 
   # Strict rpfilter drops a full-tunnel VPN's own encrypted replies once the
   # default route moves onto the tunnel (Tailscale exit node, wg-quick 0.0.0.0/0).

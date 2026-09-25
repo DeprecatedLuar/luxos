@@ -159,6 +159,9 @@ let
       };
     };
   };
+  systemdStub = { lib, ... }: {
+    options.systemd.settings.Manager = lib.mkOption { type = lib.types.attrsOf lib.types.str; default = { }; };
+  };
   fixture = { config, lib, ... }: {
     config.luxos.hardware.gpus = %s;
     %s
@@ -167,6 +170,7 @@ let
     modules = [
       ./framework/luxos-hardware.nix
       primeStub
+      systemdStub
       ./framework/luxos-hardware-defaults.nix
       fixture
     ];
