@@ -76,14 +76,48 @@ func Parse(absPath string) (string, error) {
 	return string(out), nil
 }
 
-// FlakeUpdate runs `nix flake update --flake <flakeDir>`, passing stdout
-// and stderr through to the caller's.
-func FlakeUpdate(flakeDir string) error {
-	cmd := exec.Command(flakeBin, "flake", "update", "--flake", flakeDir)
+// FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
+// stdout and stderr through to the caller's. With no inputs every input moves.
+func FlakeUpdate(flakeDir string, inputs ...string) error {
+	args := append([]string{"flake", "update"}, inputs...)
+	args = append(args, "--flake", flakeDir)
+	cmd := exec.Command(flakeBin, args...)
 	cmd.Env = flakeEnv(os.Environ())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// BuildFlakeRef builds the flake reference ref and returns its store path.
+// It tries --offline first; a reference that is not yet realized fails there
+// and is retried once with the network allowed.
+func BuildFlakeRef(ref string) (string, error) {
+	out, err := buildFlakeRef(ref, true)
+	if err != nil {
+		out, err = buildFlakeRef(ref, false)
+	}
+	return out, err
+}
+
+// buildFlakeRef runs one `nix build <ref> --no-link --print-out-paths`.
+func buildFlakeRef(ref string, offline bool) (string, error) {
+	args := []string{"build", ref}
+	if offline {
+		args = append(args, "--offline")
+	}
+	args = append(args, "--no-link", "--print-out-paths")
+	cmd := exec.Command(flakeBin, args...)
+	cmd.Env = flakeEnv(os.Environ())
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w", flakeBin, strings.Join(args, " "), err)
+	}
+	outPath := strings.TrimSpace(string(out))
+	if outPath == "" {
+		return "", fmt.Errorf("%s %s: no output path printed", flakeBin, strings.Join(args, " "))
+	}
+	return outPath, nil
 }
 
 // WriteFlake runs flake-file's write-flake app in stagingDir, regenerating

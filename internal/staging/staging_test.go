@@ -462,3 +462,45 @@ func TestCopyLockBack(t *testing.T) {
 		t.Errorf("host lock mode = %v, want %v", info.Mode().Perm(), fileMode)
 	}
 }
+
+const luxosLockFixture = `{"nodes":{"luxos":{"locked":{"lastModified":1790088510,"narHash":"sha256-7Qp0Ew+0CZeNZjnKSuWI4GTdNllVrPPYzAcTcSGAybw=","owner":"DeprecatedLuar","repo":"luxos","rev":"769dcdb00b27f4aea190db70d1a9d65d858c788d","type":"github"},"original":{"owner":"DeprecatedLuar","ref":"go-rebuild","repo":"luxos","type":"github"}},"root":{"inputs":{"luxos":"luxos"}}},"root":"root","version":7}`
+
+func writeLock(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "flake.lock")
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestReadLockInput(t *testing.T) {
+	got, ok, err := ReadLockInput(writeLock(t, luxosLockFixture), "luxos")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	want := LockInput{Type: "github", Owner: "DeprecatedLuar", Repo: "luxos", Rev: "769dcdb00b27f4aea190db70d1a9d65d858c788d"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestReadLockInputAbsentNode(t *testing.T) {
+	_, ok, err := ReadLockInput(writeLock(t, luxosLockFixture), "nixpkgs")
+	if ok || err != nil {
+		t.Errorf("ok=%v err=%v", ok, err)
+	}
+}
+
+func TestReadLockInputMissingFile(t *testing.T) {
+	_, ok, err := ReadLockInput(filepath.Join(t.TempDir(), "nope.lock"), "luxos")
+	if ok || err != nil {
+		t.Errorf("ok=%v err=%v", ok, err)
+	}
+}
+
+func TestReadLockInputMalformed(t *testing.T) {
+	if _, _, err := ReadLockInput(writeLock(t, "{not json"), "luxos"); err == nil {
+		t.Error("want error")
+	}
+}

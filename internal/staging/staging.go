@@ -7,6 +7,7 @@ package staging
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -193,6 +194,38 @@ func CopyLockBack(stagingDir, hostLock string) error {
 		return err
 	}
 	return userfile.Write(hostLock, data)
+}
+
+// LockInput is one input's locked identity, read from a flake.lock node.
+type LockInput struct {
+	Type  string
+	Owner string
+	Repo  string
+	Rev   string
+}
+
+// ReadLockInput returns the locked identity of the node called name in
+// lockFile. A missing file or an absent node reports false with no error;
+// malformed JSON is an error. Type is not validated: that is the caller's call.
+func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
+	data, err := os.ReadFile(lockFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return LockInput{}, false, nil
+		}
+		return LockInput{}, false, err
+	}
+	var lock struct {
+		Nodes map[string]struct{ Locked LockInput }
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return LockInput{}, false, fmt.Errorf("parse %s: %w", lockFile, err)
+	}
+	node, ok := lock.Nodes[name]
+	if !ok {
+		return LockInput{}, false, nil
+	}
+	return node.Locked, true, nil
 }
 
 func guard(stagingDir string) error {
