@@ -100,7 +100,8 @@
   # A frozen kernel leaves no logs; panicking is what gets a crash into pstore.
   boot.kernel.sysctl = {
     "kernel.hardlockup_panic" = 1;
-    "kernel.panic" = 20;
+    "kernel.panic_on_oops" = 1;
+    "kernel.panic" = 10;
   };
 
   systemd.settings.Manager.RuntimeWatchdogSec = "30s";

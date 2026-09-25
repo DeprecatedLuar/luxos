@@ -5,6 +5,7 @@
 
   environment.systemPackages = with pkgs; [
     wl-clipboard
+    wlopm
     wtype
     qt6Packages.qt6ct
     ydotool
