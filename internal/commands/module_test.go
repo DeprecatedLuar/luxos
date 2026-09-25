@@ -255,3 +255,16 @@ func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) 
 		t.Errorf("host1 modules.nix not rewritten to wl.nix: %q", host1Content)
 	}
 }
+
+// A bare `module` or `user` prints its help page without resolving paths.
+func TestBareModuleAndUserPrintHelp(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("LUXOS_CONFIG_DIR", "")
+	if err := Module(nil); err != nil {
+		t.Errorf("Module(nil) = %v, want nil", err)
+	}
+	if err := User(nil); err != nil {
+		t.Errorf("User(nil) = %v, want nil", err)
+	}
+}

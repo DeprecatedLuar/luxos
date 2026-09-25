@@ -105,7 +105,7 @@ func colorsEnabled(tty bool) bool {
 // per verb over CONFIG_DIR/modules, ported from
 // bin/lib/lux/commands/module.sh.
 func Module(args []string) error {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", "module"})
 	}
 

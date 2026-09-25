@@ -15,7 +15,7 @@ import (
 // argument; every other verb already operates on bare, globally-unique
 // names and is forwarded to Module's verb functions untouched.
 func User(args []string) error {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", "user"})
 	}
 
