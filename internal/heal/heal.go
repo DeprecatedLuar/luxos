@@ -24,6 +24,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/links"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -81,11 +82,11 @@ func ensureMachineFile(w io.Writer, hostDir string) error {
 // dynamic path literal. Such a path resolves against the staged copy, not the
 // host folder, and an imports list there would bypass modules.nix.
 func checkMachineFile(path string) error {
-	static, err := refs.Paths(path)
+	static, err := nixsrc.Paths(path)
 	if err != nil {
 		return err
 	}
-	dynamic, err := refs.DynamicPaths(path)
+	dynamic, err := nixsrc.DynamicPaths(path)
 	if err != nil {
 		return err
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/units"
@@ -565,12 +566,7 @@ func editScratch(initial []byte) ([]byte, error) {
 // and mode survive running as root. A no-op edit or an aborted/non-parsing
 // edit leaves path untouched.
 func editNixFileInPlace(path string) error {
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return err
-	}
-
-	original, err := os.ReadFile(real)
+	original, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -583,13 +579,7 @@ func editNixFileInPlace(path string) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(real, os.O_WRONLY|os.O_TRUNC, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.Write(edited)
-	return err
+	return nixsrc.Write(path, edited)
 }
 
 //──[add]──────────────────────────────────────────────────────────────────
