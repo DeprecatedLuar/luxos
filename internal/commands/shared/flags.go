@@ -23,7 +23,7 @@ type flagDef struct {
 	typ   flagType
 }
 
-// parseSpec parses a spec string like "bypass:bool machine:value help|h:bool"
+// parseSpec parses a spec string like "prune:bool machine:value help|h:bool"
 // into flagDefs keyed by their long and short names.
 func parseSpec(spec string) (byLong map[string]flagDef, byShort map[string]flagDef) {
 	byLong = map[string]flagDef{}

@@ -788,7 +788,7 @@ func TestModulesFunction(t *testing.T) {
 			`(eval [ ./config/modules/cyc/a.nix ]).config.marks`, "max-call-depth exceeded")
 	})
 
-	t.Run("module that needs luxos, evaluated without it (--bypass shape)", func(t *testing.T) {
+	t.Run("module that needs luxos, evaluated without luxos", func(t *testing.T) {
 		got, err := ev(`let lib = import <nixpkgs/lib>; in (lib.evalModules { modules = [ ` + S + `/marks.nix ` + M + `/desktop/compositors/hyprland.nix ]; }).config.marks`)
 		if err == nil {
 			t.Fatalf("expected an error, got: %s", got)

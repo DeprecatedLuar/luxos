@@ -20,8 +20,8 @@ const instantiateBin = "nix-instantiate"
 // flakeBin is the binary used to operate on flakes.
 const flakeBin = "nix"
 
-// buildBin is the classic nix-build binary, used for the channel-based
-// (--bypass) escape hatch.
+// buildBin is the classic nix-build binary, used to build nixos-rebuild
+// from the channel-based <nixpkgs/nixos>.
 const buildBin = "nix-build"
 
 // writeFlakeArgs runs flake-file's write-flake app. --no-write-lock-file
@@ -190,7 +190,7 @@ func flakeEnv(env []string) []string {
 }
 
 // RebuildFromChannel builds nixos-rebuild from the channel-based
-// <nixpkgs/nixos>, bypassing staging and the flake entirely, and returns
+// <nixpkgs/nixos>, independent of staging and the flake, and returns
 // the path to the resulting nixos-rebuild binary.
 func RebuildFromChannel() (string, error) {
 	cmd := exec.Command(buildBin, rebuildChannelExpr, "-A", rebuildAttr, "--no-out-link")

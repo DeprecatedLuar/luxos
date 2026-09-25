@@ -49,7 +49,6 @@ func rebuildPage() *gohelp.Page {
 	return gohelp.NewPage("rebuild", rebuildDescription).
 		Usage(binaryName+" rebuild [flags] [nixos-rebuild args]").
 		Section("Flags",
-			gohelp.Item("--bypass", "Skip staging; use the channel-based nixos-rebuild"),
 			gohelp.Item("--prune", "Remove unresolvable imports on the active host"),
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),

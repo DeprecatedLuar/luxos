@@ -73,7 +73,7 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "bypass:bool prune:bool machine:value config|C:value backup-dir:value"
+const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value"
 
 // flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
@@ -169,12 +169,7 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	bypass := opts["bypass"] != ""
 	prune := opts["prune"] != ""
-
-	if bypass && opts["config"] != "" {
-		return fmt.Errorf("--bypass and --config cannot be combined - --bypass never reads the config dir")
-	}
 
 	if opts["config"] != "" {
 		abs, err := filepath.Abs(opts["config"])
@@ -197,18 +192,6 @@ func Rebuild(args []string) error {
 		if err := os.Setenv(backupDirEnv, abs); err != nil {
 			return err
 		}
-	}
-
-	if bypass {
-		if opts["machine"] != "" {
-			return fmt.Errorf("--bypass and --machine cannot be combined - --bypass never reads .local")
-		}
-		printLogo()
-		bin, err := nix.RebuildFromChannel()
-		if err != nil {
-			return err
-		}
-		return nix.Exec(bin, rest)
 	}
 
 	host := opts["machine"]
