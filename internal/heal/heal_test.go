@@ -603,3 +603,49 @@ func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckMachineFile(t *testing.T) {
+	skipIfNoNix(t)
+	tmpl, err := framework.File(machineTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{"assignments only", "{ time.timeZone = \"UTC\"; }\n", false},
+		{"embedded template", string(tmpl), false},
+		{"static import", "{ imports = [ ./extra.nix ]; }\n", true},
+		{"dynamic path", "{ imports = [ (./. + \"/x.nix\") ]; }\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "machine.nix")
+			write(t, path, c.content)
+			err := checkMachineFile(path)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), path) {
+				t.Errorf("error %q does not name the file", err)
+			}
+		})
+	}
+}
+
+func TestRun_MachineFilePathStopsBeforeStaging(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	fakeNix(t)
+	write(t, filepath.Join(p.Local, host, "machine.nix"), "{ imports = [ ./x.nix ]; }\n")
+
+	var out bytes.Buffer
+	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "machine.nix") {
+		t.Fatalf("err = %v, want machine.nix error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
+		t.Errorf("nothing should be staged, err=%v", statErr)
+	}
+}

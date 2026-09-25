@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/computer"
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -74,6 +75,28 @@ func ensureMachineFile(w io.Writer, hostDir string) error {
 		fmt.Fprintf(w, "  created: %s\n", path)
 	}
 	return nil
+}
+
+// checkMachineFile fails when the machine.nix at path holds any static or
+// dynamic path literal. Such a path resolves against the staged copy, not the
+// host folder, and an imports list there would bypass modules.nix.
+func checkMachineFile(path string) error {
+	static, err := refs.Paths(path)
+	if err != nil {
+		return err
+	}
+	dynamic, err := refs.DynamicPaths(path)
+	if err != nil {
+		return err
+	}
+	offenders := append(static, dynamic...)
+	if len(offenders) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s holds path literals or imports: %s\n"+
+		"paths in machine.nix resolve against the staged copy at /etc/nixos/config/local/, not the host folder, "+
+		"and module selection belongs in modules.nix; add a module with:\n  luxos module enable <name>",
+		path, strings.Join(offenders, ", "))
 }
 
 // Run performs the full self-heal sequence for host, in the order the bash
@@ -191,6 +214,11 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 			fmt.Fprintf(w, "Error: %s: %s\n", v.File, v.Message)
 		}
 		return fmt.Errorf("module boundary violations: %d", len(violations))
+	}
+
+	// 6b. machine.nix may hold no path literals and no imports
+	if err := checkMachineFile(filepath.Join(hostDir, config.MachineFile)); err != nil {
+		return err
 	}
 
 	// 7. ensure local link
