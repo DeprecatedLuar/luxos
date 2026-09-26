@@ -28,6 +28,9 @@ import (
 // flakeFlagSpec is the flag spec passed to shared.Parse.
 const flakeFlagSpec = "machine:value config|C:value"
 
+// flakeUpdateTmpPattern names the temporary staging directory of `flake update`.
+const flakeUpdateTmpPattern = "luxos-flake-update-"
+
 // flakeListFlagSpec is flakeFlagSpec plus the listing's own flags.
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
@@ -103,7 +106,8 @@ func Flake(args []string) error {
 	}
 }
 
-// flakeUpdate escalates to root, stages the host's tree, runs
+// flakeUpdate escalates to root, stages the host's tree into a temporary
+// directory (never /etc/nixos), runs
 // `nix flake update` on it and copies the lock back to the host folder.
 func flakeUpdate(args []string) error {
 	if err := shared.EnsureRoot(append([]string{"flake", "update"}, args...)); err != nil {
@@ -119,6 +123,13 @@ func flakeUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	tmp, err := os.MkdirTemp("", flakeUpdateTmpPattern)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	p.Staging = tmp
 
 	// Staging progress is rebuild's output; failures come back as errors.
 	if err := heal.Run(io.Discard, p, host, false); err != nil {
