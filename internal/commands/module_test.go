@@ -228,6 +228,26 @@ func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 	}
 }
 
+func TestModuleRemoveRename_HardwareUnitRefused(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	write(t, filepath.Join(p.Machines, "host1", "modules", "hardware", "default.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/hardware\n  ];\n}\n")
+
+	for name, err := range map[string]error{
+		"remove": moduleRemove(p, []string{"hardware", "-y"}),
+		"rename": moduleRename(p, []string{"hardware", "hw", "-y"}),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "managed by luxos") || !strings.Contains(err.Error(), "luxos module disable hardware") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(p.Machines, "host1", "modules", "hardware", "default.nix")); err != nil {
+		t.Errorf("hardware folder was touched: %v", err)
+	}
+}
+
 func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)

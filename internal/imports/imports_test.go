@@ -373,6 +373,29 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 
 // ---- helpers ----
 
+func TestHeal_HardwareUnitSkippedOnOtherHost(t *testing.T) {
+	skipIfNoNix(t)
+	root := t.TempDir()
+	machinesDir := filepath.Join(root, "local")
+	modulesDir := filepath.Join(root, "modules")
+	mustMkdirAll(t, modulesDir)
+	content := "{ ... }:\n{\n  imports = [\n    ./local/hardware\n  ];\n}\n"
+	mustWriteFile(t, filepath.Join(machinesDir, "active-host", "modules.nix"), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
+	otherFile := filepath.Join(machinesDir, "other-host", "modules.nix")
+	mustWriteFile(t, otherFile, content)
+
+	changes, warnings, err := Heal(machinesDir, modulesDir, "active-host", false)
+	if err != nil {
+		t.Fatalf("Heal: %v", err)
+	}
+	if len(changes) != 0 || len(warnings) != 0 {
+		t.Errorf("changes=%v warnings=%v, want none", changes, warnings)
+	}
+	if got := mustReadFile(t, otherFile); got != content {
+		t.Errorf("other host file changed: %q", got)
+	}
+}
+
 func skipIfNoNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {

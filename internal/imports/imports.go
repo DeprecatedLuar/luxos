@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
@@ -154,6 +155,8 @@ func retarget(machinesDir, name, newPath, host string) ([]Change, []string, erro
 //   - name resolves to nothing, active host: error (collecting every such
 //     line into one), or with prune: remove and report as a Change.
 //   - name resolves to nothing, other host: warning, untouched.
+//   - path is config.HardwareUnitPath on a non-active host: skipped, since
+//     the hardware link exists only in the active host's modules.
 //
 // A host whose own units.Walk fails errors the whole call when it's
 // activeHost, otherwise adds a warning ("<host>: <err>") and skips that
@@ -199,6 +202,9 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 		isActive := host == activeHost
 
 		for _, itPath := range paths {
+			if !isActive && itPath == config.HardwareUnitPath {
+				continue
+			}
 			var fullPath string
 			if rest, cut := strings.CutPrefix(itPath, localPrefix); cut {
 				fullPath = filepath.Join(machinesDir, host, localModulesSubdir, rest)

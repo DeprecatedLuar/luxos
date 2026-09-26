@@ -222,26 +222,32 @@ func TestEnsureHardwareLink(t *testing.T) {
 	machines := filepath.Join(root, "machines")
 	hardware := filepath.Join(root, "hardware")
 	for _, h := range []string{"a", "b"} {
-		if err := os.MkdirAll(filepath.Join(machines, h), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(machines, h, "modules"), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// A stale link in the active host and a link in the other host.
-	if err := os.Symlink("../../hardware/old", filepath.Join(machines, "a", "hardware")); err != nil {
+	// A machine without a modules/ directory is skipped.
+	if err := os.MkdirAll(filepath.Join(machines, "c"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../../hardware/old", filepath.Join(machines, "b", "hardware")); err != nil {
-		t.Fatal(err)
+	// A stale link in the active host and a link in the other host.
+	for _, h := range []string{"a", "b"} {
+		if err := os.Symlink("../../../hardware/old", filepath.Join(machines, h, "modules", "hardware")); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := EnsureHardwareLink(machines, hardware, "a", "k1"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.Readlink(filepath.Join(machines, "a", "hardware")); got != "../../hardware/k1" {
+	if got, _ := os.Readlink(filepath.Join(machines, "a", "modules", "hardware")); got != "../../../hardware/k1" {
 		t.Errorf("link target = %q", got)
 	}
-	if _, err := os.Lstat(filepath.Join(machines, "b", "hardware")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(machines, "b", "modules", "hardware")); !os.IsNotExist(err) {
 		t.Errorf("other host's link not removed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(machines, "c", "modules")); !os.IsNotExist(err) {
+		t.Errorf("skipped machine gained a modules dir: %v", err)
 	}
 	if err := EnsureHardwareLink(machines, hardware, "a", "k1"); err != nil {
 		t.Fatalf("second call: %v", err)
@@ -254,7 +260,7 @@ func TestEnsureHardwareLink_RefusesRealDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(machines, "a"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(machines, "b", "hardware"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(machines, "b", "modules", "hardware"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	err := EnsureHardwareLink(machines, filepath.Join(root, "hardware"), "a", "k1")

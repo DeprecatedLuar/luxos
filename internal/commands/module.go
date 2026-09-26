@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -913,6 +915,9 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 	}
 }
 
+// errHardwareUnit refuses remove and rename of the computer's hardware folder.
+var errHardwareUnit = errors.New("'hardware' is this computer's hardware folder, managed by luxos; it cannot be removed or renamed\n  disable it with: luxos module disable hardware")
+
 // moduleRemove implements `module remove|rm <name> [-y]`.
 func moduleRemove(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse("y|y:bool", args)
@@ -937,6 +942,9 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	if isFrameworkPath(path) {
 		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, path)
+	}
+	if path == config.HardwareUnitPath {
+		return errHardwareUnit
 	}
 
 	host, localDirs, err := moduleScope(p, path)
@@ -1022,6 +1030,9 @@ func moduleRename(p paths.Paths, args []string) error {
 	}
 	if isFrameworkPath(oldPath) {
 		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", oldName, oldPath)
+	}
+	if oldPath == config.HardwareUnitPath {
+		return errHardwareUnit
 	}
 
 	if existingPath, found, err := resolveUnitPath(p.Modules, newName); err != nil {

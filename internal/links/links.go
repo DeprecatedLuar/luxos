@@ -86,10 +86,10 @@ func EnsureLocalModules(machinesDir, modulesDir, host string) error {
 	return relink(link, rel)
 }
 
-// EnsureHardwareLink ensures <machinesDir>/<host>/hardware is a symlink to
-// <hardwareRoot>/<key> (relative target ../../hardware/<key>) and that every
-// other machine folder holds no such link. A real file or directory named
-// hardware in any machine folder is an error.
+// EnsureHardwareLink ensures <machinesDir>/<host>/modules/hardware is a
+// symlink to <hardwareRoot>/<key> (relative target ../../../hardware/<key>)
+// and that no other machine folder holds such a link. A real file or
+// directory named hardware in any machine's modules/ is an error.
 func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 	entries, err := os.ReadDir(machinesDir)
 	if err != nil {
@@ -99,7 +99,7 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 		if !e.IsDir() {
 			continue
 		}
-		link := filepath.Join(machinesDir, e.Name(), hardwareLinkName)
+		link := filepath.Join(machinesDir, e.Name(), modulesRel, hardwareLinkName)
 		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
 			return err
 		}
@@ -110,12 +110,15 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 			return err
 		}
 	}
-	hostDir := filepath.Join(machinesDir, host)
-	rel, err := filepath.Rel(hostDir, filepath.Join(hardwareRoot, key))
+	linkDir := filepath.Join(machinesDir, host, modulesRel)
+	if err := os.MkdirAll(linkDir, dirMode); err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(linkDir, filepath.Join(hardwareRoot, key))
 	if err != nil {
 		return err
 	}
-	return relink(filepath.Join(hostDir, hardwareLinkName), rel)
+	return relink(filepath.Join(linkDir, hardwareLinkName), rel)
 }
 
 // refuseRealFile errors if path exists and is not a symlink.

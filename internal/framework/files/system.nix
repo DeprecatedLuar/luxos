@@ -13,7 +13,7 @@ let
   cronPriority = 900;
 in
 {
-  imports = [ ../config/local/hardware/hardware-configuration.nix ../config/local/hardware/boot.nix ../config/local/hardware/hardware.nix ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
+  imports = [ ./environment.nix ./gpu.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
 
   #──[Packages]──────────────────────────────────────────────────────────────
 

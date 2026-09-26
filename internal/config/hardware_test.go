@@ -18,44 +18,53 @@ func writeFiles(t *testing.T, dir string, names ...string) {
 
 func TestValidateHardware_Clean(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, HardwareConfigFile, BootFile, HardwareFile)
+	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, HardwareFile)
 	if err := ValidateHardware(dir); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestValidateHardware_MissingAndForeign(t *testing.T) {
+func TestValidateHardware_ExtraFileAllowed(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, HardwareConfigFile, "stray.nix")
+	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, HardwareFile, "extra.nix")
+	if err := ValidateHardware(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateHardware_Missing(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, HardwareConfigFile, BootFile)
 	err := ValidateHardware(dir)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"missing boot.nix", "missing hardware.nix", "stray.nix does not belong here"} {
+	for _, want := range []string{"missing default.nix", "missing hardware.nix"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q missing %q", err, want)
 		}
 	}
 }
 
-func TestValidateHost_HardwareLink(t *testing.T) {
-	newHost := func() string {
-		dir := t.TempDir()
-		writeFiles(t, dir, plsDontTouchFile, MachineFile, selectionFile)
-		return dir
-	}
-	ok := newHost()
-	if err := os.Symlink("../../hardware/x", filepath.Join(ok, "hardware")); err != nil {
+func TestValidateHardware_NotRegular(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, HardwareConfigFile, BootFile, HardwareFile)
+	if err := os.Mkdir(filepath.Join(dir, DefaultFile), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateHost(ok); err != nil {
-		t.Fatalf("symlink rejected: %v", err)
+	err := ValidateHardware(dir)
+	if err == nil || !strings.Contains(err.Error(), "default.nix is not a regular file") {
+		t.Fatalf("err = %v", err)
 	}
-	bad := newHost()
-	if err := os.Mkdir(filepath.Join(bad, "hardware"), 0755); err != nil {
+}
+
+func TestValidateHost_HardwareEntryRejected(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, plsDontTouchFile, MachineFile, selectionFile)
+	if err := os.Symlink("../../hardware/x", filepath.Join(dir, "hardware")); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateHost(bad); err == nil || !strings.Contains(err.Error(), "hardware does not belong here") {
-		t.Fatalf("directory accepted: %v", err)
+	if err := ValidateHost(dir); err == nil || !strings.Contains(err.Error(), "hardware does not belong here") {
+		t.Fatalf("hardware link accepted: %v", err)
 	}
 }

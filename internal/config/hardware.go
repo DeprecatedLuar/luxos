@@ -7,43 +7,31 @@ import (
 	"sort"
 )
 
-// The three files a hardware folder (.local/hardware/<key>/) holds. Exported
-// so the caller that creates them names them without repeating the strings.
+// The four files a hardware folder (.local/hardware/<key>/) must hold, and the
+// unit path the folder is reached by once linked into a host's local modules.
+// Exported so callers name them without repeating the strings.
 const (
+	DefaultFile        = "default.nix"
 	HardwareConfigFile = "hardware-configuration.nix"
 	BootFile           = "boot.nix"
 	HardwareFile       = "hardware.nix"
+
+	HardwareUnitPath = "local/hardware"
 )
 
-// ValidateHardware checks that dir holds exactly HardwareConfigFile, BootFile
-// and HardwareFile as regular files. Every missing or foreign entry is
-// reported, sorted, in one error shaped like ValidateHost's.
+// ValidateHardware checks that dir holds DefaultFile, HardwareConfigFile,
+// BootFile and HardwareFile as regular files (symlinks followed). Any other
+// entry is allowed. Every problem is reported, sorted, in one error shaped
+// like ValidateHost's: "missing <name>" or "<name> is not a regular file".
 func ValidateHardware(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-
-	required := []string{HardwareConfigFile, BootFile, HardwareFile}
-	seen := make(map[string]bool, len(entries))
 	var problems []string
-
-	for _, e := range entries {
-		name := e.Name()
-		switch name {
-		case HardwareConfigFile, BootFile, HardwareFile:
-			seen[name] = true
-			info, statErr := os.Stat(filepath.Join(dir, name))
-			if statErr != nil || !info.Mode().IsRegular() {
-				problems = append(problems, name+" does not belong here")
-			}
-		default:
-			problems = append(problems, name+" does not belong here")
-		}
-	}
-	for _, name := range required {
-		if !seen[name] {
+	for _, name := range []string{DefaultFile, HardwareConfigFile, BootFile, HardwareFile} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		switch {
+		case os.IsNotExist(err):
 			problems = append(problems, "missing "+name)
+		case err != nil || !info.Mode().IsRegular():
+			problems = append(problems, name+" is not a regular file")
 		}
 	}
 

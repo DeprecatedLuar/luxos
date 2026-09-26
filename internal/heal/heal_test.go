@@ -225,13 +225,13 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("hardware.nix differs from the template:\n%s", got)
 	}
 
-	// The host folder links to it, and it is staged under config/local/hardware.
-	target, err := os.Readlink(filepath.Join(p.Machines, host, "hardware"))
-	if err != nil || target != "../../hardware/"+filepath.Base(hw) {
+	// The host's modules/ links to it, and it is staged under config/modules/local/hardware.
+	target, err := os.Readlink(filepath.Join(p.Machines, host, "modules", "hardware"))
+	if err != nil || target != "../../../hardware/"+filepath.Base(hw) {
 		t.Errorf("hardware link = %q (%v)", target, err)
 	}
-	for _, name := range []string{"hardware-configuration.nix", "boot.nix", "hardware.nix"} {
-		staged := filepath.Join(p.Staging, "config", "local", "hardware", name)
+	for _, name := range []string{"default.nix", "hardware-configuration.nix", "boot.nix", "hardware.nix"} {
+		staged := filepath.Join(p.Staging, "config", "modules", "local", "hardware", name)
 		if _, err := os.Stat(staged); err != nil {
 			t.Errorf("expected %s staged: %v", staged, err)
 		}
@@ -649,19 +649,13 @@ func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
 	}
 }
 
-func TestSystemNix_ImportsHardwareFolder(t *testing.T) {
+func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
 	sys, err := framework.File("system.nix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		"../config/local/hardware/hardware-configuration.nix",
-		"../config/local/hardware/boot.nix",
-		"../config/local/hardware/hardware.nix",
-	} {
-		if !strings.Contains(string(sys), want) {
-			t.Errorf("system.nix missing import %q", want)
-		}
+	if strings.Contains(string(sys), "config/local/hardware") {
+		t.Error("system.nix must not import hardware files")
 	}
 	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
 		t.Error("system.nix must not set RuntimeWatchdogSec")
@@ -678,13 +672,47 @@ func TestMachineTemplate_NoGC(t *testing.T) {
 	}
 }
 
-func TestHardwareTemplate_Parses(t *testing.T) {
+func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := framework.File(hardwareTemplate)
+	p, _ := fixture(t)
+	fakeNix(t)
+	var out bytes.Buffer
+	hw, err := ensureHardware(&out, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "hardware.nix")
+	def := filepath.Join(hw, config_.DefaultFile)
+	tmpl, err := framework.File(hardwareDefaultTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, def); got != string(tmpl) {
+		t.Errorf("default.nix differs from the template:\n%s", got)
+	}
+	if !strings.Contains(out.String(), "created: "+def) {
+		t.Errorf("output does not report creating %s:\n%s", def, out.String())
+	}
+
+	write(t, def, "{ }\n")
+	out.Reset()
+	if _, err := ensureHardware(&out, p); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, def); got != "{ }\n" {
+		t.Errorf("edited default.nix was rewritten: %q", got)
+	}
+	if strings.Contains(out.String(), "created: "+def) {
+		t.Errorf("second run reported creating default.nix:\n%s", out.String())
+	}
+}
+
+func TestHardwareTemplate_Parses(t *testing.T) {
+	skipIfNoNix(t)
+	tmpl, err := framework.File(hardwareDefaultTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "default.nix")
 	write(t, path, string(tmpl))
 	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
 		t.Fatalf("template does not parse: %v\n%s", err, out)
