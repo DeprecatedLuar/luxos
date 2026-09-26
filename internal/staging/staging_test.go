@@ -1003,3 +1003,60 @@ func TestDropPrevious(t *testing.T) {
 		t.Error("prev still exists")
 	}
 }
+
+func TestUnitChanged(t *testing.T) {
+	write := func(root, rel, data string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(name string, mods, staged string, u units.Unit, want bool) {
+		t.Helper()
+		got, err := UnitChanged(mods, staged, u)
+		if err != nil || got != want {
+			t.Errorf("%s: changed=%v err=%v, want %v", name, got, err, want)
+		}
+	}
+	mods, staged := t.TempDir(), t.TempDir()
+
+	file := units.Unit{Name: "f", Path: "cat/f.nix"}
+	write(mods, "cat/f.nix", "a")
+	write(staged, "cat/f.nix", "a")
+	check("equal file", mods, staged, file, false)
+	write(mods, "cat/f.nix", "b")
+	check("changed file", mods, staged, file, true)
+	check("missing staged", mods, t.TempDir(), file, true)
+
+	dir := units.Unit{Name: "d", Path: "d"}
+	write(mods, "d/default.nix", "x")
+	write(staged, "d/default.nix", "x")
+	check("equal dir", mods, staged, dir, false)
+	write(mods, "d/default.nix", "y")
+	check("dir changed file", mods, staged, dir, true)
+	write(mods, "d/default.nix", "x")
+	write(mods, "d/extra.nix", "e")
+	check("dir added file", mods, staged, dir, true)
+	os.Remove(filepath.Join(mods, "d/extra.nix"))
+	write(staged, "d/gone.nix", "g")
+	check("dir removed file", mods, staged, dir, true)
+
+	shadow := units.Unit{Name: "s", Path: "local/s.nix", Shadows: "cat2/s.nix"}
+	write(mods, "local/s.nix", "s")
+	write(staged, "cat2/s.nix", "s")
+	check("shadow", mods, staged, shadow, false)
+
+	real := filepath.Join(t.TempDir(), "real.nix")
+	if err := os.WriteFile(real, []byte("l"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(mods, "link.nix")); err != nil {
+		t.Fatal(err)
+	}
+	write(staged, "link.nix", "l")
+	check("symlink", mods, staged, units.Unit{Name: "link", Path: "link.nix"}, false)
+}

@@ -345,12 +345,12 @@ func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
 		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
 		{Name: "other", Path: "local/other.nix"},
 	}
-	rows := moduleBuildRows(us, nil, nil, nil, "desktop")
+	rows := moduleBuildRows(us, nil, nil, nil, nil, "desktop")
 	if len(rows) != 1 || !rows[0].shadow || strings.Join(rows[0].category, "/") != "shells" {
 		t.Fatalf("rows = %+v", rows)
 	}
 
-	all := moduleBuildRows(us, nil, nil, nil, "")
+	all := moduleBuildRows(us, nil, nil, nil, nil, "")
 	var b strings.Builder
 	moduleRenderTTY(&b, all, "modules/", colorTreePalette)
 	if !strings.Contains(b.String(), colorUnderline+"ambxst"+colorReset) {
@@ -459,5 +459,37 @@ func TestModuleListJSONConflicts(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "--json") || !strings.Contains(err.Error(), flag) {
 			t.Errorf("--json %s: got %v", flag, err)
 		}
+	}
+}
+
+func TestModuleBuildRowsModified(t *testing.T) {
+	us := []units.Unit{{Name: "a", Path: "a.nix"}, {Name: "b", Path: "b.nix"}, {Name: "c", Path: "c.nix"}}
+	enabled := map[string]bool{"a": true, "b": true}
+	running := map[string]bool{"a": true, "c": true}
+	changed := map[string]bool{"a": true, "b": true, "c": true}
+	rows := moduleBuildRows(us, enabled, running, nil, changed, "")
+	got := map[string]moduleRow{}
+	for _, r := range rows {
+		got[r.name] = r
+	}
+	if r := got["a"]; !r.modified || r.marker != markerEnabledOnly || r.rank != 0 {
+		t.Errorf("a = %+v, want modified staged marker rank 0", r)
+	}
+	if got["b"].modified || got["c"].modified {
+		t.Errorf("only enabled+running rows may be modified: b=%+v c=%+v", got["b"], got["c"])
+	}
+}
+
+func TestModuleRenderModified(t *testing.T) {
+	rows := []moduleRow{{name: "a", marker: markerEnabledOnly, modified: true}}
+	var tty strings.Builder
+	moduleRenderTTY(&tty, rows, "modules/", colorTreePalette)
+	if !strings.Contains(tty.String(), colorBlue+markerEnabledOnly) {
+		t.Errorf("tty output lacks blue marker: %q", tty.String())
+	}
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows)
+	if want := "a\tmodified\t\n"; plain.String() != want {
+		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
+	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
@@ -73,6 +74,7 @@ const (
 // listings.
 const (
 	stateWordStaged   = "staged"
+	stateWordModified = "modified"
 	stateWordActive   = "active"
 	stateWordLeftover = "leftover"
 	stateWordPulled   = "pulled"
@@ -82,6 +84,9 @@ const (
 // flakeMark follows the name of a module that declares flake inputs, on a
 // terminal.
 const flakeMark = "❄"
+
+// stagedModulesRel is the module tree inside a staged flake root.
+const stagedModulesRel = "config/modules"
 
 // plainColumnSep separates the columns of plain output.
 const plainColumnSep = "\t"
@@ -100,6 +105,7 @@ const (
 	colorTeal      = "\x1b[1m\x1b[38;2;125;250;206m" // #7DFACE bold — ⊕ staged
 	colorRed       = "\x1b[38;2;237;112;122m"        // #ED707A — ⊘ leftover
 	colorPurple    = "\x1b[38;2;181;166;250m"        // #B5A6FA — ◍ pulled
+	colorBlue      = "\x1b[38;2;130;170;255m"        // #82AAFF — ⊕ modified
 	colorLine      = "\x1b[38;2;74;79;115m"          // #212436 lightened — tree connectors
 	colorTitle     = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold — category names
 	colorOff       = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
@@ -111,11 +117,11 @@ const (
 // empty treePalette{} renders the same tree shape with no ANSI codes at
 // all, for a non-color TTY (NO_COLOR) or for tests.
 type treePalette struct {
-	green, teal, red, purple, line, title, off, underline, reset string
+	green, teal, red, purple, blue, line, title, off, underline, reset string
 }
 
 var colorTreePalette = treePalette{
-	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple,
+	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple, blue: colorBlue,
 	line: colorLine, title: colorTitle, off: colorOff, underline: colorUnderline, reset: colorReset,
 }
 
@@ -227,6 +233,7 @@ type moduleRow struct {
 	shadow   bool        // a local unit shown in the place of the shared unit it hides
 	inputs   []string    // flake inputs the unit declares, sorted, deduplicated
 	status   string      // flake list's upstream status word (plain output)
+	modified bool        // enabled and running, but its files changed since the running build
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -271,7 +278,7 @@ func nameSet(file string) (map[string]bool, error) {
 // category is stored as path segments relative to categoryPath, so the
 // filtered subtree renders rooted at itself rather than repeating the
 // filter as a nested category. Pure given its inputs.
-func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, categoryPath string) []moduleRow {
+func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
 	var rows []moduleRow
 	prefix := ""
 	var stripSegs []string
@@ -294,6 +301,10 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 		}
 
 		marker := moduleMarker(enabled[u.Name], running[u.Name])
+		modified := marker == markerEnabledBoth && changed[u.Name]
+		if modified {
+			marker = markerEnabledOnly
+		}
 		var pulledBy []string
 		if !enabled[u.Name] {
 			if by, ok := pulled[u.Name]; ok {
@@ -307,6 +318,7 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 			rank:     moduleMarkerRank(marker),
 			pulledBy: pulledBy,
 			shadow:   u.Shadows != "",
+			modified: modified,
 		})
 	}
 	return rows
@@ -349,6 +361,22 @@ func buildTree(rows []moduleRow) *treeNode {
 		node.rows = append(node.rows, r)
 	}
 	return root
+}
+
+// rowColor is the color of a row's marker: blue when modified.
+func rowColor(pal treePalette, r moduleRow) string {
+	if r.modified {
+		return pal.blue
+	}
+	return markerColor(pal, r.marker)
+}
+
+// rowWord is the plain-output state word of a row.
+func rowWord(r moduleRow) string {
+	if r.modified {
+		return stateWordModified
+	}
+	return markerWord(r.marker)
 }
 
 // markerColor returns the palette color for a row's marker, or pal.off for
@@ -431,7 +459,7 @@ func noteColor(pal treePalette, note string) string {
 // renderRow prints one row on its own line, then its children beneath it
 // continuing with childPrefix.
 func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
-	mc := markerColor(pal, r.marker)
+	mc := rowColor(pal, r)
 	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, nameText(r, pal), pal.reset)
 	if r.note != "" {
 		fmt.Fprintf(w, " %s%s%s", noteColor(pal, r.note), r.note, pal.reset)
@@ -477,7 +505,7 @@ func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
 	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
 
 	for _, l := range lines {
-		mc := markerColor(pal, l.row.marker)
+		mc := rowColor(pal, l.row)
 		fmt.Fprintf(w, "%s%s %s%s", mc, l.row.marker, nameText(l.row, pal), pal.reset)
 		if len(l.row.pulledBy) > 0 {
 			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(l.row.pulledBy, ", "), pal.reset)
@@ -529,7 +557,7 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 		if inputs == nil {
 			inputs = []string{}
 		}
-		out = append(out, moduleJSONRow{Path: rowPath(r), State: markerWord(r.marker), Inputs: inputs})
+		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return writeJSON(w, out)
@@ -542,7 +570,7 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	sorted := append([]moduleRow(nil), rows...)
 	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
 	for _, r := range sorted {
-		fmt.Fprintln(w, strings.Join([]string{rowPath(r), markerWord(r.marker), strings.Join(r.inputs, plainInputsSep)}, plainColumnSep))
+		fmt.Fprintln(w, strings.Join([]string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep)}, plainColumnSep))
 	}
 }
 
@@ -675,7 +703,12 @@ func moduleList(p paths.Paths, args []string) error {
 		return err
 	}
 
-	rows := moduleBuildRows(us, enabled, running, pulled, categoryPath)
+	changed, err := moduleChangedUnits(p, us, enabled, running)
+	if err != nil {
+		return err
+	}
+
+	rows := moduleBuildRows(us, enabled, running, pulled, changed, categoryPath)
 	if err := moduleFillInputs(rows, us, p.Modules); err != nil {
 		return err
 	}
@@ -707,6 +740,37 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	fmt.Print(out.String())
 	return nil
+}
+
+// moduleChangedUnits returns the names of enabled, running units whose files
+// differ from the baseline tree: the saved previous stage when present, else
+// the staging directory. Without a baseline tree nothing is modified.
+func moduleChangedUnits(p paths.Paths, us []units.Unit, enabled, running map[string]bool) (map[string]bool, error) {
+	changed := map[string]bool{}
+	baseline := filepath.Join(p.PreviousStage, stagedModulesRel)
+	if _, err := os.Stat(p.PreviousStage); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		baseline = filepath.Join(p.Staging, stagedModulesRel)
+	}
+	if _, err := os.Stat(baseline); err != nil {
+		if os.IsNotExist(err) {
+			return changed, nil
+		}
+		return nil, err
+	}
+	for _, u := range us {
+		if !enabled[u.Name] || !running[u.Name] {
+			continue
+		}
+		c, err := staging.UnitChanged(p.Modules, baseline, u)
+		if err != nil {
+			return nil, err
+		}
+		changed[u.Name] = c
+	}
+	return changed, nil
 }
 
 //──[editing]──────────────────────────────────────────────────────────────

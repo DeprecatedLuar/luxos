@@ -137,6 +137,77 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 	return nil
 }
 
+// StagedPath is the unit's path inside the staged config/modules: its own
+// path, or for a shadow the location of the shared unit it hides.
+func StagedPath(u units.Unit) string {
+	if u.Shadows == "" {
+		return u.Path
+	}
+	return filepath.Join(filepath.Dir(u.Shadows), filepath.Base(u.Path))
+}
+
+// UnitChanged reports whether u's files under modulesDir (symlinks
+// dereferenced, as Materialize copies them) differ from its copy under
+// stagedModulesDir. A unit missing on the staged side is changed.
+func UnitChanged(modulesDir, stagedModulesDir string, u units.Unit) (bool, error) {
+	src, err := readUnitFiles(filepath.Join(modulesDir, u.Path))
+	if err != nil {
+		return false, err
+	}
+	dst, err := readUnitFiles(filepath.Join(stagedModulesDir, StagedPath(u)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(src) != len(dst) {
+		return true, nil
+	}
+	for rel, data := range src {
+		other, ok := dst[rel]
+		if !ok || !bytes.Equal(data, other) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// readUnitFiles returns the contents of root keyed by path relative to root
+// (a single file is keyed "."), following symlinks.
+func readUnitFiles(root string) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	var walk func(path, rel string) error
+	walk = func(path, rel string) error {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			files[rel] = data
+			return nil
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if err := walk(filepath.Join(path, e.Name()), filepath.Join(rel, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(root, "."); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
 // stageModules copies modulesDir to dst, dereferencing links, then stages
 // each shadow at the location of the shared unit it hides.
 func stageModules(modulesDir, dst string, us []units.Unit) error {
@@ -155,7 +226,7 @@ func stageModules(modulesDir, dst string, us []units.Unit) error {
 	}
 
 	for _, u := range shadows {
-		staged := filepath.Join(filepath.Dir(u.Shadows), filepath.Base(u.Path))
+		staged := StagedPath(u)
 		src := filepath.Join(modulesDir, u.Path)
 		info, err := os.Stat(src)
 		if err != nil {
