@@ -79,6 +79,7 @@ const (
 	stateWordLeftover = "leftover"
 	stateWordPulled   = "pulled"
 	stateWordOff      = "off"
+	stateWordRemoved  = "removed"
 )
 
 // flakeMark follows the name of a module that declares flake inputs, on a
@@ -111,18 +112,19 @@ const (
 	colorOff       = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
 	colorReset     = "\x1b[0m"
 	colorUnderline = "\x1b[4m"
+	colorStrike    = "\x1b[9m"
 )
 
 // treePalette is the set of color codes moduleRenderTTY tints with; an
 // empty treePalette{} renders the same tree shape with no ANSI codes at
 // all, for a non-color TTY (NO_COLOR) or for tests.
 type treePalette struct {
-	green, teal, red, purple, blue, line, title, off, underline, reset string
+	green, teal, red, purple, blue, line, title, off, underline, strike, reset string
 }
 
 var colorTreePalette = treePalette{
 	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple, blue: colorBlue,
-	line: colorLine, title: colorTitle, off: colorOff, underline: colorUnderline, reset: colorReset,
+	line: colorLine, title: colorTitle, off: colorOff, underline: colorUnderline, strike: colorStrike, reset: colorReset,
 }
 
 // colorsEnabled reports whether moduleList should tint its tree: only on a
@@ -234,6 +236,7 @@ type moduleRow struct {
 	inputs   []string    // flake inputs the unit declares, sorted, deduplicated
 	status   string      // flake list's upstream status word (plain output)
 	modified bool        // enabled and running, but its files changed since the running build
+	removed  bool        // imported by the running generation, no longer a unit in the config
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -280,24 +283,15 @@ func nameSet(file string) (map[string]bool, error) {
 // filter as a nested category. Pure given its inputs.
 func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
 	var rows []moduleRow
-	prefix := ""
-	var stripSegs []string
-	if categoryPath != "" {
-		prefix = categoryPath + "/"
-		stripSegs = strings.Split(categoryPath, "/")
-	}
 	for _, u := range us {
 		// A shadow sits where the unit it hides sits, not under local/.
 		shown := u.Path
 		if u.Shadows != "" {
 			shown = u.Shadows
 		}
-		if prefix != "" && !strings.HasPrefix(shown, prefix) {
+		segs, ok := categorySegments(shown, categoryPath)
+		if !ok {
 			continue
-		}
-		var segs []string
-		if cat := filepath.Dir(shown); cat != "." {
-			segs = strings.Split(cat, "/")[len(stripSegs):]
 		}
 
 		marker := moduleMarker(enabled[u.Name], running[u.Name])
@@ -324,12 +318,67 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 	return rows
 }
 
+// categorySegments returns the category segments of a unit path relative to
+// categoryPath, and false when the path lies outside categoryPath ("" keeps
+// every path).
+func categorySegments(shown, categoryPath string) ([]string, bool) {
+	var stripSegs []string
+	if categoryPath != "" {
+		if !strings.HasPrefix(shown, categoryPath+"/") {
+			return nil, false
+		}
+		stripSegs = strings.Split(categoryPath, "/")
+	}
+	var segs []string
+	if cat := filepath.Dir(shown); cat != "." {
+		segs = strings.Split(cat, "/")[len(stripSegs):]
+	}
+	return segs, true
+}
+
+// moduleRemovedRows builds one row per module the running generation imports
+// (runningPaths, as written in its modules.nix) that names no unit in us,
+// filtered and stripped by categoryPath like moduleBuildRows. Duplicate names
+// give one row. Pure.
+func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath string) []moduleRow {
+	exists := make(map[string]bool, len(us))
+	for _, u := range us {
+		exists[u.Name] = true
+	}
+	seen := map[string]bool{}
+	var rows []moduleRow
+	for _, rp := range runningPaths {
+		name := units.NameFromPath(rp)
+		if exists[name] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		shown := strings.TrimPrefix(rp, "./")
+		shown = strings.TrimSuffix(shown, "/default.nix")
+		segs, ok := categorySegments(shown, categoryPath)
+		if !ok {
+			continue
+		}
+		rows = append(rows, moduleRow{
+			category: segs,
+			name:     name,
+			marker:   markerRunningOnly,
+			rank:     moduleMarkerRank(markerRunningOnly),
+			removed:  true,
+		})
+	}
+	return rows
+}
+
 // nameText is a row's name as rendered on a terminal: underlined when the row
 // is a shadow.
 func nameText(r moduleRow, pal treePalette) string {
 	name := r.name
 	if len(r.inputs) > 0 {
 		name += flakeMark
+	}
+	if r.removed {
+		return pal.strike + name + pal.reset
 	}
 	if r.shadow {
 		return pal.underline + name + pal.reset
@@ -373,6 +422,9 @@ func rowColor(pal treePalette, r moduleRow) string {
 
 // rowWord is the plain-output state word of a row.
 func rowWord(r moduleRow) string {
+	if r.removed {
+		return stateWordRemoved
+	}
 	if r.modified {
 		return stateWordModified
 	}
@@ -686,9 +738,18 @@ func moduleList(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	running, err := nameSet(p.RunningModules)
-	if err != nil {
+	var runningPaths []string
+	if _, err := os.Stat(p.RunningModules); err == nil {
+		runningPaths, err = imports.List(p.RunningModules)
+		if err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
 		return err
+	}
+	running := map[string]bool{}
+	for _, rp := range runningPaths {
+		running[units.NameFromPath(rp)] = true
 	}
 
 	var selection []string
@@ -712,6 +773,7 @@ func moduleList(p paths.Paths, args []string) error {
 	if err := moduleFillInputs(rows, us, p.Modules); err != nil {
 		return err
 	}
+	rows = append(rows, moduleRemovedRows(runningPaths, us, categoryPath)...)
 
 	rootLabel := "modules/"
 	if categoryPath != "" {

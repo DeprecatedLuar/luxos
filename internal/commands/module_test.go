@@ -493,3 +493,58 @@ func TestModuleRenderModified(t *testing.T) {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }
+
+func TestModuleRemovedRows(t *testing.T) {
+	us := []units.Unit{{Name: "alive", Path: "alive.nix"}}
+	run := []string{
+		"./local/debug.nix", "./desktop/shells/ambxst", "./gone.nix", "./alive.nix",
+		"./x/dup.nix", "./y/dup.nix", "./desktop/apps/foo/default.nix",
+	}
+	rows := moduleRemovedRows(run, us, "")
+	got := map[string]moduleRow{}
+	for _, r := range rows {
+		got[r.name] = r
+	}
+	if len(rows) != 5 {
+		t.Fatalf("rows = %+v, want 5 (alive skipped, dup once)", rows)
+	}
+	for name, cat := range map[string]string{"debug": "local", "ambxst": "desktop/shells", "gone": "", "foo": "desktop/apps"} {
+		r, ok := got[name]
+		if !ok || !r.removed || r.marker != markerRunningOnly || r.rank != moduleMarkerRank(markerRunningOnly) {
+			t.Errorf("%s = %+v", name, r)
+		}
+		if strings.Join(r.category, "/") != cat {
+			t.Errorf("%s category = %v, want %q", name, r.category, cat)
+		}
+	}
+	if _, ok := got["alive"]; ok {
+		t.Error("existing unit got a removed row")
+	}
+
+	filtered := moduleRemovedRows(run, us, "desktop")
+	if len(filtered) != 2 {
+		t.Fatalf("filtered = %+v, want ambxst and foo", filtered)
+	}
+	for _, r := range filtered {
+		if r.name == "ambxst" && strings.Join(r.category, "/") != "shells" {
+			t.Errorf("ambxst category = %v, want [shells]", r.category)
+		}
+	}
+	if rows := moduleRemovedRows(run, us, "local"); len(rows) != 1 || len(rows[0].category) != 0 {
+		t.Errorf("local filter = %+v", rows)
+	}
+}
+
+func TestModuleRenderRemoved(t *testing.T) {
+	rows := moduleRemovedRows([]string{"./local/debug.nix"}, nil, "")
+	var tty strings.Builder
+	moduleRenderTTY(&tty, rows, "modules/", colorTreePalette)
+	if !strings.Contains(tty.String(), colorStrike+"debug") || !strings.Contains(tty.String(), colorRed+markerRunningOnly) {
+		t.Errorf("tty output lacks strike/red: %q", tty.String())
+	}
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows)
+	if want := "local/debug\tremoved\t\n"; plain.String() != want {
+		t.Errorf("plain = %q, want %q", plain.String(), want)
+	}
+}
