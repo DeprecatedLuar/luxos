@@ -97,7 +97,8 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("disable <name>... [-y]", "Disable one or more modules on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
-		)
+		).
+		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list.")
 }
 
 // userPage documents `luxos user`, the same verbs as module fixed to

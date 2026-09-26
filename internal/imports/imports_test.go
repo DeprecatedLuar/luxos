@@ -24,7 +24,7 @@ func TestRetarget_Rename(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "")
+	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	// Second run: no changes (idempotent).
-	changes2, err := Retarget(machinesDir, "foo", "b/foo.nix", "")
+	changes2, err := Retarget(machinesDir, "foo", "b/foo.nix", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRetarget_Delete(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "", "")
+	changes, err := Retarget(machinesDir, "foo", "", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestRetarget_Delete(t *testing.T) {
 		}
 	}
 
-	changes2, err := Retarget(machinesDir, "foo", "", "")
+	changes2, err := Retarget(machinesDir, "foo", "", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRetarget_HostScoped(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "host1")
+	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "host1", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -436,4 +436,24 @@ func contains(haystack, needle string) bool {
 		}
 		return false
 	})()
+}
+
+func TestRetarget_SkipHosts(t *testing.T) {
+	skipIfNoNix(t)
+	machinesDir, host1, host2 := setupTwoHosts(t)
+
+	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "", []string{"host1"})
+	if err != nil {
+		t.Fatalf("Retarget: %v", err)
+	}
+	if len(changes) != 1 || changes[0].File != host2 {
+		t.Fatalf("changes = %v, want exactly one change to host2", changes)
+	}
+	got1, err := List(host1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.DeepEqual(got1, []string{"b/foo.nix"}) {
+		t.Errorf("skipped host was rewritten: %v", got1)
+	}
 }

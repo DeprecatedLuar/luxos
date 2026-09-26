@@ -769,3 +769,47 @@ func TestValidate_LocalModuleReferencingSharedModuleIsFine(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_ShadowedNameIsNotSharedToLocalViolation(t *testing.T) {
+	skipIfNoNix(t)
+	root := t.TempDir()
+	mods := filepath.Join(root, "modules")
+	localDir := filepath.Join(root, "hostmods")
+	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "foo" ]; }`)
+	write(t, filepath.Join(mods, "cat", "foo.nix"), `{ }`)
+	write(t, filepath.Join(localDir, "foo.nix"), `{ }`)
+	write(t, filepath.Join(localDir, "bar.nix"), `{ }`)
+	write(t, filepath.Join(mods, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "bar" ]; }`)
+	if err := os.Symlink(localDir, filepath.Join(mods, "local")); err != nil {
+		t.Fatal(err)
+	}
+	us, err := units.Walk(mods, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := Validate(mods, us, []string{"a.nix", "b.nix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 1 || vs[0].File != "b.nix" || !strings.Contains(vs[0].Message, "shared module references local module 'bar'") {
+		t.Errorf("want only the non-shadow violation in b.nix, got %v", vs)
+	}
+}
+
+func TestValidate_SelfReferenceIsViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "foo.nix"), `{ luxos, ... }: { imports = luxos.modules [ "foo" ]; }`)
+	us, err := units.Walk(mods, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := Validate(mods, us, []string{"foo.nix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "luxos.modules: module references its own name 'foo'"
+	if len(vs) != 1 || vs[0].Message != want {
+		t.Errorf("got %v, want one violation %q", vs, want)
+	}
+}

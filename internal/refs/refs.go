@@ -100,6 +100,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 	for len(queue) > 0 {
 		unitPath := queue[0]
 		queue = queue[1:]
+		unitName := units.NameFromPath(unitPath)
 
 		files, err := UnitFiles(filepath.Join(root, unitPath))
 		if err != nil {
@@ -140,7 +141,15 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 				violations = append(violations, Violation{File: rel, Message: v})
 			}
 			for _, name := range names {
-				dep, ok := units.Resolve(us, name)
+				if name == unitName {
+					violations = append(violations, Violation{
+						File:    rel,
+						Message: fmt.Sprintf("luxos.modules: module references its own name '%s'", name),
+					})
+					continue
+				}
+				depUnit, ok := units.Find(us, name)
+				dep := depUnit.Path
 				if !ok {
 					violations = append(violations, Violation{
 						File:    rel,
@@ -148,7 +157,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 					})
 					continue
 				}
-				if !strings.HasPrefix(unitPath, localPrefix) && strings.HasPrefix(dep, localPrefix) {
+				if !strings.HasPrefix(unitPath, localPrefix) && strings.HasPrefix(dep, localPrefix) && depUnit.Shadows == "" {
 					violations = append(violations, Violation{
 						File:    rel,
 						Message: fmt.Sprintf("luxos.modules: shared module references local module '%s'", name),

@@ -6,7 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 func skipIfNoNix(t *testing.T) {
@@ -77,7 +80,7 @@ func TestMaterialize_Basic(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -142,7 +145,7 @@ func TestMaterialize_LockOptional(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	missingLock := filepath.Join(t.TempDir(), "flake.lock")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, missingLock, environmentFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, missingLock, environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -156,7 +159,7 @@ func TestMaterialize_MissingEnvironmentFails(t *testing.T) {
 	modulesDir, hostDir, lockFile, _ := fixture(t)
 	missingEnv := filepath.Join(t.TempDir(), "environment")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, lockFile, missingEnv); err == nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, missingEnv); err == nil {
 		t.Fatal("expected an error for a missing environment file")
 	}
 }
@@ -171,7 +174,7 @@ func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile); err != nil {
+		if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile); err != nil {
 			t.Fatalf("Materialize #%d: %v", i, err)
 		}
 	}
@@ -193,7 +196,7 @@ func TestMaterialize_DanglingLinkRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile)
+	err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile)
 	if err == nil {
 		t.Fatalf("expected dangling symlink error")
 	}
@@ -277,7 +280,7 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 		t.Fatal(err)
 	}
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, filepath.Join(root, "flake.lock"), environmentFile); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, filepath.Join(root, "flake.lock"), environmentFile); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -818,5 +821,56 @@ func TestReadLockGraphMalformed(t *testing.T) {
 	}
 	if _, err := ReadLockGraph(file); err == nil {
 		t.Error("want error for malformed JSON")
+	}
+}
+
+func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
+	skipIfNoNix(t)
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+
+	write := func(p, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(modulesDir, "desktop", "shells", "ambxst", "default.nix"), "{ shared = 1; }")
+	write(filepath.Join(hostDir, "modules", "ambxst.nix"), "{ local = 1; }")
+	write(filepath.Join(hostDir, "modules", "default.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst\n    ./local/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n")
+
+	us := []units.Unit{
+		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
+		{Name: "desktop", Path: "system/desktop.nix"},
+	}
+	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	mods := filepath.Join(stagingDir, "config", "modules")
+	got, err := os.ReadFile(filepath.Join(mods, "desktop", "shells", "ambxst.nix"))
+	if err != nil || string(got) != "{ local = 1; }" {
+		t.Errorf("staged shadow = %q, %v", got, err)
+	}
+	for _, gone := range []string{"desktop/shells/ambxst", "local/ambxst.nix"} {
+		if _, err := os.Stat(filepath.Join(mods, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s should not be staged (err=%v)", gone, err)
+		}
+	}
+	entry, err := os.ReadFile(filepath.Join(mods, "default.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst.nix\n    ./desktop/shells/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n"
+	if string(entry) != want {
+		t.Errorf("staged default.nix = %q, want %q", entry, want)
+	}
+	src, _ := os.ReadFile(filepath.Join(hostDir, "modules", "default.nix"))
+	if !strings.Contains(string(src), "./local/ambxst.nix") {
+		t.Errorf("source default.nix was rewritten: %q", src)
 	}
 }

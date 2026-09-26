@@ -26,9 +26,12 @@ const localPrefix = "local/"
 
 // Unit is one named module found under a modules directory. Path is
 // relative to that directory, with no leading "./".
+// Shadows is the modules-relative path of the shared unit a local unit
+// hides, "" otherwise.
 type Unit struct {
-	Name string
-	Path string
+	Name    string
+	Path    string
+	Shadows string
 }
 
 // Walk discovers every unit for a host: the shared units under modulesDir
@@ -49,14 +52,17 @@ type Unit struct {
 // units; an empty localModulesDir ("") skips the local walk entirely.
 //
 // The result is sorted by Name (byte order). A name claimed by more than one
-// unit — across the combined shared+local set — is a hard error listing
-// every path that claims it, "local/..." for a local one.
+// shared unit, or by more than one local unit, is a hard error listing every
+// path that claims it. A local unit whose name a shared unit also claims
+// shadows it: it gets Shadows set to the shared path and the shared unit is
+// dropped from the result.
 func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
-	var raw []Unit
-	if err := walkDir(modulesDir, modulesDir, true, &raw); err != nil {
+	var shared []Unit
+	if err := walkDir(modulesDir, modulesDir, true, &shared); err != nil {
 		return nil, err
 	}
 
+	var local []Unit
 	if localModulesDir != "" {
 		if _, err := os.Stat(localModulesDir); err == nil {
 			var localRaw []Unit
@@ -64,17 +70,48 @@ func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 				return nil, err
 			}
 			for _, u := range localRaw {
-				raw = append(raw, Unit{Name: u.Name, Path: localPrefix + u.Path})
+				local = append(local, Unit{Name: u.Name, Path: localPrefix + u.Path})
 			}
 		} else if !os.IsNotExist(err) {
 			return nil, err
 		}
 	}
 
-	sort.Slice(raw, func(i, j int) bool { return raw[i].Name < raw[j].Name })
+	if err := checkDuplicates(shared); err != nil {
+		return nil, err
+	}
+	if err := checkDuplicates(local); err != nil {
+		return nil, err
+	}
 
-	claimants := make(map[string][]string, len(raw))
-	for _, u := range raw {
+	sharedByName := make(map[string]Unit, len(shared))
+	for _, u := range shared {
+		sharedByName[u.Name] = u
+	}
+	shadowed := make(map[string]bool)
+	for i, u := range local {
+		if orig, ok := sharedByName[u.Name]; ok {
+			local[i].Shadows = orig.Path
+			shadowed[u.Name] = true
+		}
+	}
+
+	raw := make([]Unit, 0, len(shared)+len(local))
+	for _, u := range shared {
+		if !shadowed[u.Name] {
+			raw = append(raw, u)
+		}
+	}
+	raw = append(raw, local...)
+	sort.Slice(raw, func(i, j int) bool { return raw[i].Name < raw[j].Name })
+	return raw, nil
+}
+
+// checkDuplicates errors when a name is claimed by more than one unit in us,
+// listing every path that claims it.
+func checkDuplicates(us []Unit) error {
+	claimants := make(map[string][]string, len(us))
+	for _, u := range us {
 		claimants[u.Name] = append(claimants[u.Name], u.Path)
 	}
 
@@ -84,24 +121,23 @@ func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 			dupeNames = append(dupeNames, name)
 		}
 	}
-	if len(dupeNames) > 0 {
-		sort.Strings(dupeNames)
-		var b strings.Builder
-		for i, name := range dupeNames {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "duplicate module name '%s':", name)
-			paths := append([]string(nil), claimants[name]...)
-			sort.Strings(paths)
-			for _, p := range paths {
-				fmt.Fprintf(&b, "\n  - %s", p)
-			}
-		}
-		return nil, fmt.Errorf("%s", b.String())
+	if len(dupeNames) == 0 {
+		return nil
 	}
-
-	return raw, nil
+	sort.Strings(dupeNames)
+	var b strings.Builder
+	for i, name := range dupeNames {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "duplicate module name '%s':", name)
+		paths := append([]string(nil), claimants[name]...)
+		sort.Strings(paths)
+		for _, p := range paths {
+			fmt.Fprintf(&b, "\n  - %s", p)
+		}
+	}
+	return fmt.Errorf("%s", b.String())
 }
 
 // walkDir emits (unsorted, duplicates left in) units found under dir into
@@ -159,6 +195,16 @@ func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
 	}
 
 	return nil
+}
+
+// Find returns the unit named name, if any.
+func Find(us []Unit, name string) (Unit, bool) {
+	for _, u := range us {
+		if u.Name == name {
+			return u, true
+		}
+	}
+	return Unit{}, false
 }
 
 // Resolve looks up name in units, returning its path and true when found.

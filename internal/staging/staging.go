@@ -15,6 +15,8 @@ import (
 	"sort"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
+	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/units"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
@@ -38,6 +40,7 @@ const (
 	stagedEnvironment     = "environment"
 
 	stagedModulesDir   = "modules"
+	entrypointFile     = "default.nix"
 	stagedMachineNix   = "machine.nix"
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
@@ -57,7 +60,12 @@ const (
 // Every symlink under modulesDir and hostDir is dereferenced. Refuses a
 // dangling symlink under modulesDir or hostDir, naming it, before touching
 // stagingDir.
-func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile string) error {
+//
+// us is the host's unit set: each unit with Shadows set is staged at its
+// original's location (same category, the shadow's own file or folder name)
+// and every import of that name in the staged config/modules/default.nix is
+// pointed there. The original is not staged; no source file is rewritten.
+func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
 	}
@@ -103,7 +111,7 @@ func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile stri
 		return err
 	}
 
-	if err := copyDeref(modulesDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
+	if err := stageModules(modulesDir, filepath.Join(cfgDir, stagedModulesDir), us); err != nil {
 		return err
 	}
 	for _, name := range []string{stagedMachineNix, stagedPlsdonttouch} {
@@ -124,6 +132,53 @@ func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile stri
 		return err
 	}
 
+	return nil
+}
+
+// stageModules copies modulesDir to dst, dereferencing links, then stages
+// each shadow at the location of the shared unit it hides.
+func stageModules(modulesDir, dst string, us []units.Unit) error {
+	skip := make(map[string]bool)
+	var shadows []units.Unit
+	for _, u := range us {
+		if u.Shadows == "" {
+			continue
+		}
+		shadows = append(shadows, u)
+		skip[u.Shadows] = true
+		skip[u.Path] = true
+	}
+	if err := copyDerefSkip(modulesDir, dst, skip); err != nil {
+		return err
+	}
+
+	for _, u := range shadows {
+		staged := filepath.Join(filepath.Dir(u.Shadows), filepath.Base(u.Path))
+		src := filepath.Join(modulesDir, u.Path)
+		info, err := os.Stat(src)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, staged)
+		if info.IsDir() {
+			err = copyDeref(src, target)
+		} else {
+			err = copyFile(src, target)
+		}
+		if err != nil {
+			return err
+		}
+
+		entry := filepath.Join(dst, entrypointFile)
+		name := u.Name
+		_, ok, err := nixsrc.RetargetImports(entry, func(p string) bool { return units.NameFromPath(p) == name }, staged)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("cannot retarget imports of shadow '%s': %s has no recognizable imports block", name, entry)
+		}
+	}
 	return nil
 }
 
@@ -304,6 +359,17 @@ func writeFrameworkFile(dst, name string) error {
 // contents; a symlink to a file is copied as that file). No symlink
 // survives under dst.
 func copyDeref(src, dst string) error {
+	return copyDerefSkip(src, dst, nil)
+}
+
+// copyDerefSkip is copyDeref that leaves out every entry whose path relative
+// to src (through any followed symlink, so "local/x.nix" names x.nix inside
+// the tree modulesDir/local points at) is a key of skip.
+func copyDerefSkip(src, dst string, skip map[string]bool) error {
+	return copyDerefSkipAt(src, dst, "", skip)
+}
+
+func copyDerefSkipAt(src, dst, prefix string, skip map[string]bool) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -315,6 +381,13 @@ func copyDeref(src, dst string) error {
 		}
 		target := filepath.Join(dst, rel)
 
+		if key := filepath.Join(prefix, rel); rel != "." && skip[key] {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if d.Type()&os.ModeSymlink != 0 {
 			resolved, err := filepath.EvalSymlinks(path)
 			if err != nil {
@@ -325,7 +398,7 @@ func copyDeref(src, dst string) error {
 				return err
 			}
 			if info.IsDir() {
-				return copyDeref(resolved, target)
+				return copyDerefSkipAt(resolved, target, filepath.Join(prefix, rel), skip)
 			}
 			return copyFile(resolved, target)
 		}

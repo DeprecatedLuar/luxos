@@ -3,6 +3,7 @@ package units
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -213,25 +214,73 @@ func TestWalk_MissingLocalDirIsFine(t *testing.T) {
 	}
 }
 
-func TestWalk_SameNameSharedAndLocalIsDuplicate(t *testing.T) {
+func TestWalk_LocalFileShadowsSharedFolder(t *testing.T) {
 	root := t.TempDir()
 	local := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, "foo.nix"), "{ }")
-	mustWriteFile(t, filepath.Join(local, "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(root, "desktop", "ambxst", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "ambxst.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Unit{{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/ambxst"}}
+	if !reflect.DeepEqual(us, want) {
+		t.Errorf("got %+v, want %+v", us, want)
+	}
+}
+
+func TestWalk_LocalFolderShadowsSharedFile(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "cat", "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "foo", "default.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Unit{{Name: "foo", Path: "local/foo", Shadows: "cat/foo.nix"}}
+	if !reflect.DeepEqual(us, want) {
+		t.Errorf("got %+v, want %+v", us, want)
+	}
+}
+
+func TestWalk_LocalShadowsSystemUnit(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "system", "audio.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "audio.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, ok := Find(us, "audio")
+	if !ok || u.Path != "local/audio.nix" || u.Shadows != "system/audio.nix" || len(us) != 1 {
+		t.Errorf("got %+v", us)
+	}
+}
+
+func TestWalk_LocalLocalDuplicateIsError(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	mustWriteFile(t, filepath.Join(local, "a", "foo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(local, "b", "foo.nix"), "{ }")
 
 	_, err := Walk(root, local)
-	if err == nil {
-		t.Fatalf("expected error for duplicate name across shared+local")
+	if err == nil || !strings.Contains(err.Error(), "duplicate module name 'foo':") {
+		t.Fatalf("expected duplicate error, got %v", err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "duplicate module name 'foo':") {
-		t.Errorf("error missing header, got: %s", msg)
+}
+
+func TestFind(t *testing.T) {
+	us := []Unit{{Name: "a", Path: "a.nix"}}
+	if u, ok := Find(us, "a"); !ok || u.Path != "a.nix" {
+		t.Errorf("Find(a) = %+v, %v", u, ok)
 	}
-	if !strings.Contains(msg, "  - foo.nix") {
-		t.Errorf("error missing shared claimant, got: %s", msg)
-	}
-	if !strings.Contains(msg, "  - local/foo.nix") {
-		t.Errorf("error missing local claimant, got: %s", msg)
+	if _, ok := Find(us, "b"); ok {
+		t.Error("Find(b) should miss")
 	}
 }
 

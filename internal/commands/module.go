@@ -75,26 +75,27 @@ const (
 // then the off state — never white, so ○ stays visibly the quietest color
 // on screen while remaining legible.
 const (
-	colorGreen  = "\x1b[38;2;204;243;145m"        // #CCF391 — ◉ running
-	colorTeal   = "\x1b[1m\x1b[38;2;125;250;206m" // #7DFACE bold — ⊕ staged
-	colorRed    = "\x1b[38;2;237;112;122m"        // #ED707A — ⊘ leftover
-	colorPurple = "\x1b[38;2;181;166;250m"        // #B5A6FA — ◍ pulled
-	colorLine   = "\x1b[38;2;74;79;115m"          // #212436 lightened — tree connectors
-	colorTitle  = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold — category names
-	colorOff    = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
-	colorReset  = "\x1b[0m"
+	colorGreen     = "\x1b[38;2;204;243;145m"        // #CCF391 — ◉ running
+	colorTeal      = "\x1b[1m\x1b[38;2;125;250;206m" // #7DFACE bold — ⊕ staged
+	colorRed       = "\x1b[38;2;237;112;122m"        // #ED707A — ⊘ leftover
+	colorPurple    = "\x1b[38;2;181;166;250m"        // #B5A6FA — ◍ pulled
+	colorLine      = "\x1b[38;2;74;79;115m"          // #212436 lightened — tree connectors
+	colorTitle     = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold — category names
+	colorOff       = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
+	colorReset     = "\x1b[0m"
+	colorUnderline = "\x1b[4m"
 )
 
 // treePalette is the set of color codes moduleRenderTTY tints with; an
 // empty treePalette{} renders the same tree shape with no ANSI codes at
 // all, for a non-color TTY (NO_COLOR) or for tests.
 type treePalette struct {
-	green, teal, red, purple, line, title, off, reset string
+	green, teal, red, purple, line, title, off, underline, reset string
 }
 
 var colorTreePalette = treePalette{
 	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple,
-	line: colorLine, title: colorTitle, off: colorOff, reset: colorReset,
+	line: colorLine, title: colorTitle, off: colorOff, underline: colorUnderline, reset: colorReset,
 }
 
 // colorsEnabled reports whether moduleList should tint its tree: only on a
@@ -186,6 +187,7 @@ type moduleRow struct {
 	pulledBy []string    // non-nil only for a non-enabled, pulled-in unit
 	children []moduleRow // rows nested beneath this one (flake list's transitive inputs)
 	note     string      // status glyph shown after the name in the TTY tree (flake list's upstream check)
+	shadow   bool        // a local unit shown in the place of the shared unit it hides
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -239,11 +241,16 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 		stripSegs = strings.Split(categoryPath, "/")
 	}
 	for _, u := range us {
-		if prefix != "" && !strings.HasPrefix(u.Path, prefix) {
+		// A shadow sits where the unit it hides sits, not under local/.
+		shown := u.Path
+		if u.Shadows != "" {
+			shown = u.Shadows
+		}
+		if prefix != "" && !strings.HasPrefix(shown, prefix) {
 			continue
 		}
 		var segs []string
-		if cat := filepath.Dir(u.Path); cat != "." {
+		if cat := filepath.Dir(shown); cat != "." {
 			segs = strings.Split(cat, "/")[len(stripSegs):]
 		}
 
@@ -260,9 +267,19 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 			marker:   marker,
 			rank:     moduleMarkerRank(marker),
 			pulledBy: pulledBy,
+			shadow:   u.Shadows != "",
 		})
 	}
 	return rows
+}
+
+// nameText is a row's name as rendered on a terminal: underlined when the row
+// is a shadow.
+func nameText(r moduleRow, pal treePalette) string {
+	if r.shadow {
+		return pal.underline + r.name + pal.reset
+	}
+	return r.name
 }
 
 // treeNode is one level of the nested tree moduleRenderTTY builds from
@@ -372,7 +389,7 @@ func noteColor(pal treePalette, note string) string {
 // continuing with childPrefix.
 func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
 	mc := markerColor(pal, r.marker)
-	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, r.name, pal.reset)
+	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, nameText(r, pal), pal.reset)
 	if r.note != "" {
 		fmt.Fprintf(w, " %s%s%s", noteColor(pal, r.note), r.note, pal.reset)
 	}
@@ -418,7 +435,7 @@ func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
 
 	for _, l := range lines {
 		mc := markerColor(pal, l.row.marker)
-		fmt.Fprintf(w, "%s%s %s%s", mc, l.row.marker, l.row.name, pal.reset)
+		fmt.Fprintf(w, "%s%s %s%s", mc, l.row.marker, nameText(l.row, pal), pal.reset)
 		if len(l.row.pulledBy) > 0 {
 			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(l.row.pulledBy, ", "), pal.reset)
 		}
@@ -691,8 +708,12 @@ func moduleAdd(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
+	shadowedPath := ""
 	if found {
-		return fmt.Errorf("module name '%s' already exists at modules/%s", name, existingPath)
+		if !shadowsShared(target, existingPath) {
+			return fmt.Errorf("module name '%s' already exists at modules/%s", name, existingPath)
+		}
+		shadowedPath = existingPath
 	}
 
 	if _, err := os.Stat(filepath.Join(p.Modules, target)); err == nil {
@@ -719,6 +740,9 @@ func moduleAdd(p paths.Paths, args []string) error {
 			return err
 		}
 		fmt.Printf("Created modules/%s.nix\n", target)
+	}
+	if shadowedPath != "" {
+		fmt.Printf("Note: %s shadows modules/%s\n", target, shadowedPath)
 	}
 
 	if opts["enable"] != "" {
@@ -950,6 +974,77 @@ func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []strin
 	return "", matches, nil
 }
 
+// shadowsShared reports whether creating or renaming to a unit at newPath
+// (a "local/..." path or add target) that collides with the unit at
+// existingPath is a shadow: the new unit is local and the existing one is
+// shared.
+func shadowsShared(newPath, existingPath string) bool {
+	return strings.HasPrefix(newPath, localPathPrefix) && !strings.HasPrefix(existingPath, localPathPrefix)
+}
+
+// shadowingHosts returns, sorted, every host whose local modules shadow the
+// shared unit called name.
+func shadowingHosts(p paths.Paths, name string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(p.Machines, "*", "modules"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(matches)
+	var hosts []string
+	for _, dir := range matches {
+		us, err := units.Walk(p.Modules, dir)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Base(filepath.Dir(dir)), err)
+		}
+		if u, ok := units.Find(us, name); ok && u.Shadows != "" {
+			hosts = append(hosts, filepath.Base(filepath.Dir(dir)))
+		}
+	}
+	return hosts, nil
+}
+
+// moduleScopeSkippingShadows is moduleScope for a unit that may be shared:
+// the hosts shadowing it (skipHosts) keep their selection and their local
+// modules' references, so their local dirs are left out of localDirs.
+func moduleScopeSkippingShadows(p paths.Paths, name, unitPath string) (host string, localDirs, skipHosts []string, err error) {
+	host, localDirs, err = moduleScope(p, unitPath)
+	if err != nil || host != "" {
+		return host, localDirs, nil, err
+	}
+	skipHosts, err = shadowingHosts(p, name)
+	if err != nil || len(skipHosts) == 0 {
+		return host, localDirs, nil, err
+	}
+	skip := make(map[string]bool, len(skipHosts))
+	for _, h := range skipHosts {
+		skip[h] = true
+	}
+	var kept []string
+	for _, dir := range localDirs {
+		if !skip[filepath.Base(filepath.Dir(dir))] {
+			kept = append(kept, dir)
+		}
+	}
+	return host, kept, skipHosts, nil
+}
+
+// printShadowedHosts tells which hosts keep meaning their own local module.
+func printShadowedHosts(name string, hosts []string) {
+	if len(hosts) > 0 {
+		fmt.Printf("'%s' is shadowed on %s; left untouched there\n", name, strings.Join(hosts, ", "))
+	}
+}
+
+// declined handles a "no": a plain abort, except when shadowed hosts made the
+// confirmation mandatory, where it fails naming the flag that answers it.
+func declined(skipHosts []string) error {
+	if len(skipHosts) > 0 {
+		return fmt.Errorf("not confirmed; run again with --yes to proceed")
+	}
+	fmt.Println("Aborted.")
+	return nil
+}
+
 //──[remove]───────────────────────────────────────────────────────────────
 
 // printReferencedBy prints label followed by an indented list of files, or
@@ -1001,7 +1096,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return errHardwareUnit
 	}
 
-	host, localDirs, err := moduleScope(p, path)
+	host, localDirs, skipHosts, err := moduleScopeSkippingShadows(p, name, path)
 	if err != nil {
 		return err
 	}
@@ -1018,14 +1113,15 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is referenced by:", name), dependents, "")
 
+	printShadowedHosts(name, skipHosts)
+
 	if opts["yes"] == "" {
 		ok, err := shared.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			fmt.Println("Aborted.")
-			return nil
+			return declined(skipHosts)
 		}
 	}
 
@@ -1035,7 +1131,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if _, err := refs.Retarget(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Machines, name, "", host); err != nil {
+	if _, err := imports.Retarget(p.Machines, name, "", host, skipHosts); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
@@ -1089,13 +1185,17 @@ func moduleRename(p paths.Paths, args []string) error {
 		return errHardwareUnit
 	}
 
+	shadowedPath := ""
 	if existingPath, found, err := resolveUnitPath(p.Modules, newName); err != nil {
 		return err
 	} else if found {
-		return fmt.Errorf("module name '%s' already exists at modules/%s", newName, existingPath)
+		if !shadowsShared(oldPath, existingPath) {
+			return fmt.Errorf("module name '%s' already exists at modules/%s", newName, existingPath)
+		}
+		shadowedPath = existingPath
 	}
 
-	host, localDirs, err := moduleScope(p, oldPath)
+	host, localDirs, skipHosts, err := moduleScopeSkippingShadows(p, oldName, oldPath)
 	if err != nil {
 		return err
 	}
@@ -1104,8 +1204,9 @@ func moduleRename(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(dependents) > 0 {
+	if len(dependents) > 0 || len(skipHosts) > 0 {
 		printReferencedBy(fmt.Sprintf("'%s' is referenced by:", oldName), dependents, "")
+		printShadowedHosts(oldName, skipHosts)
 
 		if opts["yes"] == "" {
 			ok, err := shared.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
@@ -1113,8 +1214,7 @@ func moduleRename(p paths.Paths, args []string) error {
 				return err
 			}
 			if !ok {
-				fmt.Println("Aborted.")
-				return nil
+				return declined(skipHosts)
 			}
 		}
 	}
@@ -1142,7 +1242,7 @@ func moduleRename(p paths.Paths, args []string) error {
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Machines, oldName, newPath, host); err != nil {
+	if _, err := imports.Retarget(p.Machines, oldName, newPath, host, skipHosts); err != nil {
 		return err
 	}
 
@@ -1151,6 +1251,9 @@ func moduleRename(p paths.Paths, args []string) error {
 	}
 
 	fmt.Printf("Renamed modules/%s -> modules/%s\n", oldPath, newPath)
+	if shadowedPath != "" {
+		fmt.Printf("Note: modules/%s now shadows modules/%s\n", newPath, shadowedPath)
+	}
 	return nil
 }
 

@@ -108,16 +108,26 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 // touched (the local-unit case, L7). Returns every change made; a no-op
 // line (already at newPath) is left untouched and unreported, so a second
 // run returns no changes. A host whose file isn't recognizable is warned
-// about and left untouched.
-func Retarget(machinesDir, name, newPath, host string) ([]Change, error) {
-	changes, _, err := retarget(machinesDir, name, newPath, host)
+// about and left untouched. The entrypoints of skipHosts are never rewritten.
+func Retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
+	changes, _, err := retarget(machinesDir, name, newPath, host, skipHosts)
 	return changes, err
 }
 
-func retarget(machinesDir, name, newPath, host string) ([]Change, []string, error) {
-	files, err := entrypointsFor(machinesDir, host)
+func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, []string, error) {
+	all, err := entrypointsFor(machinesDir, host)
 	if err != nil {
 		return nil, nil, err
+	}
+	skip := make(map[string]bool, len(skipHosts))
+	for _, h := range skipHosts {
+		skip[h] = true
+	}
+	var files []string
+	for _, f := range all {
+		if !skip[filepath.Base(filepath.Dir(f))] {
+			files = append(files, f)
+		}
 	}
 
 	match := func(p string) bool { return units.NameFromPath(p) == name }
@@ -223,7 +233,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 						continue
 					}
 					handledLocal[key] = true
-					rc, rw, err := retarget(machinesDir, name, resolved, host)
+					rc, rw, err := retarget(machinesDir, name, resolved, host, nil)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -234,7 +244,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 						continue
 					}
 					handledShared[name] = true
-					rc, rw, err := retarget(machinesDir, name, resolved, "")
+					rc, rw, err := retarget(machinesDir, name, resolved, "", nil)
 					if err != nil {
 						return nil, nil, err
 					}

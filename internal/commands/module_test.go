@@ -10,6 +10,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/links"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 func TestModuleMarker(t *testing.T) {
@@ -285,5 +286,82 @@ func TestBareModuleAndUserPrintHelp(t *testing.T) {
 	}
 	if err := User(nil); err != nil {
 		t.Errorf("User(nil) = %v, want nil", err)
+	}
+}
+
+func TestModuleRename_SharedUnitShadowedOnHostLeavesThatHostUntouched(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+
+	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host2", "modules", "wayland.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host2", "modules", "x.nix"),
+		`{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`+"\n")
+	write(t, filepath.Join(p.Machines, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./wayland.nix\n  ];\n}\n")
+	host2Sel := "{ ... }:\n{\n  imports = [\n    ./local/wayland.nix\n    ./local/x.nix\n  ];\n}\n"
+	write(t, filepath.Join(p.Machines, "host2", "modules.nix"), host2Sel)
+
+	if err := moduleRename(p, []string{"wayland", "wl", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+
+	if got := mustReadFile(t, filepath.Join(p.Machines, "host2", "modules.nix")); got != host2Sel {
+		t.Errorf("shadowing host's modules.nix changed:\n%s", got)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Machines, "host2", "modules", "x.nix")); !strings.Contains(got, `"wayland"`) {
+		t.Errorf("shadowing host's local reference changed: %q", got)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Machines, "host1", "modules.nix")); !strings.Contains(got, "./wl.nix") {
+		t.Errorf("host1 not rewritten: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "wl.nix")); err != nil {
+		t.Errorf("shared unit not renamed: %v", err)
+	}
+}
+
+func TestModuleRename_LocalUnitMayShadowSharedName(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+
+	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host1", "modules", "mine.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host1", "modules.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/mine.nix\n  ];\n}\n")
+
+	if err := moduleRename(p, []string{"mine", "wayland", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Machines, "host1", "modules", "wayland.nix")); err != nil {
+		t.Errorf("local unit not renamed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "wayland.nix")); err != nil {
+		t.Errorf("shared unit must stay: %v", err)
+	}
+}
+
+func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
+	us := []units.Unit{
+		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
+		{Name: "other", Path: "local/other.nix"},
+	}
+	rows := moduleBuildRows(us, nil, nil, nil, "desktop")
+	if len(rows) != 1 || !rows[0].shadow || strings.Join(rows[0].category, "/") != "shells" {
+		t.Fatalf("rows = %+v", rows)
+	}
+
+	all := moduleBuildRows(us, nil, nil, nil, "")
+	var b strings.Builder
+	moduleRenderTTY(&b, all, "modules/", colorTreePalette)
+	if !strings.Contains(b.String(), colorUnderline+"ambxst"+colorReset) {
+		t.Errorf("shadow not underlined:\n%q", b.String())
+	}
+	if strings.Count(b.String(), "ambxst") != 1 || !strings.Contains(b.String(), "shells/") {
+		t.Errorf("shadow not listed once under shells/:\n%q", b.String())
+	}
+	b.Reset()
+	moduleRenderTTY(&b, all, "modules/", treePalette{})
+	if strings.Contains(b.String(), "\x1b") {
+		t.Errorf("plain palette emitted escapes: %q", b.String())
 	}
 }

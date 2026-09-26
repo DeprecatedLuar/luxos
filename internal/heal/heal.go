@@ -332,7 +332,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
 		return err
 	}
 
