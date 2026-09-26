@@ -31,7 +31,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
-			gohelp.Item("flake <name>", "Show where one input comes from and what updating it would give"),
+			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
 			gohelp.Item("module|modules list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
 			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),

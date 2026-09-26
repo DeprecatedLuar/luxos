@@ -59,6 +59,7 @@ const (
 	flakeShortRevLen         = 7
 	flakePullsInSep          = ", "
 	flakePathSep             = "/"
+	flakeViewSep             = "\n"
 )
 
 // flakeBuiltinInputs are declared by the embedded bootstrap flake, so they
@@ -81,7 +82,7 @@ func Flake(args []string) error {
 		if strings.HasPrefix(args[0], "-") {
 			return help.Run([]string{"help", "flake"})
 		}
-		return flakeShow(args[0], args[1:])
+		return flakeShow(args)
 	}
 }
 
@@ -481,15 +482,15 @@ type flakeView struct {
 	lines  []flakeLine
 }
 
-// flakeShow implements `flake <name>`: where the input comes from and what
+// flakeShow implements `flake <name>...`: where each input comes from and what
 // updating it would give. It only reads; no root needed.
-func flakeShow(name string, args []string) error {
-	opts, extra, err := shared.Parse(flakeListFlagSpec, args)
+func flakeShow(args []string) error {
+	opts, names, err := shared.Parse(flakeListFlagSpec, args)
 	if err != nil {
 		return err
 	}
-	if len(extra) > 0 {
-		return fmt.Errorf("unexpected argument '%s'\n  usage: luxos flake <name> [--machine <name>] [--config|-C <dir>] [--offline]", extra[0])
+	if len(names) == 0 {
+		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline]")
 	}
 
 	p, host, hostDir, err := resolveFlakeHost(opts)
@@ -509,9 +510,13 @@ func flakeShow(name string, args []string) error {
 	if opts["offline"] == "" {
 		fetch = flakeFetchUpstream
 	}
-	view, err := flakeBuildView(name, host, sites, graph, fetch)
-	if err != nil {
-		return err
+	var views []flakeView
+	for _, name := range names {
+		found, err := flakeViewsFor(name, host, sites, graph, fetch)
+		if err != nil {
+			return err
+		}
+		views = append(views, found...)
 	}
 
 	pal := treePalette{}
@@ -519,9 +524,68 @@ func flakeShow(name string, args []string) error {
 		pal = colorTreePalette
 	}
 	var out strings.Builder
-	flakeRenderView(&out, view, pal)
+	for i, view := range views {
+		if i > 0 {
+			out.WriteString(flakeViewSep)
+		}
+		flakeRenderView(&out, view, pal)
+	}
 	fmt.Print(out.String())
 	return nil
+}
+
+// flakeViewsFor builds the views for one name: the root input of that name,
+// then every pulled-in input of that name. A name matching nothing is an error.
+func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph staging.LockGraph,
+	fetch func(staging.LockRef, string) *flakeUpstream) ([]flakeView, error) {
+
+	var views []flakeView
+	rootView, rootErr := flakeBuildView(name, host, sites, graph, fetch)
+	if rootErr == nil {
+		views = append(views, rootView)
+	}
+	if !strings.Contains(name, flakePathSep) {
+		for _, path := range flakeNestedPaths(graph, name) {
+			view, err := flakeBuildView(path, host, sites, graph, fetch)
+			if err != nil {
+				return nil, err
+			}
+			view.name = path
+			views = append(views, view)
+		}
+	}
+	if len(views) == 0 {
+		return nil, rootErr
+	}
+	return views, nil
+}
+
+// flakeNestedPaths returns the tree path of every pulled-in input called name
+// (below a root input, at any depth), in sorted tree order.
+func flakeNestedPaths(graph staging.LockGraph, name string) []string {
+	var found []string
+	var walk func(key, prefix string, ancestors map[string]bool)
+	walk = func(key, prefix string, ancestors map[string]bool) {
+		inputs := graph.Nodes[key].Inputs
+		for _, child := range flakeSortedKeys(inputs) {
+			target := inputs[child]
+			if ancestors[target] || (prefix == "" && child == flakeFileInput) {
+				continue
+			}
+			path := child
+			if prefix != "" {
+				path = prefix + flakePathSep + child
+				if child == name {
+					found = append(found, path)
+				}
+			}
+			ancestors[target] = true
+			walk(target, path, ancestors)
+			delete(ancestors, target)
+		}
+	}
+	walk(staging.LockRootNode, "", map[string]bool{})
+	return found
 }
 
 // flakeFetchUpstream asks the network about ref's tip, tags and the range
