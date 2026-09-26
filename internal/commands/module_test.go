@@ -422,3 +422,42 @@ func TestModuleFillInputs(t *testing.T) {
 		t.Errorf("none inputs = %v", rows[2].inputs)
 	}
 }
+
+func TestModuleRenderJSON(t *testing.T) {
+	rows := []moduleRow{
+		{category: []string{"desktop", "shells"}, name: "ambxst", marker: markerEnabledBoth, inputs: []string{"ambxst", "axctl"}},
+		{name: "base", marker: markerEnabledOnly},
+	}
+	var b strings.Builder
+	if err := moduleRenderJSON(&b, rows); err != nil {
+		t.Fatal(err)
+	}
+	want := `[
+  {
+    "path": "base",
+    "state": "staged",
+    "inputs": []
+  },
+  {
+    "path": "desktop/shells/ambxst",
+    "state": "active",
+    "inputs": [
+      "ambxst",
+      "axctl"
+    ]
+  }
+]
+`
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+func TestModuleListJSONConflicts(t *testing.T) {
+	for _, flag := range []string{"--raw", "--flat"} {
+		err := moduleList(paths.Paths{}, []string{"--json", flag})
+		if err == nil || !strings.Contains(err.Error(), "--json") || !strings.Contains(err.Error(), flag) {
+			t.Errorf("--json %s: got %v", flag, err)
+		}
+	}
+}

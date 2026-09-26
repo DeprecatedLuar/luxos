@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -493,6 +494,47 @@ func rowPath(r moduleRow) string {
 	return strings.Join(r.category, "/") + "/" + r.name
 }
 
+// jsonIndent is the indent of --json output.
+const jsonIndent = "  "
+
+// errJSONConflict names both flags when --json is combined with a plain view.
+func errJSONConflict(other string) error {
+	return fmt.Errorf("--json cannot be combined with %s", other)
+}
+
+// writeJSON writes v to w as indented JSON with a trailing newline.
+func writeJSON(w *strings.Builder, v any) error {
+	data, err := json.MarshalIndent(v, "", jsonIndent)
+	if err != nil {
+		return err
+	}
+	w.Write(data)
+	w.WriteString("\n")
+	return nil
+}
+
+// moduleJSONRow is one element of `module list --json`.
+type moduleJSONRow struct {
+	Path   string   `json:"path"`
+	State  string   `json:"state"`
+	Inputs []string `json:"inputs"`
+}
+
+// moduleRenderJSON writes rows to w as one JSON array, byte-sorted by path;
+// inputs is [] when a unit declares none.
+func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
+	out := make([]moduleJSONRow, 0, len(rows))
+	for _, r := range rows {
+		inputs := r.inputs
+		if inputs == nil {
+			inputs = []string{}
+		}
+		out = append(out, moduleJSONRow{Path: rowPath(r), State: markerWord(r.marker), Inputs: inputs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return writeJSON(w, out)
+}
+
 // moduleRenderPlain writes rows to w in piped form: one
 // "path<TAB>state<TAB>inputs" per line, no headers, byte-sorted by path;
 // inputs are space-separated, empty when the unit declares none.
@@ -558,7 +600,7 @@ func stdoutIsTTY() bool {
 
 // moduleList implements `module list [category-path]`.
 func moduleList(p paths.Paths, args []string) error {
-	var flat, raw bool
+	var flat, raw, asJSON bool
 	var positional []string
 	for _, a := range args {
 		switch a {
@@ -568,8 +610,18 @@ func moduleList(p paths.Paths, args []string) error {
 		case "--raw":
 			raw = true
 			continue
+		case "--json":
+			asJSON = true
+			continue
 		}
 		positional = append(positional, a)
+	}
+
+	switch {
+	case asJSON && raw:
+		return errJSONConflict("--raw")
+	case asJSON && flat:
+		return errJSONConflict("--flat")
 	}
 
 	var categoryPath string
@@ -640,6 +692,10 @@ func moduleList(p paths.Paths, args []string) error {
 
 	var out strings.Builder
 	switch {
+	case asJSON:
+		if err := moduleRenderJSON(&out, rows); err != nil {
+			return err
+		}
 	case raw:
 		moduleRenderPlain(&out, rows)
 	case flat:

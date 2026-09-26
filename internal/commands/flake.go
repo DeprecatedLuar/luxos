@@ -28,7 +28,7 @@ import (
 const flakeFlagSpec = "machine:value config|C:value"
 
 // flakeListFlagSpec is flakeFlagSpec plus the listing's own flags.
-const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool"
+const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
 const (
 	// flakeInputsLabel is the root label of the input tree.
@@ -178,6 +178,10 @@ func flakeList(args []string) error {
 		return err
 	}
 
+	if opts["json"] != "" && opts["raw"] != "" {
+		return errJSONConflict("--raw")
+	}
+
 	p, _, hostDir, err := resolveFlakeHost(opts)
 	if err != nil {
 		return err
@@ -205,19 +209,31 @@ func flakeList(args []string) error {
 	}
 
 	var out strings.Builder
-	if tty && opts["raw"] == "" {
+	switch {
+	case opts["json"] != "":
+		if err := flakeRenderListJSON(&out, rows); err != nil {
+			return err
+		}
+	case tty && opts["raw"] == "":
 		moduleRenderTTY(&out, rows, flakeInputsLabel, pal)
-	} else {
+	default:
 		flakeRenderPlain(&out, rows)
 	}
 	fmt.Print(out.String())
 	return nil
 }
 
-// flakeRenderPlain writes rows in piped form: one "tree path<TAB>state<TAB>
-// status" per line (children as parent/child), byte-sorted by path.
-func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
-	var lines []struct{ path, line string }
+// flakeListJSONRow is one element of `flake list --json`.
+type flakeListJSONRow struct {
+	Path   string `json:"path"`
+	State  string `json:"state"`
+	Status string `json:"status"`
+}
+
+// flakeListEntries flattens the tree into one entry per input (children as
+// parent/child), byte-sorted by path.
+func flakeListEntries(rows []moduleRow) []flakeListJSONRow {
+	var entries []flakeListJSONRow
 	var add func(prefix string, rows []moduleRow)
 	add = func(prefix string, rows []moduleRow) {
 		for _, r := range rows {
@@ -226,15 +242,29 @@ func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
 			if prefix == "" {
 				path = rowPath(r)
 			}
-			lines = append(lines, struct{ path, line string }{path,
-				strings.Join([]string{path, markerWord(r.marker), r.status}, plainColumnSep)})
+			entries = append(entries, flakeListJSONRow{path, markerWord(r.marker), r.status})
 			add(addressed+flakePathSep, r.children)
 		}
 	}
 	add("", rows)
-	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
-	for _, l := range lines {
-		fmt.Fprintln(w, l.line)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries
+}
+
+// flakeRenderListJSON writes the tree as one JSON array of path, state, status.
+func flakeRenderListJSON(w *strings.Builder, rows []moduleRow) error {
+	entries := flakeListEntries(rows)
+	if entries == nil {
+		entries = []flakeListJSONRow{}
+	}
+	return writeJSON(w, entries)
+}
+
+// flakeRenderPlain writes rows in piped form: one "tree path<TAB>state<TAB>
+// status" per line (children as parent/child), byte-sorted by path.
+func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
+	for _, e := range flakeListEntries(rows) {
+		fmt.Fprintln(w, strings.Join([]string{e.Path, e.State, e.Status}, plainColumnSep))
 	}
 }
 
@@ -531,11 +561,11 @@ type flakeViewData struct {
 	state    string
 	status   string
 	source   string
-	declared string
+	declared []string
 	current  string
 	latest   string
 	commits  string
-	pulls    string
+	pulls    []string
 }
 
 // flakeView is the single-input view: a header and its lines.
@@ -555,7 +585,10 @@ func flakeShow(args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline] [--raw]")
+		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline] [--raw|--json]")
+	}
+	if opts["json"] != "" && opts["raw"] != "" {
+		return errJSONConflict("--raw")
 	}
 
 	p, host, hostDir, err := resolveFlakeHost(opts)
@@ -582,6 +615,15 @@ func flakeShow(args []string) error {
 			return err
 		}
 		views = append(views, found...)
+	}
+
+	if opts["json"] != "" {
+		var out strings.Builder
+		if err := flakeRenderViewsJSON(&out, views); err != nil {
+			return err
+		}
+		fmt.Print(out.String())
+		return nil
 	}
 
 	tty := stdoutIsTTY()
@@ -747,11 +789,11 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 		state:    markerWord(view.marker),
 		status:   flakeStatus(hasNode && version.checked, true, note),
 		source:   strings.TrimSuffix(source, flakeSourceDefaultBranch),
-		declared: strings.Join(declaredSites, flakeViewListSep),
+		declared: declaredSites,
 		current:  version.current,
 		latest:   version.latest,
 		commits:  version.commits,
-		pulls:    strings.Join(names, flakeViewListSep),
+		pulls:    names,
 	}
 	return view, nil
 }
@@ -894,11 +936,63 @@ func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.Lo
 func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
 	for _, kv := range [][2]string{
 		{"name", d.name}, {"state", d.state}, {"status", d.status}, {"source", d.source},
-		{"declared", d.declared}, {"current", d.current}, {"latest", d.latest},
-		{"commits", d.commits}, {"pulls", d.pulls},
+		{"declared", strings.Join(d.declared, flakeViewListSep)}, {"current", d.current}, {"latest", d.latest},
+		{"commits", d.commits}, {"pulls", strings.Join(d.pulls, flakeViewListSep)},
 	} {
 		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
 	}
+}
+
+// flakeViewJSON is one input's view in `flake <name> --json`. current, latest
+// and commits are null when empty (not checked, or not known).
+type flakeViewJSON struct {
+	Name     string   `json:"name"`
+	State    string   `json:"state"`
+	Status   string   `json:"status"`
+	Source   string   `json:"source"`
+	Declared []string `json:"declared"`
+	Pulls    []string `json:"pulls"`
+	Current  *string  `json:"current"`
+	Latest   *string  `json:"latest"`
+	Commits  *int     `json:"commits"`
+}
+
+// flakeViewToJSON converts the key=value view data to its JSON shape.
+func flakeViewToJSON(d flakeViewData) (flakeViewJSON, error) {
+	out := flakeViewJSON{
+		Name: d.name, State: d.state, Status: d.status, Source: d.source,
+		Declared: append([]string{}, d.declared...), Pulls: append([]string{}, d.pulls...),
+	}
+	if d.current != "" {
+		out.Current = &d.current
+	}
+	if d.latest != "" {
+		out.Latest = &d.latest
+	}
+	if d.commits != "" {
+		n, err := strconv.Atoi(d.commits)
+		if err != nil {
+			return out, fmt.Errorf("commit count %q of input %s: %w", d.commits, d.name, err)
+		}
+		out.Commits = &n
+	}
+	return out, nil
+}
+
+// flakeRenderViewsJSON writes one object for a single view, an array for several.
+func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
+	objs := make([]flakeViewJSON, 0, len(views))
+	for _, v := range views {
+		obj, err := flakeViewToJSON(v.data)
+		if err != nil {
+			return err
+		}
+		objs = append(objs, obj)
+	}
+	if len(objs) == 1 {
+		return writeJSON(w, objs[0])
+	}
+	return writeJSON(w, objs)
 }
 
 func flakeShortRev(rev string) string {

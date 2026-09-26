@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -385,5 +386,86 @@ func TestFlakeShowPlainBehindCurrentOffline(t *testing.T) {
 		"declared=modules/desktop/shells/ambxst/module.nix:8\ncurrent=1e9592a\nlatest=\ncommits=\npulls=axctl nixpkgs\n"
 	if got := plainView(t, "ambxst", nil); got != want {
 		t.Errorf("offline:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFlakeListJSON(t *testing.T) {
+	rows := flakeBuildRows(map[string][]string{}, testLockGraph(), nil)
+	var b strings.Builder
+	if err := flakeRenderListJSON(&b, rows); err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]string
+	if err := json.Unmarshal([]byte(b.String()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || got[0]["path"] == "" || got[0]["state"] == "" || got[0]["status"] == "" {
+		t.Errorf("unexpected list JSON:\n%s", b.String())
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1]["path"] > got[i]["path"] {
+			t.Errorf("not byte-sorted:\n%s", b.String())
+		}
+	}
+}
+
+func showViews(t *testing.T, fetch func(staging.LockRef, string) *flakeUpstream, names ...string) []flakeView {
+	t.Helper()
+	var views []flakeView
+	for _, name := range names {
+		v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		views = append(views, v)
+	}
+	return views
+}
+
+func TestFlakeViewJSONSingleBehind(t *testing.T) {
+	behind := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{tip: showTip, tags: map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
+			ahead: 55, shas: []string{"x", showTag138, showMid, showTip}}
+	}
+	var b strings.Builder
+	if err := flakeRenderViewsJSON(&b, showViews(t, behind, "ambxst")); err != nil {
+		t.Fatal(err)
+	}
+	want := `{
+  "name": "ambxst",
+  "state": "active",
+  "status": "behind",
+  "source": "github:Axenide/Ambxst",
+  "declared": [
+    "modules/desktop/shells/ambxst/module.nix:8"
+  ],
+  "pulls": [
+    "axctl",
+    "nixpkgs"
+  ],
+  "current": "1.3.4",
+  "latest": "1.3.8",
+  "commits": 55
+}
+`
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+func TestFlakeViewJSONSeveralAndNulls(t *testing.T) {
+	var b strings.Builder
+	if err := flakeRenderViewsJSON(&b, showViews(t, nil, "ambxst/axctl", "unstable")); err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal([]byte(b.String()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0]["latest"] != nil || got[0]["commits"] != nil || got[1]["name"] != "unstable" {
+		t.Errorf("unexpected array:\n%s", b.String())
+	}
+	if d, ok := got[0]["declared"].([]any); !ok || len(d) != 0 {
+		t.Errorf("declared must be []:\n%s", b.String())
 	}
 }

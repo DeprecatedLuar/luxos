@@ -74,6 +74,7 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--offline", "list, <name>: skip the upstream check and make no network request"),
 			gohelp.Item("--raw", "list, <name>: plain output even on a terminal"),
+			gohelp.Item("--json", "list, <name>: JSON on stdout; field names match the plain output"),
 		).
 		Section("Markers (list)",
 			gohelp.Item("◉", "declared by a module and locked"),
@@ -91,7 +92,7 @@ func modulePage() *gohelp.Page {
 	return gohelp.NewPage("module", moduleDescription).
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
-			gohelp.Item("list|ls [category-path]", "List modules (grouped by category)"),
+			gohelp.Item("list|ls [category-path] [--json]", "List modules (grouped by category); --json prints JSON"),
 			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("enable <name>...", "Enable one or more modules on this host"),
@@ -99,7 +100,7 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		).
-		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, leftover, pulled, off) and the declared inputs, tab-separated.")
+		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, leftover, pulled, off) and the declared inputs, tab-separated. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
 }
 
 // userPage documents `luxos user`, the same verbs as module fixed to
@@ -109,7 +110,7 @@ func userPage() *gohelp.Page {
 		Usage(binaryName+" user <verb> ...").
 		Section("Commands",
 			gohelp.Item("add|a <name> [--enable]", "Scaffold modules/users/<name>"),
-			gohelp.Item("list|ls [subpath]", "List users (or a users/ subcategory)"),
+			gohelp.Item("list|ls [subpath] [--json]", "List users (or a users/ subcategory); --json prints them as JSON, fields as in the plain output"),
 			gohelp.Item("edit|e <name>", "Open a user module in $EDITOR"),
 			gohelp.Item("enable <name>...", "Enable one or more users on this host"),
 			gohelp.Item("disable <name>... [-y]", "Disable one or more users on this host"),
