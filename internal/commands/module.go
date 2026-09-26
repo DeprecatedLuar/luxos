@@ -68,6 +68,26 @@ const (
 	markerNeither     = "○" // neither
 )
 
+// State words of the plain output, one per marker; shared by module and flake
+// listings.
+const (
+	stateWordStaged   = "staged"
+	stateWordActive   = "active"
+	stateWordLeftover = "leftover"
+	stateWordPulled   = "pulled"
+	stateWordOff      = "off"
+)
+
+// flakeMark follows the name of a module that declares flake inputs, on a
+// terminal.
+const flakeMark = "❄"
+
+// plainColumnSep separates the columns of plain output.
+const plainColumnSep = "\t"
+
+// plainInputsSep separates input names within the inputs column.
+const plainInputsSep = " "
+
 // Tree palette (TTY only, disabled by NO_COLOR): drawn from the user's
 // Moonlight-inspired swatches, confirmed against an ANSI scratchpad preview.
 // Markers keep the state colors from the old flat view; the tree adds three
@@ -178,6 +198,22 @@ func moduleMarkerRank(marker string) int {
 	}
 }
 
+// markerWord returns the plain-output state word of a marker.
+func markerWord(marker string) string {
+	switch marker {
+	case markerEnabledOnly:
+		return stateWordStaged
+	case markerEnabledBoth:
+		return stateWordActive
+	case markerRunningOnly:
+		return stateWordLeftover
+	case markerPulled:
+		return stateWordPulled
+	default:
+		return stateWordOff
+	}
+}
+
 // moduleRow is one rendered line's worth of data for `module list`.
 type moduleRow struct {
 	category []string // path segments; empty for a root unit
@@ -188,6 +224,8 @@ type moduleRow struct {
 	children []moduleRow // rows nested beneath this one (flake list's transitive inputs)
 	note     string      // status glyph shown after the name in the TTY tree (flake list's upstream check)
 	shadow   bool        // a local unit shown in the place of the shared unit it hides
+	inputs   []string    // flake inputs the unit declares, sorted, deduplicated
+	status   string      // flake list's upstream status word (plain output)
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), matching bash's
@@ -276,10 +314,14 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 // nameText is a row's name as rendered on a terminal: underlined when the row
 // is a shadow.
 func nameText(r moduleRow, pal treePalette) string {
-	if r.shadow {
-		return pal.underline + r.name + pal.reset
+	name := r.name
+	if len(r.inputs) > 0 {
+		name += flakeMark
 	}
-	return r.name
+	if r.shadow {
+		return pal.underline + name + pal.reset
+	}
+	return name
 }
 
 // treeNode is one level of the nested tree moduleRenderTTY builds from
@@ -443,36 +485,69 @@ func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
 	}
 }
 
-// moduleRenderPlain writes rows to w in piped form: one "category/name" per
-// line ("name" for root units), no headers, no markers, byte-sorted.
+// rowPath is a row's "category/name" path ("name" for a root row).
+func rowPath(r moduleRow) string {
+	if len(r.category) == 0 {
+		return r.name
+	}
+	return strings.Join(r.category, "/") + "/" + r.name
+}
+
+// moduleRenderPlain writes rows to w in piped form: one
+// "path<TAB>state<TAB>inputs" per line, no headers, byte-sorted by path;
+// inputs are space-separated, empty when the unit declares none.
 func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
-	if len(rows) == 0 {
-		return
-	}
-	var lines []string
-	for _, r := range rows {
-		if len(r.category) == 0 {
-			lines = append(lines, r.name)
-		} else {
-			lines = append(lines, strings.Join(r.category, "/")+"/"+r.name)
-		}
-		lines = appendChildPaths(lines, r.name, r.children)
-	}
-	sort.Strings(lines)
-	for _, l := range lines {
-		fmt.Fprintln(w, l)
+	sorted := append([]moduleRow(nil), rows...)
+	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
+	for _, r := range sorted {
+		fmt.Fprintln(w, strings.Join([]string{rowPath(r), markerWord(r.marker), strings.Join(r.inputs, plainInputsSep)}, plainColumnSep))
 	}
 }
 
-// appendChildPaths appends one "parent/child" path per nested row, recursing
-// with the child's path as the next parent.
-func appendChildPaths(lines []string, parent string, children []moduleRow) []string {
-	for _, c := range children {
-		path := parent + "/" + c.name
-		lines = append(lines, path)
-		lines = appendChildPaths(lines, path, c.children)
+// moduleFillInputs sets each row's inputs from the flake input declarations
+// in its unit's files under modulesDir (rows and units are matched by name).
+func moduleFillInputs(rows []moduleRow, us []units.Unit, modulesDir string) error {
+	pathOf := make(map[string]string, len(us))
+	for _, u := range us {
+		pathOf[u.Name] = u.Path
 	}
-	return lines
+	for i := range rows {
+		unitPath, ok := pathOf[rows[i].name]
+		if !ok {
+			continue
+		}
+		inputs, err := unitInputs(filepath.Join(modulesDir, unitPath))
+		if err != nil {
+			return err
+		}
+		rows[i].inputs = inputs
+	}
+	return nil
+}
+
+// unitInputs returns the sorted, deduplicated flake input names declared in
+// the files of the unit at path (a file, or a folder of *.nix files).
+func unitInputs(path string) ([]string, error) {
+	files, err := refs.UnitFiles(path)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, file := range files {
+		decls, err := nixsrc.InputDecls(file)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range decls {
+			set[d.Name] = true
+		}
+	}
+	var names []string
+	for name := range set {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // stdoutIsTTY reports whether stdout is a terminal.
@@ -549,6 +624,9 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 
 	rows := moduleBuildRows(us, enabled, running, pulled, categoryPath)
+	if err := moduleFillInputs(rows, us, p.Modules); err != nil {
+		return err
+	}
 
 	rootLabel := "modules/"
 	if categoryPath != "" {

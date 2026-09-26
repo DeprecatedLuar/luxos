@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -27,7 +28,7 @@ import (
 const flakeFlagSpec = "machine:value config|C:value"
 
 // flakeListFlagSpec is flakeFlagSpec plus the listing's own flags.
-const flakeListFlagSpec = flakeFlagSpec + " offline:bool"
+const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool"
 
 const (
 	// flakeInputsLabel is the root label of the input tree.
@@ -41,6 +42,17 @@ const (
 	// locked rev; flakeNoteUnknown one whose tip could not be determined.
 	flakeNoteBehind  = "↑"
 	flakeNoteUnknown = "?"
+
+	// Status words of the plain output.
+	flakeStatusBehind  = "behind"
+	flakeStatusCurrent = "current"
+	flakeStatusUnknown = "unknown"
+
+	// flakeViewCommitsCurrent is the commits value of an up-to-date input.
+	flakeViewCommitsCurrent = "0"
+
+	// flakeViewListSep separates names within a key=value list value.
+	flakeViewListSep = " "
 )
 
 const (
@@ -193,13 +205,50 @@ func flakeList(args []string) error {
 	}
 
 	var out strings.Builder
-	if tty {
+	if tty && opts["raw"] == "" {
 		moduleRenderTTY(&out, rows, flakeInputsLabel, pal)
 	} else {
-		moduleRenderPlain(&out, rows)
+		flakeRenderPlain(&out, rows)
 	}
 	fmt.Print(out.String())
 	return nil
+}
+
+// flakeRenderPlain writes rows in piped form: one "tree path<TAB>state<TAB>
+// status" per line (children as parent/child), byte-sorted by path.
+func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
+	var lines []struct{ path, line string }
+	var add func(prefix string, rows []moduleRow)
+	add = func(prefix string, rows []moduleRow) {
+		for _, r := range rows {
+			addressed := prefix + r.name
+			path := addressed
+			if prefix == "" {
+				path = rowPath(r)
+			}
+			lines = append(lines, struct{ path, line string }{path,
+				strings.Join([]string{path, markerWord(r.marker), r.status}, plainColumnSep)})
+			add(addressed+flakePathSep, r.children)
+		}
+	}
+	add("", rows)
+	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
+	for _, l := range lines {
+		fmt.Fprintln(w, l.line)
+	}
+}
+
+// flakeStatus is the plain status word for a node: unknown when offline
+// (online false), not locked, or its check failed; behind or current otherwise.
+func flakeStatus(locked, online bool, note string) string {
+	switch {
+	case !locked || !online || note == flakeNoteUnknown:
+		return flakeStatusUnknown
+	case note == flakeNoteBehind:
+		return flakeStatusBehind
+	default:
+		return flakeStatusCurrent
+	}
 }
 
 // flakeUpstreamNotes checks the upstream tip of every locked node reachable
@@ -424,6 +473,7 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes ma
 			rank:     moduleMarkerRank(marker),
 			children: children,
 			note:     note,
+			status:   flakeStatus(locked[name], notes != nil, note),
 		})
 	}
 	return rows
@@ -445,6 +495,7 @@ func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[stri
 			rank:     moduleMarkerRank(markerPulled),
 			children: flakeTransitiveRows(graph, target, ancestors, notes),
 			note:     notes[target],
+			status:   flakeStatus(true, notes != nil, notes[target]),
 		})
 		delete(ancestors, target)
 	}
@@ -474,12 +525,26 @@ type flakeLine struct {
 	children []flakeLine
 }
 
+// flakeViewData is the single-input view as key=value fields (plain output).
+type flakeViewData struct {
+	name     string
+	state    string
+	status   string
+	source   string
+	declared string
+	current  string
+	latest   string
+	commits  string
+	pulls    string
+}
+
 // flakeView is the single-input view: a header and its lines.
 type flakeView struct {
 	marker string
 	name   string
 	note   string
 	lines  []flakeLine
+	data   flakeViewData
 }
 
 // flakeShow implements `flake <name>...`: where each input comes from and what
@@ -490,7 +555,7 @@ func flakeShow(args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline]")
+		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline] [--raw]")
 	}
 
 	p, host, hostDir, err := resolveFlakeHost(opts)
@@ -519,8 +584,9 @@ func flakeShow(args []string) error {
 		views = append(views, found...)
 	}
 
+	tty := stdoutIsTTY()
 	pal := treePalette{}
-	if colorsEnabled(stdoutIsTTY()) {
+	if colorsEnabled(tty) {
 		pal = colorTreePalette
 	}
 	var out strings.Builder
@@ -528,7 +594,11 @@ func flakeShow(args []string) error {
 		if i > 0 {
 			out.WriteString(flakeViewSep)
 		}
-		flakeRenderView(&out, view, pal)
+		if tty && opts["raw"] == "" {
+			flakeRenderView(&out, view, pal)
+		} else {
+			flakeRenderViewPlain(&out, view.data)
+		}
 	}
 	fmt.Print(out.String())
 	return nil
@@ -649,19 +719,39 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 		node = graph.Nodes[key]
 	}
 
-	if source := flakeSourceText(node.Original, sites[root], hasNode); source != "" {
+	source := flakeSourceText(node.Original, sites[root], hasNode)
+	if source != "" {
 		view.lines = append(view.lines, flakeLine{label: "source", value: source})
 	}
 	view.lines = append(view.lines, flakeDeclaredLine(parent, sites[root], builtin, view.marker))
 
-	versionLine, note := flakeVersionLine(node, hasNode, fetch)
+	versionLine, note, version := flakeVersionLine(node, hasNode, fetch)
 	view.note = note
 	view.lines = append(view.lines, versionLine)
 
-	if names := flakeSortedKeys(node.Inputs); len(names) > 0 {
+	names := flakeSortedKeys(node.Inputs)
+	if len(names) > 0 {
 		view.lines = append(view.lines, flakeLine{label: "pulls in", children: []flakeLine{
 			{value: strings.Join(names, flakePullsInSep)},
 		}})
+	}
+
+	var declaredSites []string
+	if view.marker != markerPulled {
+		for _, d := range sites[root] {
+			declaredSites = append(declaredSites, fmt.Sprintf("%s:%d", d.file, d.line))
+		}
+	}
+	view.data = flakeViewData{
+		name:     name,
+		state:    markerWord(view.marker),
+		status:   flakeStatus(hasNode && version.checked, true, note),
+		source:   strings.TrimSuffix(source, flakeSourceDefaultBranch),
+		declared: strings.Join(declaredSites, flakeViewListSep),
+		current:  version.current,
+		latest:   version.latest,
+		commits:  version.commits,
+		pulls:    strings.Join(names, flakeViewListSep),
 	}
 	return view, nil
 }
@@ -717,13 +807,22 @@ func flakeDeclaredLine(parent string, decls []flakeDecl, builtin bool, marker st
 	return line
 }
 
-// flakeVersionLine builds the `version` line and the header note. fetch nil
-// (offline) shows the current rev only.
-func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.LockRef, string) *flakeUpstream) (flakeLine, string) {
+// flakeVersion is the version part of the key=value view. checked is false
+// when no upstream answer was obtained (offline, not locked).
+type flakeVersion struct {
+	current string
+	latest  string
+	commits string
+	checked bool
+}
+
+// flakeVersionLine builds the `version` line, the header note and the
+// key=value fields. fetch nil (offline) shows the current rev only.
+func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.LockRef, string) *flakeUpstream) (flakeLine, string, flakeVersion) {
 	line := flakeLine{label: "version"}
 	if !hasNode {
 		line.children = []flakeLine{{label: "current", value: flakeNotLocked}}
-		return line, ""
+		return line, "", flakeVersion{}
 	}
 
 	rev := node.Locked.Rev
@@ -739,19 +838,23 @@ func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.Lo
 		}
 	}
 	cur := flakeLine{label: "current", value: current}
+	version := flakeVersion{current: current}
 	if up == nil {
 		line.children = []flakeLine{cur}
-		return line, ""
+		return line, "", version
 	}
+	version.checked = true
 
 	switch {
 	case up.tipErr != nil:
 		line.children = []flakeLine{cur, {label: "latest", value: flakeNoteUnknown}}
-		return line, flakeNoteUnknown
+		version.latest = flakeStatusUnknown
+		return line, flakeNoteUnknown, version
 	case up.tip == rev:
 		cur.value += flakeUpToDate
 		line.children = []flakeLine{cur}
-		return line, ""
+		version.commits = flakeViewCommitsCurrent
+		return line, "", version
 	}
 
 	latest := flakeLine{label: "latest"}
@@ -777,7 +880,25 @@ func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.Lo
 		}
 	}
 	line.children = []flakeLine{cur, latest}
-	return line, flakeNoteBehind
+	version.latest = latest.value
+	if latest.value == flakeNoteUnknown {
+		version.latest = flakeStatusUnknown
+	}
+	if up.compareErr == nil {
+		version.commits = strconv.Itoa(up.ahead)
+	}
+	return line, flakeNoteBehind, version
+}
+
+// flakeRenderViewPlain writes the view as key=value lines, every key present.
+func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
+	for _, kv := range [][2]string{
+		{"name", d.name}, {"state", d.state}, {"status", d.status}, {"source", d.source},
+		{"declared", d.declared}, {"current", d.current}, {"latest", d.latest},
+		{"commits", d.commits}, {"pulls", d.pulls},
+	} {
+		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
+	}
 }
 
 func flakeShortRev(rev string) string {

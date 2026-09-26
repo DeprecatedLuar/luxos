@@ -73,6 +73,7 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("--machine <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--offline", "list, <name>: skip the upstream check and make no network request"),
+			gohelp.Item("--raw", "list, <name>: plain output even on a terminal"),
 		).
 		Section("Markers (list)",
 			gohelp.Item("◉", "declared by a module and locked"),
@@ -82,7 +83,7 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("↑", "after a name: upstream has moved past the locked revision"),
 			gohelp.Item("?", "after a name: upstream could not be checked (unsupported source or request failed)"),
 		).
-		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, it prints one path per line without markers. With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, nixpkgs, unstable. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
+		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, nixpkgs, unstable. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
 }
 
 // modulePage documents every `luxos module` verb.
@@ -98,7 +99,7 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		).
-		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list.")
+		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, leftover, pulled, off) and the declared inputs, tab-separated.")
 }
 
 // userPage documents `luxos user`, the same verbs as module fixed to

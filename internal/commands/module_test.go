@@ -365,3 +365,60 @@ func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
 		t.Errorf("plain palette emitted escapes: %q", b.String())
 	}
 }
+
+func TestModuleRenderPlainStateAndInputs(t *testing.T) {
+	rows := []moduleRow{
+		{category: []string{"desktop", "shells"}, name: "ambxst", marker: markerEnabledBoth, inputs: []string{"ambxst", "axctl"}},
+		{name: "base", marker: markerEnabledOnly},
+		{name: "old", marker: markerRunningOnly},
+		{name: "dep", marker: markerPulled},
+		{name: "idle", marker: markerNeither},
+	}
+	var b strings.Builder
+	moduleRenderPlain(&b, rows)
+	want := "base\tstaged\t\ndep\tpulled\t\ndesktop/shells/ambxst\tactive\tambxst axctl\nidle\toff\t\nold\tleftover\t\n"
+	if b.String() != want {
+		t.Errorf("got %q want %q", b.String(), want)
+	}
+
+	var tty strings.Builder
+	moduleRenderTTY(&tty, rows, "modules/", treePalette{})
+	if !strings.Contains(tty.String(), "ambxst"+flakeMark+"\n") {
+		t.Errorf("flake mark missing:\n%s", tty.String())
+	}
+}
+
+func TestModuleFillInputs(t *testing.T) {
+	dir := t.TempDir()
+	decl := func(name string) string {
+		return "{ ... }: {\n  flake-file.inputs." + name + ".url = \"github:o/" + name + "\";\n}\n"
+	}
+	write := func(rel, content string) {
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("file.nix", decl("zed")+decl("abc")+decl("zed"))
+	write("folder/default.nix", "{ ... }: { }\n")
+	write("folder/sub/inner.nix", decl("deep"))
+	write("none.nix", "{ ... }: { }\n")
+
+	us := []units.Unit{{Name: "file", Path: "file.nix"}, {Name: "folder", Path: "folder"}, {Name: "none", Path: "none.nix"}}
+	rows := []moduleRow{{name: "file"}, {name: "folder"}, {name: "none"}}
+	if err := moduleFillInputs(rows, us, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(rows[0].inputs, ","); got != "abc,zed" {
+		t.Errorf("file inputs = %q", got)
+	}
+	if got := strings.Join(rows[1].inputs, ","); got != "deep" {
+		t.Errorf("folder inputs = %q", got)
+	}
+	if len(rows[2].inputs) != 0 {
+		t.Errorf("none inputs = %v", rows[2].inputs)
+	}
+}

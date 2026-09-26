@@ -132,8 +132,9 @@ func TestFlakeRenderTreeAndPlain(t *testing.T) {
 	}
 
 	var plain strings.Builder
-	moduleRenderPlain(&plain, rows)
-	wantPlain := "ambxst/axctl\nambxst/axctl/deep\nambxst/nixpkgs\ndesktop/shells/ambxst\nluxos\nnixpkgs\nold\nshared\n"
+	flakeRenderPlain(&plain, rows)
+	wantPlain := "ambxst/axctl\tpulled\tunknown\nambxst/axctl/deep\tpulled\tunknown\nambxst/nixpkgs\tpulled\tunknown\n" +
+		"desktop/shells/ambxst\tactive\tunknown\nluxos\tactive\tunknown\nnixpkgs\tstaged\tunknown\nold\tleftover\tunknown\nshared\tleftover\tunknown\n"
 	if plain.String() != wantPlain {
 		t.Errorf("plain:\n%q\nwant:\n%q", plain.String(), wantPlain)
 	}
@@ -152,9 +153,13 @@ func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
 	}
 
 	var plain strings.Builder
-	moduleRenderPlain(&plain, rows)
+	flakeRenderPlain(&plain, rows)
 	if strings.ContainsAny(plain.String(), "↑?") {
 		t.Errorf("plain output must stay parseable:\n%s", plain.String())
+	}
+	if !strings.Contains(plain.String(), "ambxst/axctl\tpulled\tunknown\n") ||
+		!strings.Contains(plain.String(), "ambxst\tactive\tbehind\n") && !strings.Contains(plain.String(), "/ambxst\tactive\tbehind\n") {
+		t.Errorf("statuses:\n%s", plain.String())
 	}
 }
 
@@ -340,5 +345,45 @@ func TestFlakeShowUnknownInput(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "no input '"+name+"' for h\n  list them with: luxos flakes") {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func plainView(t *testing.T, name string, fetch func(staging.LockRef, string) *flakeUpstream) string {
+	t.Helper()
+	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	flakeRenderViewPlain(&b, v.data)
+	return b.String()
+}
+
+func TestFlakeShowPlainBehindCurrentOffline(t *testing.T) {
+	behind := func(staging.LockRef, string) *flakeUpstream {
+		return &flakeUpstream{
+			tip:   showTip,
+			tags:  map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
+			ahead: 55,
+			shas:  []string{"x", showTag138, showMid, showTip},
+		}
+	}
+	want := "name=ambxst\nstate=active\nstatus=behind\nsource=github:Axenide/Ambxst\n" +
+		"declared=modules/desktop/shells/ambxst/module.nix:8\ncurrent=1.3.4\nlatest=1.3.8\ncommits=55\npulls=axctl nixpkgs\n"
+	if got := plainView(t, "ambxst", behind); got != want {
+		t.Errorf("behind:\n%s\nwant:\n%s", got, want)
+	}
+
+	current := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
+	want = "name=ambxst/axctl\nstate=pulled\nstatus=current\nsource=github:Axenide/axctl\n" +
+		"declared=\ncurrent=1e9592a\nlatest=\ncommits=0\npulls=\n"
+	if got := plainView(t, "ambxst/axctl", current); got != want {
+		t.Errorf("current:\n%s\nwant:\n%s", got, want)
+	}
+
+	want = "name=ambxst\nstate=active\nstatus=unknown\nsource=github:Axenide/Ambxst\n" +
+		"declared=modules/desktop/shells/ambxst/module.nix:8\ncurrent=1e9592a\nlatest=\ncommits=\npulls=axctl nixpkgs\n"
+	if got := plainView(t, "ambxst", nil); got != want {
+		t.Errorf("offline:\n%s\nwant:\n%s", got, want)
 	}
 }
