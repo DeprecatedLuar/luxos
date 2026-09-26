@@ -7,9 +7,15 @@ import (
 	"strings"
 )
 
-// hardwareOffWarning heads the confirmation shown before building or
-// switching without the hardware module.
-const hardwareOffWarning = "You are about to disable the hardware support of your machine (scary)"
+// The hardware warning heads the confirmation shown before building or
+// switching without the hardware module: warningHighlighted is red and
+// underlined, the rest is the normal color.
+const (
+	warningLead        = "You are about to "
+	warningHighlighted = "disable the hardware support"
+	warningTail        = " of your machine"
+	warningAside       = " (scary)"
+)
 
 // hardwareOffArt is printed under the warning; areYouSure inside it is
 // highlighted when stderr is a terminal.
@@ -22,10 +28,10 @@ const hardwareOffArt = `            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀�
                 ⠃⣿⣿⣜⣋⣀⠜⡪⣸⣿⣧⣼⣇⣩⣠⣬⣁⣾⣿⣿⣿⣰⡇⣠⡀
                 ⠀⣿⣿⣿⣿⣿⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⣨⠀
                 ⣶⡘⣿⣿⣿⣿⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢏⣼⣿⣵⠏⠀
-                ⠘⣷⡸⣿⣿⣿⣿⣇⠻⠿⠛⢹⣿⣿⣿⣿⣿⣿⢃⣾⣿⠿⠏⠀⠀
+ ARE YOU SURE?  ⠘⣷⡸⣿⣿⣿⣿⣇⠻⠿⠛⢹⣿⣿⣿⣿⣿⣿⢃⣾⣿⠿⠏⠀⠀
                 ⠀⠸⡇⣿⣿⡿⠛⠀⠁⠀⠀⠀⠉⠛⢿⣿⣿⣿⢸⣿⣿⢠⡆⠀⠀
-                ⠀⠀⣇⢿⣿⠁⠀⠀⠀⢀⣀⣀⣀⠀⠀⢿⣿⡟⣸⣿⣿⢸⡇⠀⠀
-  ARE YOU SURE?      ⢻⡜⣿⣴⣿⣿⣯⣛⣛⣿⣿⣿⣶⣬⣿⢣⣿⡿⠃⣠⡇⠀⠀
+                 ⠀⣇⢿⣿⠁⠀⠀⠀⢀⣀⣀⣀⠀⠀⢿⣿⡟⣸⣿⣿⢸⡇⠀⠀
+                  ⢻⡜⣿⣴⣿⣿⣯⣛⣛⣿⣿⣿⣶⣬⣿⢣⣿⡿⠃⣠⡇⠀⠀
                 ⠀⠀⠀⢻⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⣿⠟⠀⣸⣿⣇⠀⠀
                 ⠀⠀⠀⣆⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢃⢂⣼⣿⣿⣿⠀⠀
                 ⠀⠀⠀⢿⣧⠹⣿⣿⣿⣷⣿⣿⣿⣿⣿⡟⣱⢃⣾⣿⣿⣿⣿⣄⡀
@@ -34,9 +40,11 @@ const hardwareOffArt = `            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀�
 // areYouSure is the text inside hardwareOffArt that gets highlighted.
 const areYouSure = "ARE YOU SURE?"
 
-// ansiAreYouSure is bold italic red; ansiReset ends it.
+// ansiAreYouSure is bold italic red; ansiRed is plain red; ansiReset ends them.
 const (
 	ansiAreYouSure = "\x1b[1;3;31m"
+	ansiRed        = "\x1b[31m"
+	ansiUnderline  = "\x1b[4m"
 	ansiReset      = "\x1b[0m"
 )
 
@@ -80,10 +88,13 @@ func Confirm(prompt string, defYes bool) (bool, error) {
 // part of the system and reads one line from stdin; true only for "y"/"Y".
 func ConfirmHardwareOff() (bool, error) {
 	art := hardwareOffArt
+	warning := warningLead + warningHighlighted + warningTail + warningAside
 	if isCharDevice(os.Stderr) && os.Getenv(noColorEnv) == "" {
 		art = strings.Replace(art, areYouSure, ansiAreYouSure+areYouSure+ansiReset, 1)
+		warning = warningLead + ansiRed + ansiUnderline + warningHighlighted + ansiReset +
+			warningTail + warningAside
 	}
-	if _, err := fmt.Fprint(os.Stderr, hardwareOffWarning+"\n\n"+art+"\n\n"+hardwareOffPrompt); err != nil {
+	if _, err := fmt.Fprint(os.Stderr, warning+"\n\n"+art+"\n\n"+hardwareOffPrompt); err != nil {
 		return false, err
 	}
 	return isYes(readLine()), nil
