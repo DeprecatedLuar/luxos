@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -115,7 +116,8 @@ func flakeUpdate(args []string) error {
 		return err
 	}
 
-	if err := heal.Run(os.Stdout, p, host, false); err != nil {
+	// Staging progress is rebuild's output; failures come back as errors.
+	if err := heal.Run(io.Discard, p, host, false); err != nil {
 		return err
 	}
 
