@@ -37,7 +37,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("module|modules edit|e <name>", "Open a module in $EDITOR; top-level 'edit' is a shortcut for this"),
 			gohelp.Item("module|modules enable <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
-			gohelp.Item("module|modules disable <name>...", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
+			gohelp.Item("module|modules disable <name>... [-y]", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
 			gohelp.Item("module|modules remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
 			gohelp.Item("module|modules rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
@@ -56,6 +56,7 @@ func rebuildPage() *gohelp.Page {
 			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--backup-dir <dir>", "Move unrecognized /etc/nixos entries here (sets LUXOS_BACKUP_DIR)"),
 			gohelp.Item("--goodbye-luxos <dir>", "Replace /etc/nixos with <dir> as is and build it without luxos"),
+			gohelp.Item("-y, --yes", "Answer yes to luxos' own confirmations"),
 		)
 }
 
@@ -93,7 +94,7 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("enable <name>...", "Enable one or more modules on this host"),
-			gohelp.Item("disable <name>...", "Disable one or more modules on this host"),
+			gohelp.Item("disable <name>... [-y]", "Disable one or more modules on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		)
@@ -109,7 +110,7 @@ func userPage() *gohelp.Page {
 			gohelp.Item("list|ls [subpath]", "List users (or a users/ subcategory)"),
 			gohelp.Item("edit|e <name>", "Open a user module in $EDITOR"),
 			gohelp.Item("enable <name>...", "Enable one or more users on this host"),
-			gohelp.Item("disable <name>...", "Disable one or more users on this host"),
+			gohelp.Item("disable <name>... [-y]", "Disable one or more users on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
 		).

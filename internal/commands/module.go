@@ -851,11 +851,65 @@ func moduleEnable(p paths.Paths, args []string) error {
 	return nil
 }
 
-func moduleDisable(p paths.Paths, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: luxos module disable <name>...")
+// moduleYesSpec is the flag spec for verbs whose only flag is --yes.
+const moduleYesSpec = "yes|y:bool"
+
+// errHardwareDisableAborted is returned when disabling hardware is not confirmed.
+var errHardwareDisableAborted = errors.New("aborted: nothing changed\n  confirm with: luxos module disable hardware-support --yes")
+
+// disablesEnabledHardware reports whether any name in names is the
+// hardware unit and currently enabled on the active host.
+func disablesEnabledHardware(p paths.Paths, names []string) (bool, error) {
+	entrypoint := filepath.Join(p.Modules, entrypointName)
+	for _, name := range names {
+		resolved, found, err := resolveUnitPath(p.Modules, name)
+		if err != nil {
+			return false, err
+		}
+		if !found || resolved != config.HardwareUnitPath {
+			continue
+		}
+		_, enabled, err := enabledPathForName(entrypoint, name)
+		if err != nil {
+			return false, err
+		}
+		if enabled {
+			return true, nil
+		}
 	}
-	for _, name := range args {
+	return false, nil
+}
+
+func moduleDisable(p paths.Paths, args []string) error {
+	opts, names, err := shared.Parse(moduleYesSpec, args)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("usage: luxos module disable <name>... [-y]")
+	}
+
+	hardware, err := disablesEnabledHardware(p, names)
+	if err != nil {
+		return err
+	}
+	if hardware {
+		if opts["yes"] == "" {
+			ok, err := shared.ConfirmHardwareOff()
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return errHardwareDisableAborted
+			}
+		}
+		escalated := append(append([]string{"module", "disable"}, names...), "--yes")
+		if err := shared.EnsureRoot(escalated); err != nil {
+			return err
+		}
+	}
+
+	for _, name := range names {
 		if err := toggleModule(p, name, false); err != nil {
 			return err
 		}
@@ -916,11 +970,11 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 }
 
 // errHardwareUnit refuses remove and rename of the computer's hardware folder.
-var errHardwareUnit = errors.New("'hardware' is this computer's hardware folder, managed by luxos; it cannot be removed or renamed\n  disable it with: luxos module disable hardware")
+var errHardwareUnit = errors.New("'hardware-support' is this computer's hardware folder, managed by luxos; it cannot be removed or renamed\n  disable it with: luxos module disable hardware-support")
 
 // moduleRemove implements `module remove|rm <name> [-y]`.
 func moduleRemove(p paths.Paths, args []string) error {
-	opts, rest, err := shared.Parse("y|y:bool", args)
+	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {
 		return err
 	}
@@ -964,7 +1018,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is referenced by:", name), dependents, "")
 
-	if opts["y"] == "" {
+	if opts["yes"] == "" {
 		ok, err := shared.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
 		if err != nil {
 			return err
@@ -1005,7 +1059,7 @@ func joinCategory(category, base string) string {
 
 // moduleRename implements `module rename|rn <old> <new> [-y]`.
 func moduleRename(p paths.Paths, args []string) error {
-	opts, rest, err := shared.Parse("y|y:bool", args)
+	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {
 		return err
 	}
@@ -1053,7 +1107,7 @@ func moduleRename(p paths.Paths, args []string) error {
 	if len(dependents) > 0 {
 		printReferencedBy(fmt.Sprintf("'%s' is referenced by:", oldName), dependents, "")
 
-		if opts["y"] == "" {
+		if opts["yes"] == "" {
 			ok, err := shared.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
 			if err != nil {
 				return err

@@ -10,9 +10,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
+	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 // rebuildLogoLines is the ASCII-art logo printed at the start of every
@@ -73,7 +75,18 @@ func gradientLogo() string {
 
 // rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
 // from rebuild::run in bin/lib/nixos-rebuild/main.sh.
-const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value"
+const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
+
+// modulesFileName is the host folder's selection file.
+const modulesFileName = "modules.nix"
+
+// hardwareUnitName is the module name whose absence from the host's
+// selection needs confirmation before a rebuild.
+const hardwareUnitName = config.HardwareUnitName
+
+// yesFlag is the argument appended when a prompt was already answered, so
+// the root process does not ask again.
+const yesFlag = "--yes"
 
 // goodbyeNixExt marks the entries a replacement configuration folder must
 // contain at least one of.
@@ -163,15 +176,46 @@ func selfUpdate(hostLock string, args []string) error {
 	return nix.Exec(pinned, append([]string{"rebuild"}, args...))
 }
 
-// Rebuild implements `luxos rebuild`, escalating to root and delegating to
-// heal.Run before exec'ing the real nixos-rebuild.
+// hardwareSelected reports whether the host's modules.nix selects the
+// hardware unit.
+func hardwareSelected(hostDir string) (bool, error) {
+	list, err := imports.List(filepath.Join(hostDir, modulesFileName))
+	if err != nil {
+		return false, err
+	}
+	for _, path := range list {
+		if units.NameFromPath(path) == hardwareUnitName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// hardwareGuard asks for confirmation when host does not select the
+// hardware unit. It reports whether a prompt was answered yes.
+func hardwareGuard(hostDir, host string, yes bool) (bool, error) {
+	selected, err := hardwareSelected(hostDir)
+	if err != nil {
+		return false, err
+	}
+	if selected || yes {
+		return false, nil
+	}
+	ok, err := shared.ConfirmHardwareOff()
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, fmt.Errorf("module 'hardware-support' is not enabled on %s: aborted, nothing changed\n  enable it: luxos module enable hardware-support\n  build without it: luxos rebuild --yes <same args>", host)
+	}
+	return true, nil
+}
+
+// Rebuild implements `luxos rebuild`: confirmations first, then escalation
+// to root, then heal.Run before exec'ing the real nixos-rebuild.
 func Rebuild(args []string) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 		return help.Run([]string{"help", "rebuild"})
-	}
-
-	if err := shared.EnsureRoot(append([]string{"rebuild"}, args...)); err != nil {
-		return err
 	}
 
 	opts, rest, err := shared.ParsePassthrough(rebuildFlagSpec, args)
@@ -180,6 +224,7 @@ func Rebuild(args []string) error {
 	}
 
 	prune := opts["prune"] != ""
+	yes := opts["yes"] != ""
 
 	if opts["config"] != "" {
 		abs, err := filepath.Abs(opts["config"])
@@ -205,6 +250,13 @@ func Rebuild(args []string) error {
 	}
 
 	if opts["goodbye-luxos"] != "" {
+		proceed, answered, err := goodbyeConfirm(opts["goodbye-luxos"], yes)
+		if err != nil || !proceed {
+			return err
+		}
+		if err := shared.EnsureRoot(escalationArgs(args, answered)); err != nil {
+			return err
+		}
 		return goodbye(opts["goodbye-luxos"], rest)
 	}
 
@@ -223,6 +275,15 @@ func Rebuild(args []string) error {
 
 	hostDir, err := config.ResolveHost(p.Machines, host)
 	if err != nil {
+		return err
+	}
+
+	answered, err := hardwareGuard(hostDir, host, yes)
+	if err != nil {
+		return err
+	}
+
+	if err := shared.EnsureRoot(escalationArgs(args, answered)); err != nil {
 		return err
 	}
 
@@ -247,6 +308,67 @@ func Rebuild(args []string) error {
 	return nix.Exec(rebuildBin, flakeArgs)
 }
 
+// escalationArgs is the rebuild command line handed to the root process,
+// with --yes appended when a prompt was already answered yes.
+func escalationArgs(args []string, answered bool) []string {
+	out := append([]string{"rebuild"}, args...)
+	if answered {
+		out = append(out, yesFlag)
+	}
+	return out
+}
+
+// goodbyeConfirm validates dir, lists what will be removed and asks for
+// confirmation unless yes. proceed is false when the answer was no;
+// answered is true when a prompt was answered yes.
+func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
+	p, err := paths.Resolve()
+	if err != nil {
+		return false, false, err
+	}
+
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return false, false, err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.IsDir() {
+		return false, false, fmt.Errorf("--goodbye-luxos: %s does not exist or is not a directory", abs)
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return false, false, err
+	}
+	hasNix := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), goodbyeNixExt) {
+			hasNix = true
+			break
+		}
+	}
+	if !hasNix {
+		return false, false, fmt.Errorf("--goodbye-luxos: %s contains no %s entry", abs, goodbyeNixExt)
+	}
+
+	fmt.Printf("The contents of %s will replace %s verbatim.\n", abs, p.Staging)
+	fmt.Println("These entries will be removed from " + p.Staging + ":")
+	for _, name := range staging.Owned() {
+		fmt.Println("  " + name)
+	}
+	if yes {
+		return true, false, nil
+	}
+	ok, err := shared.Confirm("Proceed? [y/N] ", false)
+	if err != nil {
+		return false, false, err
+	}
+	if !ok {
+		fmt.Println("Nothing changed.")
+		return false, false, nil
+	}
+	return true, true, nil
+}
+
 // goodbye replaces /etc/nixos with the folder dir, then builds it with a
 // channel-built nixos-rebuild as a child process so the result is known.
 func goodbye(dir string, rest []string) error {
@@ -258,38 +380,6 @@ func goodbye(dir string, rest []string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return err
-	}
-	fi, err := os.Stat(abs)
-	if err != nil || !fi.IsDir() {
-		return fmt.Errorf("--goodbye-luxos: %s does not exist or is not a directory", abs)
-	}
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		return err
-	}
-	hasNix := false
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), goodbyeNixExt) {
-			hasNix = true
-			break
-		}
-	}
-	if !hasNix {
-		return fmt.Errorf("--goodbye-luxos: %s contains no %s entry", abs, goodbyeNixExt)
-	}
-
-	fmt.Printf("The contents of %s will replace %s verbatim.\n", abs, p.Staging)
-	fmt.Println("These entries will be removed from " + p.Staging + ":")
-	for _, name := range staging.Owned() {
-		fmt.Println("  " + name)
-	}
-	ok, err := shared.Confirm("Proceed? [y/N] ", false)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		fmt.Println("Nothing changed.")
-		return nil
 	}
 
 	if err := staging.Replace(abs, p.Staging); err != nil {
