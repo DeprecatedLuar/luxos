@@ -16,7 +16,8 @@ const (
 	BootFile           = "boot.nix"
 	HardwareFile       = "hardware.nix"
 
-	HardwareUnitPath = "local/hardware"
+	HardwareUnitName = "hardware-support"
+	HardwareUnitPath = "local/" + HardwareUnitName
 )
 
 // ValidateHardware checks that dir holds DefaultFile, HardwareConfigFile,

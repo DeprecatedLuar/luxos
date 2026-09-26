@@ -35,7 +35,7 @@ import (
 // gitignoreLines are the lines CONFIG_DIR's root .gitignore must contain;
 // gitignore.Ensure appends whichever are missing and never removes or
 // reorders anything else in the file.
-var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/machines/*/modules/hardware"}
+var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/machines/*/modules/hardware-support"}
 
 // Nix invocations, replaceable so tests need neither network nor a
 // working flake-file.
@@ -251,7 +251,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		return err
 	}
 	key := filepath.Base(hwDir)
-	fmt.Fprintf(w, "Ensuring local/modules/hardware -> .local/hardware/%s link...\n", key)
+	fmt.Fprintf(w, "Ensuring local/modules/hardware-support -> .local/hardware/%s link...\n", key)
 	if err := links.EnsureHardwareLink(p.Machines, p.HardwareRoot, host, key); err != nil {
 		return err
 	}

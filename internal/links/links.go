@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/DeprecatedLuar/luxos/internal/config"
 )
 
 const (
@@ -16,7 +18,6 @@ const (
 	selectionFile    = "modules.nix"
 	modulesRel       = "modules"
 	localLinkName    = "local"
-	hardwareLinkName = "hardware"
 )
 
 // localModulesLinkName is the reserved entry at modulesDir's own root that
@@ -86,7 +87,7 @@ func EnsureLocalModules(machinesDir, modulesDir, host string) error {
 	return relink(link, rel)
 }
 
-// EnsureHardwareLink ensures <machinesDir>/<host>/modules/hardware is a
+// EnsureHardwareLink ensures <machinesDir>/<host>/modules/hardware-support is a
 // symlink to <hardwareRoot>/<key> (relative target ../../../hardware/<key>)
 // and that no other machine folder holds such a link. A real file or
 // directory named hardware in any machine's modules/ is an error.
@@ -99,7 +100,7 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 		if !e.IsDir() {
 			continue
 		}
-		link := filepath.Join(machinesDir, e.Name(), modulesRel, hardwareLinkName)
+		link := filepath.Join(machinesDir, e.Name(), modulesRel, config.HardwareUnitName)
 		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
 			return err
 		}
@@ -118,7 +119,7 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 	if err != nil {
 		return err
 	}
-	return relink(filepath.Join(linkDir, hardwareLinkName), rel)
+	return relink(filepath.Join(linkDir, config.HardwareUnitName), rel)
 }
 
 // refuseRealFile errors if path exists and is not a symlink.

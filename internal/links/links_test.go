@@ -232,7 +232,7 @@ func TestEnsureHardwareLink(t *testing.T) {
 	}
 	// A stale link in the active host and a link in the other host.
 	for _, h := range []string{"a", "b"} {
-		if err := os.Symlink("../../../hardware/old", filepath.Join(machines, h, "modules", "hardware")); err != nil {
+		if err := os.Symlink("../../../hardware/old", filepath.Join(machines, h, "modules", "hardware-support")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -240,10 +240,10 @@ func TestEnsureHardwareLink(t *testing.T) {
 	if err := EnsureHardwareLink(machines, hardware, "a", "k1"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.Readlink(filepath.Join(machines, "a", "modules", "hardware")); got != "../../../hardware/k1" {
+	if got, _ := os.Readlink(filepath.Join(machines, "a", "modules", "hardware-support")); got != "../../../hardware/k1" {
 		t.Errorf("link target = %q", got)
 	}
-	if _, err := os.Lstat(filepath.Join(machines, "b", "modules", "hardware")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(machines, "b", "modules", "hardware-support")); !os.IsNotExist(err) {
 		t.Errorf("other host's link not removed: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(machines, "c", "modules")); !os.IsNotExist(err) {
@@ -260,7 +260,7 @@ func TestEnsureHardwareLink_RefusesRealDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(machines, "a"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(machines, "b", "modules", "hardware"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(machines, "b", "modules", "hardware-support"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	err := EnsureHardwareLink(machines, filepath.Join(root, "hardware"), "a", "k1")

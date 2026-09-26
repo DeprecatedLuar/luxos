@@ -379,7 +379,7 @@ func TestHeal_HardwareUnitSkippedOnOtherHost(t *testing.T) {
 	machinesDir := filepath.Join(root, "local")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
-	content := "{ ... }:\n{\n  imports = [\n    ./local/hardware\n  ];\n}\n"
+	content := "{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n"
 	mustWriteFile(t, filepath.Join(machinesDir, "active-host", "modules.nix"), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
 	otherFile := filepath.Join(machinesDir, "other-host", "modules.nix")
 	mustWriteFile(t, otherFile, content)

@@ -225,13 +225,13 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("hardware.nix differs from the template:\n%s", got)
 	}
 
-	// The host's modules/ links to it, and it is staged under config/modules/local/hardware.
-	target, err := os.Readlink(filepath.Join(p.Machines, host, "modules", "hardware"))
+	// The host's modules/ links to it, and it is staged under config/modules/local/hardware-support.
+	target, err := os.Readlink(filepath.Join(p.Machines, host, "modules", "hardware-support"))
 	if err != nil || target != "../../../hardware/"+filepath.Base(hw) {
 		t.Errorf("hardware link = %q (%v)", target, err)
 	}
 	for _, name := range []string{"default.nix", "hardware-configuration.nix", "boot.nix", "hardware.nix"} {
-		staged := filepath.Join(p.Staging, "config", "modules", "local", "hardware", name)
+		staged := filepath.Join(p.Staging, "config", "modules", "local", "hardware-support", name)
 		if _, err := os.Stat(staged); err != nil {
 			t.Errorf("expected %s staged: %v", staged, err)
 		}
@@ -654,7 +654,7 @@ func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(sys), "config/local/hardware") {
+	if strings.Contains(string(sys), "config/local/hardware-support") {
 		t.Error("system.nix must not import hardware files")
 	}
 	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
