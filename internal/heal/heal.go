@@ -169,7 +169,7 @@ func checkMachineFile(path string) error {
 		return nil
 	}
 	return fmt.Errorf("%s holds path literals or imports: %s\n"+
-		"paths in machine.nix resolve against the staged copy at /etc/nixos/config/local/, not the host folder, "+
+		"paths in machine.nix resolve against the staged copy at /etc/nixos/config/, not the host folder, "+
 		"and module selection belongs in modules.nix; add a module with:\n  luxos module enable <name>",
 		path, strings.Join(offenders, ", "))
 }

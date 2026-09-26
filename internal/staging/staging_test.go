@@ -53,6 +53,13 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 		t.Fatal(err)
 	}
 
+	if err := os.WriteFile(filepath.Join(hostDir, "machine.nix"), []byte("{ machine = 1; }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostDir, ".plsdonttouch.nix"), []byte("{ state = 1; }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	lockFile = filepath.Join(root, "flake.lock")
 	if err := os.WriteFile(lockFile, []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
@@ -85,12 +92,23 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
-		filepath.Join(stagingDir, "config", "local", "modules", "default.nix"),
+		filepath.Join(stagingDir, "config", "machine.nix"),
+		filepath.Join(stagingDir, "config", ".plsdonttouch.nix"),
 		filepath.Join(stagingDir, "flake.lock"),
 	}
 	for _, p := range mustExist {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("expected %s to exist: %v", p, err)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(stagingDir, "config", "local")); !os.IsNotExist(err) {
+		t.Errorf("config/local must not exist: %v", err)
+	}
+	for name, want := range map[string]string{"machine.nix": "{ machine = 1; }", ".plsdonttouch.nix": "{ state = 1; }"} {
+		got, err := os.ReadFile(filepath.Join(stagingDir, "config", name))
+		if err != nil || string(got) != want {
+			t.Errorf("config/%s = %q, %v", name, got, err)
 		}
 	}
 
@@ -248,6 +266,11 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 	hostDir := filepath.Join(root, "host1")
 	if err := os.MkdirAll(hostDir, 0755); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range []string{"machine.nix", ".plsdonttouch.nix"} {
+		if err := os.WriteFile(filepath.Join(hostDir, name), []byte("{ }"), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	environmentFile := filepath.Join(root, "environment")
 	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {

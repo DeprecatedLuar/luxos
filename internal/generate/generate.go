@@ -26,7 +26,7 @@ type configurationData struct {
 }
 
 // Configuration renders configuration.nix for host. Its imports are fixed (L9): time zone, locale and
-// stateVersion come from machine.nix/.plsdonttouch.nix via those imports,
+// stateVersion come from config/machine.nix and config/.plsdonttouch.nix via those imports,
 // not from any value passed here.
 func Configuration(host string) ([]byte, error) {
 	data := configurationData{

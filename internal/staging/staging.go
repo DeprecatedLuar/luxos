@@ -37,8 +37,9 @@ const (
 	luxosHardwareDefaults = "luxos-hardware-defaults.nix"
 	stagedEnvironment     = "environment"
 
-	stagedModulesDir = "modules"
-	stagedLocalDir   = "local"
+	stagedModulesDir   = "modules"
+	stagedMachineNix   = "machine.nix"
+	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
 )
@@ -48,8 +49,8 @@ const (
 // framework/units.nix, framework/overlay.nix, framework/outputs.nix,
 // framework/environment.nix, framework/luxos-hardware.nix,
 // framework/luxos-hardware-defaults.nix, flake.nix, config/modules (from
-// modulesDir), config/local (from hostDir), config/environment (from
-// environmentFile, required), and flake.lock if lockFile exists. lockFile is
+// modulesDir), config/machine.nix and config/.plsdonttouch.nix (copied from hostDir),
+// config/environment (from environmentFile, required), and flake.lock if lockFile exists. lockFile is
 // the active host's own flake.lock (hostDir/flake.lock), not a config-root
 // one. Entries outside the owned list are left alone; Adopt is what deals
 // with strangers.
@@ -105,8 +106,10 @@ func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile stri
 	if err := copyDeref(modulesDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
 		return err
 	}
-	if err := copyDeref(hostDir, filepath.Join(cfgDir, stagedLocalDir)); err != nil {
-		return err
+	for _, name := range []string{stagedMachineNix, stagedPlsdonttouch} {
+		if err := copyFile(filepath.Join(hostDir, name), filepath.Join(cfgDir, name)); err != nil {
+			return err
+		}
 	}
 
 	if err := copyFile(environmentFile, filepath.Join(cfgDir, stagedEnvironment)); err != nil {
