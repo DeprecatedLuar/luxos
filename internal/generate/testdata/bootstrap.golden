@@ -7,7 +7,7 @@
 let
   system = "x86_64-linux";
 
-  # flake.nix is the one place flake-file and the default nixpkgs are pinned.
+  # flake.nix is the one place flake-file is pinned.
   pinned = (import ../flake.nix).inputs;
 
   pkgs = import inputs.nixpkgs { inherit system; };
@@ -28,12 +28,11 @@ in
   _module.freeformType = lib.types.lazyAttrsOf lib.types.unspecified;
   _module.args = { inherit pkgs; hostName = "paraloid"; };
 
-  imports = [ ../config/modules ];
+  imports = [ ../config/modules ../config/machine.nix ];
 
   # write-flake regenerates flake.nix from exactly these declarations, so the
   # bootstrap inputs must be declared here or the regenerated flake loses them.
   flake-file.inputs.flake-file.url = pinned.flake-file.url;
-  flake-file.inputs.nixpkgs.url = lib.mkDefault pinned.nixpkgs.url;
 
   # The luxos binary itself, installed by framework/system.nix. Declared here
   # (not in system.nix) because flake-file only reads inputs from this file.

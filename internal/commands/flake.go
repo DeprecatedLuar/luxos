@@ -62,6 +62,10 @@ const (
 	flakeSharedDisplayDir = "modules"
 	flakeLocalDisplayDir  = "local/modules"
 
+	// flakeMachinesDisplayDir prefixes the host folder in a declaration shown
+	// for machine.nix.
+	flakeMachinesDisplayDir = ".local/machines"
+
 	flakeSourceDefaultBranch = " (default branch)"
 	flakeDeclaredBuiltIn     = "built in"
 	flakeDeclaredPulledIn    = "pulled in by "
@@ -362,7 +366,7 @@ func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
 	for input, decls := range sites {
 		set := map[string]bool{}
 		for _, d := range decls {
-			if !set[d.unit] {
+			if d.unit != "" && !set[d.unit] {
 				set[d.unit] = true
 				out[input] = append(out[input], d.unit)
 			}
@@ -431,6 +435,13 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 			}
 		}
 	}
+	base, err := flakeBaseChannelDecl(hostDir)
+	if err != nil {
+		return nil, err
+	}
+	if base != nil {
+		out[nixsrc.BaseChannelInput] = append(out[nixsrc.BaseChannelInput], *base)
+	}
 	for _, decls := range out {
 		sort.Slice(decls, func(i, j int) bool {
 			if decls[i].file != decls[j].file {
@@ -440,6 +451,21 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 		})
 	}
 	return out, nil
+}
+
+// flakeBaseChannelDecl is the base channel's declaration in the host's
+// machine.nix, or nil when it has none (the rebuild preflight reports that).
+// It belongs to no unit.
+func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
+	url, line, err := nixsrc.BaseChannel(filepath.Join(hostDir, config.MachineFile))
+	if errors.Is(err, nixsrc.ErrNoBaseChannel) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rel := filepath.Join(flakeMachinesDisplayDir, filepath.Base(hostDir), config.MachineFile)
+	return &flakeDecl{file: filepath.ToSlash(rel), line: line, url: url}, nil
 }
 
 // flakeBuildRows builds the input tree's rows from declarations (input name

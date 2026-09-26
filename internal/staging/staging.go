@@ -8,11 +8,13 @@ package staging
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"text/template"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
@@ -65,7 +67,7 @@ const (
 // original's location (same category, the shadow's own file or folder name)
 // and every import of that name in the staged config/modules/default.nix is
 // pointed there. The original is not staged; no source file is rewritten.
-func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile string) error {
+func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, nixpkgsURL string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
 	}
@@ -107,7 +109,7 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 	if err := writeFrameworkFile(fwDir, luxosHardwareDefaults); err != nil {
 		return err
 	}
-	if err := writeFrameworkFile(stagingDir, flakeNix); err != nil {
+	if err := writeFlakeNix(stagingDir, nixpkgsURL); err != nil {
 		return err
 	}
 
@@ -344,6 +346,32 @@ func checkNoDanglingLinks(root string) error {
 		}
 		return nil
 	})
+}
+
+// writeFlakeNix renders the embedded flake.nix template with the base channel
+// url into dst.
+func writeFlakeNix(dst, nixpkgsURL string) error {
+	if nixpkgsURL == "" {
+		return errors.New("staging: base channel url is required")
+	}
+	data, err := framework.File(flakeNix)
+	if err != nil {
+		return err
+	}
+	tmpl, err := template.New(flakeNix).Parse(string(data))
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, flakeNixData{Nixpkgs: nixpkgsURL}); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dst, flakeNix), buf.Bytes(), fileMode)
+}
+
+// flakeNixData feeds the embedded flake.nix template.
+type flakeNixData struct {
+	Nixpkgs string
 }
 
 func writeFrameworkFile(dst, name string) error {

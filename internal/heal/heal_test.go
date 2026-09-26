@@ -120,7 +120,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host1", "machine.nix"),
-		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 	write(t, filepath.Join(local, "host1", "flake.lock"), hostFlakeLock)
 
 	// A flake.lock at the config root, which must be ignored: only the
@@ -133,7 +133,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host2", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host2", "machine.nix"),
-		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
@@ -409,7 +409,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host1", "machine.nix"),
-		"{ time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
@@ -760,6 +760,22 @@ func TestCheckMachineFile(t *testing.T) {
 				t.Errorf("error %q does not name the file", err)
 			}
 		})
+	}
+}
+
+func TestRun_MissingBaseChannelStopsBeforeStaging(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	fakeNix(t)
+	write(t, filepath.Join(p.Machines, host, "machine.nix"), "{ time.timeZone = \"UTC\"; }\n")
+
+	var out bytes.Buffer
+	err := Run(&out, p, host, false)
+	if err == nil || !strings.Contains(err.Error(), "missing base channel") || !strings.Contains(err.Error(), "flake-file.inputs.nixpkgs.url") {
+		t.Fatalf("err = %v, want missing base channel error naming the line", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
+		t.Errorf("nothing should be staged, err=%v", statErr)
 	}
 }
 

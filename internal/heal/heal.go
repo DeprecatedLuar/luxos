@@ -152,6 +152,31 @@ func ensureHardware(w io.Writer, p paths.Paths) (string, error) {
 	return hwDir, nil
 }
 
+// readBaseChannel returns the url of the nixpkgs declaration in the machine.nix
+// at path. A missing declaration is an error naming the line to add, taken from
+// the embedded machine.nix template.
+func readBaseChannel(path string) (string, error) {
+	url, _, err := nixsrc.BaseChannel(path)
+	if errors.Is(err, nixsrc.ErrNoBaseChannel) {
+		return "", fmt.Errorf("%s: %w\n  add: %s", path, err, baseChannelHint())
+	}
+	return url, err
+}
+
+// baseChannelHint is the base-channel line of the embedded machine.nix
+// template, or a placeholder form when the template has none.
+func baseChannelHint() string {
+	tmpl, err := framework.File(machineTemplate)
+	if err == nil {
+		for _, line := range strings.Split(string(tmpl), "\n") {
+			if strings.Contains(line, nixsrc.BaseChannelInput+".url") {
+				return strings.TrimSpace(line)
+			}
+		}
+	}
+	return "flake-file.inputs.nixpkgs.url = \"<flake url>\";"
+}
+
 // checkMachineFile fails when the machine.nix at path holds any static or
 // dynamic path literal. Such a path resolves against the staged copy, not the
 // host folder, and an imports list there would bypass modules.nix.
@@ -307,6 +332,12 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		return err
 	}
 
+	// 6c. the base channel is declared in machine.nix
+	nixpkgsURL, err := readBaseChannel(filepath.Join(hostDir, config.MachineFile))
+	if err != nil {
+		return err
+	}
+
 	// 7. ensure local link
 	fmt.Fprintf(w, "Ensuring local -> .local/machines/%s link...\n", host)
 	if err := links.EnsureLocalLink(p.Config, p.Machines, host); err != nil {
@@ -332,7 +363,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath, nixpkgsURL); err != nil {
 		return err
 	}
 
