@@ -28,7 +28,6 @@ const (
 
 	flakeNix   = "flake.nix"
 	systemNix  = "system.nix"
-	shadowSh   = "shadow.sh"
 	unitsNix   = "units.nix"
 	overlayNix = "overlay.nix"
 	outputsNix = "outputs.nix"
@@ -45,7 +44,7 @@ const (
 )
 
 // Materialize regenerates the luxos-owned entries of stagingDir: it prunes
-// them (see Prune), then writes framework/system.nix, framework/shadow.sh,
+// them (see Prune), then writes framework/system.nix,
 // framework/units.nix, framework/overlay.nix, framework/outputs.nix,
 // framework/environment.nix, framework/luxos-hardware.nix,
 // framework/luxos-hardware-defaults.nix, flake.nix, config/modules (from
@@ -79,9 +78,6 @@ func Materialize(stagingDir, modulesDir, hostDir, lockFile, environmentFile stri
 	}
 
 	if err := writeFrameworkFile(fwDir, systemNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, shadowSh); err != nil {
 		return err
 	}
 	if err := writeFrameworkFile(fwDir, unitsNix); err != nil {

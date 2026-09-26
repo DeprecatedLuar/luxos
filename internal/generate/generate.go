@@ -12,19 +12,6 @@ import (
 	"text/template"
 )
 
-// shadow is one hard-shadowed command, rendered into configuration.nix's
-// environment.systemPackages.
-type shadow struct {
-	Name string
-	Args string
-}
-
-// hardShadows is the fixed set of hard shadows configuration.nix installs.
-var hardShadows = []shadow{
-	{Name: "nixos-rebuild", Args: "rebuild"},
-	{Name: "nixos", Args: ""},
-}
-
 //go:embed templates/*.tmpl
 var templatesFS embed.FS
 
@@ -35,8 +22,7 @@ var (
 
 // configurationData feeds templates/configuration.nix.tmpl.
 type configurationData struct {
-	Host        string
-	HardShadows []shadow
+	Host string
 }
 
 // Configuration renders configuration.nix for host. Its imports are fixed (L9): time zone, locale and
@@ -44,8 +30,7 @@ type configurationData struct {
 // not from any value passed here.
 func Configuration(host string) ([]byte, error) {
 	data := configurationData{
-		Host:        host,
-		HardShadows: hardShadows,
+		Host: host,
 	}
 
 	var buf bytes.Buffer

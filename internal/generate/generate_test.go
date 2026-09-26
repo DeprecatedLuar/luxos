@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
@@ -18,13 +17,6 @@ func skipIfNoNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		t.Skip("nix-instantiate not on PATH")
-	}
-}
-
-func skipIfNoBash(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not on PATH")
 	}
 }
 
@@ -73,19 +65,6 @@ func TestConfiguration_Golden(t *testing.T) {
 	}
 	assertGolden(t, "configuration", out)
 	assertNixParses(t, out)
-}
-
-func TestConfiguration_NoEtcLuxosBin(t *testing.T) {
-	out, err := Configuration("paraloid")
-	if err != nil {
-		t.Fatalf("Configuration: %v", err)
-	}
-	if strings.Contains(string(out), `environment.etc."luxos/bin"`) {
-		t.Errorf("configuration.nix still declares environment.etc.\"luxos/bin\"")
-	}
-	if !strings.Contains(string(out), "inputs.luxos.packages") {
-		t.Errorf("configuration.nix does not reference inputs.luxos.packages")
-	}
 }
 
 func TestConfiguration_Deterministic(t *testing.T) {
@@ -145,37 +124,4 @@ func TestSystemNix_Parses(t *testing.T) {
 		t.Fatalf("framework.File(system.nix): %v", err)
 	}
 	assertNixParses(t, content)
-}
-
-func TestSystemNix_NoWriteShellScriptBin(t *testing.T) {
-	content, err := framework.File("system.nix")
-	if err != nil {
-		t.Fatalf("framework.File(system.nix): %v", err)
-	}
-	if strings.Contains(string(content), "writeShellScriptBin") {
-		t.Errorf("system.nix still references writeShellScriptBin; that belongs in configuration.nix now")
-	}
-}
-
-func TestShadowScript_BashSyntaxValid(t *testing.T) {
-	skipIfNoBash(t)
-
-	body, err := framework.File("shadow.sh")
-	if err != nil {
-		t.Fatalf("framework.File(shadow.sh): %v", err)
-	}
-
-	script := "LUXOS_ARGS=(rebuild)\nREAL=/bin/true\n" + string(body)
-
-	dir := t.TempDir()
-	file := filepath.Join(dir, "shim.sh")
-	if err := os.WriteFile(file, []byte(script), 0644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	cmd := exec.Command("bash", "-n", file)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Errorf("bash -n failed: %v\n%s", err, out)
-	}
 }

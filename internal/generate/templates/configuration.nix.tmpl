@@ -21,12 +21,4 @@
   ];
 
   config.networking.hostName = "{{.Host}}";
-
-  config.environment.systemPackages = [
-{{range .HardShadows}}    (pkgs.writeShellScriptBin "{{.Name}}" ''
-      LUXOS_ARGS=({{.Args}})
-      LUXOS="${inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/luxos"
-      ${builtins.readFile ./shadow.sh}
-    '')
-{{end}}  ];
 }

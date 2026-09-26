@@ -76,7 +76,6 @@ func TestMaterialize_Basic(t *testing.T) {
 
 	mustExist := []string{
 		filepath.Join(stagingDir, "framework", "system.nix"),
-		filepath.Join(stagingDir, "framework", "shadow.sh"),
 		filepath.Join(stagingDir, "framework", "units.nix"),
 		filepath.Join(stagingDir, "framework", "overlay.nix"),
 		filepath.Join(stagingDir, "flake.nix"),
