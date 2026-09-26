@@ -901,3 +901,105 @@ func TestMaterializeEmptyNixpkgsErrors(t *testing.T) {
 		t.Fatal("expected error for empty base channel url")
 	}
 }
+
+func prevFixture(t *testing.T) (stage, prev string) {
+	t.Helper()
+	root := t.TempDir()
+	stage = filepath.Join(root, "etc")
+	prev = filepath.Join(root, "var", "prev")
+	for p, c := range map[string]string{
+		"flake.nix":              "flake",
+		"flake.lock":             "lock",
+		"framework/system.nix":   "sys",
+		"config/modules/a/b.nix": "b",
+		"stranger.txt":           "keep",
+	} {
+		full := filepath.Join(stage, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return stage, prev
+}
+
+func readStage(t *testing.T, stage, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(stage, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestPrevious_RoundTrip(t *testing.T) {
+	stage, prev := prevFixture(t)
+	if err := SavePrevious(stage, prev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(prev, "stranger.txt")); err == nil {
+		t.Error("stranger copied into prev")
+	}
+	if err := os.WriteFile(filepath.Join(stage, "config/modules/a/b.nix"), []byte("broken"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "config/extra.nix"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestorePrevious(stage, prev); err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]string{
+		"flake.nix": "flake", "flake.lock": "lock", "framework/system.nix": "sys",
+		"config/modules/a/b.nix": "b", "stranger.txt": "keep",
+	} {
+		if got := readStage(t, stage, rel); got != want {
+			t.Errorf("%s = %q, want %q", rel, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stage, "config/extra.nix")); err == nil {
+		t.Error("extra file survived restore")
+	}
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("prev not removed")
+	}
+}
+
+func TestSavePrevious_NoopWhenExists(t *testing.T) {
+	stage, prev := prevFixture(t)
+	if err := os.MkdirAll(prev, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SavePrevious(stage, prev); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(prev)
+	if len(entries) != 0 {
+		t.Errorf("prev modified: %v", entries)
+	}
+}
+
+func TestRestorePrevious_NoopWhenMissing(t *testing.T) {
+	stage, prev := prevFixture(t)
+	if err := RestorePrevious(stage, prev); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStage(t, stage, "flake.nix"); got != "flake" {
+		t.Errorf("stage changed: %q", got)
+	}
+}
+
+func TestDropPrevious(t *testing.T) {
+	stage, prev := prevFixture(t)
+	if err := SavePrevious(stage, prev); err != nil {
+		t.Fatal(err)
+	}
+	if err := DropPrevious(prev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("prev still exists")
+	}
+}

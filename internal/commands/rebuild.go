@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
@@ -28,6 +32,10 @@ var rebuildLogoLines = []string{
 	"███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║",
 	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝",
 }
+
+// rebuildActivatingActions are the nixos-rebuild actions that activate the
+// built generation; after one succeeds the staged tree is the running system.
+var rebuildActivatingActions = map[string]bool{"switch": true, "boot": true, "test": true}
 
 // rebuildFooter is the logo's signature line.
 const rebuildFooter = "                          made by me <3 (luar)"
@@ -293,6 +301,56 @@ func Rebuild(args []string) error {
 
 	printLogo()
 
+	return stagedRebuild(p, host, prune, rest)
+}
+
+// rebuildAction is the nixos-rebuild action in rest: its first element that
+// is not a flag, or "" when there is none.
+func rebuildAction(rest []string) string {
+	for _, a := range rest {
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+	}
+	return ""
+}
+
+// stagedRebuild runs heal and nixos-rebuild while /etc/nixos may change. The
+// stage from before is saved in p.PreviousStage and put back unless an
+// activating action succeeded, so /etc/nixos always matches the running system.
+func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error {
+	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
+		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
+	}
+	if err := staging.SavePrevious(p.Staging, p.PreviousStage); err != nil {
+		return fmt.Errorf("save %s: %w", p.PreviousStage, err)
+	}
+
+	// Catch, never ignore: an ignored disposition is inherited by the child.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
+	runErr := runStaged(p, host, prune, rest)
+
+	if runErr == nil && rebuildActivatingActions[rebuildAction(rest)] {
+		if err := staging.DropPrevious(p.PreviousStage); err != nil {
+			return fmt.Errorf("drop %s: %w", p.PreviousStage, err)
+		}
+		return nil
+	}
+	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
+		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
+	}
+	var ee *exec.ExitError
+	if errors.As(runErr, &ee) {
+		return shared.ExitCode(ee.ExitCode())
+	}
+	return runErr
+}
+
+// runStaged heals, stages and runs nixos-rebuild as a child.
+func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 	if err := heal.Run(os.Stdout, p, host, prune); err != nil {
 		return err
 	}
@@ -305,7 +363,7 @@ func Rebuild(args []string) error {
 	flakeArgs := []string{"--flake", p.Staging + "#" + host, "--no-write-lock-file"}
 	flakeArgs = append(flakeArgs, rest...)
 
-	return nix.Exec(rebuildBin, flakeArgs)
+	return nix.Run(rebuildBin, flakeArgs)
 }
 
 // escalationArgs is the rebuild command line handed to the root process,

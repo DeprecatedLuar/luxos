@@ -27,6 +27,7 @@ const (
 	sysDir         = "/sys"
 	mountsFile     = "/proc/mounts"
 	runningModules = "/run/current-system/luxos/modules.nix"
+	previousStage  = "/var/lib/luxos/previous-stage"
 )
 
 // Paths holds every directory luxos needs, resolved once per invocation.
@@ -42,6 +43,7 @@ type Paths struct {
 	Sys            string // /sys
 	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/luxos/modules.nix
+	PreviousStage  string // /var/lib/luxos/previous-stage, the stage saved while a rebuild is in flight
 }
 
 // Resolve determines the invoking user (honoring $SUDO_USER) and builds
@@ -79,6 +81,7 @@ func Resolve() (Paths, error) {
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: runningModules,
+		PreviousStage:  previousStage,
 	}, nil
 }
 

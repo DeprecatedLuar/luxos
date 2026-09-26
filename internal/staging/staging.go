@@ -479,3 +479,60 @@ func Seal(stagingDir string) error {
 	}
 	return nil
 }
+
+// SavePrevious copies every existing owned entry of stagingDir into prevDir.
+// An existing prevDir is left alone: an interrupted run left it and it holds
+// the stage that matches the running system.
+func SavePrevious(stagingDir, prevDir string) error {
+	if _, err := os.Lstat(prevDir); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(prevDir, dirMode); err != nil {
+		return err
+	}
+	for _, name := range owned {
+		src := filepath.Join(stagingDir, name)
+		if _, err := os.Lstat(src); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := copyDeref(src, filepath.Join(prevDir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RestorePrevious puts the stage saved in prevDir back into stagingDir,
+// seals it and removes prevDir. A missing prevDir means nothing to restore.
+func RestorePrevious(stagingDir, prevDir string) error {
+	if _, err := os.Lstat(prevDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := Prune(stagingDir); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(prevDir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := copyDeref(filepath.Join(prevDir, e.Name()), filepath.Join(stagingDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	if err := Seal(stagingDir); err != nil {
+		return err
+	}
+	return os.RemoveAll(prevDir)
+}
+
+// DropPrevious discards the saved stage.
+func DropPrevious(prevDir string) error {
+	return os.RemoveAll(prevDir)
+}

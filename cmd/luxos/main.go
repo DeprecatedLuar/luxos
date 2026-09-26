@@ -4,16 +4,22 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands"
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
+	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 )
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var code shared.ExitCode
+		if errors.As(err, &code) {
+			os.Exit(int(code))
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
