@@ -3,6 +3,8 @@
 # flake.nix and by the flake.nix write-flake regenerates (flake-file.outputs),
 # so the two can never drift. luxos.modules must be a specialArg because
 # modules use it in `imports`, which cannot depend on _module.args.
+# modulesPath is a specialArg for the same reason: generated
+# hardware-configuration.nix imports through it, as NixOS provides it.
 inputs:
 let
   inherit (inputs.nixpkgs) lib;
@@ -11,6 +13,7 @@ in
   specialArgs = {
     inherit inputs;
     inherit (inputs) self;
+    modulesPath = "${inputs.nixpkgs}/nixos/modules";
     luxos.modules = import ./units.nix {
       inherit lib;
       root = ../config/modules;
