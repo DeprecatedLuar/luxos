@@ -82,6 +82,30 @@ func Parse(absPath string) (string, error) {
 	return string(out), nil
 }
 
+// EvalJSON runs `nix-instantiate --eval --strict --json --expr <expr>` with
+// args passed through as --argstr, and returns its stdout. On failure the
+// returned error includes the command's stderr.
+func EvalJSON(expr string, args map[string]string) ([]byte, error) {
+	if _, err := exec.LookPath(instantiateBin); err != nil {
+		return nil, fmt.Errorf("nix.EvalJSON: %s not found: %w", instantiateBin, err)
+	}
+
+	argv := []string{"--eval", "--strict", "--json", "--expr", expr}
+	for k, v := range args {
+		argv = append(argv, "--argstr", k, v)
+	}
+	cmd := exec.Command(instantiateBin, argv...)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil, fmt.Errorf("%s %s failed:\n%s", instantiateBin, strings.Join(argv, " "), string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("%s %s: %w", instantiateBin, strings.Join(argv, " "), err)
+	}
+	return out, nil
+}
+
 // FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
 // stdout and stderr through to the caller's. With no inputs every input moves.
 func FlakeUpdate(flakeDir string, inputs ...string) error {

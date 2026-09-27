@@ -342,10 +342,6 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
 		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
 	}
-	var ee *exec.ExitError
-	if errors.As(runErr, &ee) {
-		return shared.ExitCode(ee.ExitCode())
-	}
 	return runErr
 }
 
@@ -363,7 +359,14 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 	flakeArgs := []string{"--flake", p.Staging + "#" + host, "--no-write-lock-file"}
 	flakeArgs = append(flakeArgs, rest...)
 
-	return nix.Run(rebuildBin, flakeArgs)
+	// Only nixos-rebuild's own exit status becomes the command's: it has
+	// already printed its error. Any other failure keeps its message.
+	err = nix.Run(rebuildBin, flakeArgs)
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return shared.ExitCode(ee.ExitCode())
+	}
+	return err
 }
 
 // escalationArgs is the rebuild command line handed to the root process,

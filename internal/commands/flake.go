@@ -15,13 +15,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
-	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
@@ -392,58 +390,32 @@ func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
 func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, error) {
 	localModules := filepath.Join(hostDir, "modules")
 
-	us, err := units.Walk(p.Modules, localModules)
+	sel, err := refs.SelectedUnits(p.Modules, localModules, hostDir)
 	if err != nil {
 		return nil, err
-	}
-	selection, err := imports.List(filepath.Join(hostDir, "modules.nix"))
-	if err != nil {
-		return nil, err
-	}
-	pulled, err := refs.Closure(p.Modules, us, selection)
-	if err != nil {
-		return nil, err
-	}
-
-	names := map[string]bool{}
-	for _, sel := range selection {
-		names[units.NameFromPath(sel)] = true
-	}
-	for name := range pulled {
-		names[name] = true
 	}
 
 	out := map[string][]flakeDecl{}
-	for name := range names {
-		unitPath, ok := units.Resolve(us, name)
-		if !ok {
-			continue
+	for _, u := range sel {
+		display := flakeSharedDisplayDir
+		if u.Root == localModules {
+			display = flakeLocalDisplayDir
 		}
-		root, rel, display := p.Modules, unitPath, flakeSharedDisplayDir
-		if strings.HasPrefix(unitPath, localPathPrefix) {
-			root, rel, display = localModules, strings.TrimPrefix(unitPath, localPathPrefix), flakeLocalDisplayDir
-		}
-		files, err := refs.UnitFiles(filepath.Join(root, rel))
+		fileDecls, err := nixsrc.InputDecls(u.Files...)
 		if err != nil {
 			return nil, err
 		}
-		for _, file := range files {
-			fileDecls, err := nixsrc.InputDecls(file)
+		for _, d := range fileDecls {
+			fileRel, err := filepath.Rel(u.Root, d.File)
 			if err != nil {
 				return nil, err
 			}
-			fileRel, err := filepath.Rel(root, file)
-			if err != nil {
-				return nil, err
-			}
-			for _, d := range fileDecls {
-				out[d.Name] = append(out[d.Name], flakeDecl{
-					unit: unitPath,
-					file: filepath.ToSlash(filepath.Join(display, fileRel)),
-					line: d.Line,
-					url:  d.URL,
-				})
-			}
+			out[d.Name] = append(out[d.Name], flakeDecl{
+				unit: u.Path,
+				file: filepath.ToSlash(filepath.Join(display, fileRel)),
+				line: d.Line,
+				url:  d.URL,
+			})
 		}
 	}
 	base, err := flakeBaseChannelDecl(hostDir)

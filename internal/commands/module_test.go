@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -389,9 +390,16 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 }
 
 func TestModuleFillInputs(t *testing.T) {
+	skipIfNoNix(t)
 	dir := t.TempDir()
-	decl := func(name string) string {
-		return "{ ... }: {\n  flake-file.inputs." + name + ".url = \"github:o/" + name + "\";\n}\n"
+	decl := func(names ...string) string {
+		var b strings.Builder
+		b.WriteString("{ ... }: {\n")
+		for _, name := range names {
+			fmt.Fprintf(&b, "  flake-file.inputs.%s.url = \"github:o/%s\";\n", name, name)
+		}
+		b.WriteString("}\n")
+		return b.String()
 	}
 	write := func(rel, content string) {
 		full := filepath.Join(dir, rel)
@@ -402,7 +410,7 @@ func TestModuleFillInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("file.nix", decl("zed")+decl("abc")+decl("zed"))
+	write("file.nix", decl("zed", "abc"))
 	write("folder/default.nix", "{ ... }: { }\n")
 	write("folder/sub/inner.nix", decl("deep"))
 	write("none.nix", "{ ... }: { }\n")

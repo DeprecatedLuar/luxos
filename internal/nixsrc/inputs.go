@@ -1,42 +1,131 @@
 package nixsrc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
-// inputDeclRe matches one flat `flake-file.inputs.<name>.url = "<url>";`
-// declaration line.
-var inputDeclRe = regexp.MustCompile(`^\s*flake-file\.inputs\.([A-Za-z0-9_'-]+)\.url\s*=\s*"([^"]*)"\s*;`)
+// evalInputsExpr reads flake-file.inputs from each file in a batch by
+// evaluating it, not parsing it: a module's value can be either the flat
+// `flake-file.inputs.name.url = "..."` form or the nested
+// `flake-file.inputs.name = { url = ...; inputs.nixpkgs.follows = ...; }`
+// form, and both desugar to the same attribute set, so one reader covers
+// both. Every function argument is stubbed to throw, so a file needing a
+// real one (a callPackage file, say) yields no declarations instead of
+// failing the batch; deepSeq forces that throw to fire inside tryEval even
+// when it is nested inside a declared value.
+const evalInputsExpr = `
+{ filesJson }:
+let
+  files = builtins.fromJSON filesJson;
+  readFile = file:
+    let
+      ev = builtins.tryEval (
+        let
+          m = import file;
+          isFn = builtins.isFunction m;
+          args = if isFn then
+            builtins.mapAttrs (n: _: throw "luxos-stub:${n}") (builtins.functionArgs m)
+          else {};
+          r = if isFn then m args else m;
+          decls = if builtins.isAttrs r then (r.flake-file.inputs or {}) else {};
+        in builtins.deepSeq decls decls
+      );
+      inputs = if ev.success then ev.value else {};
+    in
+      builtins.mapAttrs (name: value: {
+        inherit value;
+        pos = builtins.unsafeGetAttrPos name inputs;
+      }) inputs;
+in
+  builtins.listToAttrs (map (file: { name = file; value = readFile file; }) files)
+`
 
-// InputDecl is one flake input declared in a module's source: its name, its
-// url, and the 1-based line it sits on.
-type InputDecl struct {
-	Name string
-	URL  string
-	Line int
+// evalPos is one attribute's source position, as builtins.unsafeGetAttrPos
+// reports it (null when the attribute has no single literal position).
+type evalPos struct {
+	Line int `json:"line"`
 }
 
-// InputDecls returns the flake input declarations in file, in source order.
-// It is a raw line scan, not a parse: a commented-out declaration is just a
-// comment and never matches. The file is read only.
-func InputDecls(file string) ([]InputDecl, error) {
-	data, err := os.ReadFile(file)
+// evalDecl is one input's value and where it was written.
+type evalDecl struct {
+	Value map[string]any `json:"value"`
+	Pos   *evalPos       `json:"pos"`
+}
+
+// InputDecl is one flake input declared in a module's source: its name, its
+// full value (Value, e.g. {"url": "...", "inputs": {"nixpkgs": {"follows":
+// "nixpkgs"}}}), and where it was written.
+type InputDecl struct {
+	File  string
+	Name  string
+	URL   string
+	Line  int
+	Value map[string]any
+}
+
+// InputDecls returns the flake-file.inputs declarations across files, in
+// file-then-name order. It evaluates each file, so a value built at runtime
+// (not a plain literal) is read like any other; a file that cannot be
+// evaluated as a module (needs a real argument, fails to parse) silently
+// contributes none, since a broken module is already caught elsewhere.
+// Every file must exist.
+func InputDecls(files ...string) ([]InputDecl, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	abs := make([]string, len(files))
+	for i, f := range files {
+		a, err := filepath.Abs(f)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := os.Stat(a); err != nil {
+			return nil, fmt.Errorf("nixsrc.InputDecls: %w", err)
+		}
+		abs[i] = a
+	}
+
+	payload, err := json.Marshal(abs)
+	if err != nil {
+		return nil, err
+	}
+	out, err := nix.EvalJSON(evalInputsExpr, map[string]string{"filesJson": string(payload)})
 	if err != nil {
 		return nil, err
 	}
 
+	var raw map[string]map[string]evalDecl
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("nixsrc.InputDecls: parse nix-instantiate output: %w", err)
+	}
+
 	var decls []InputDecl
-	for i, line := range strings.Split(string(data), "\n") {
-		m := inputDeclRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
+	for _, file := range abs {
+		names := make([]string, 0, len(raw[file]))
+		for name := range raw[file] {
+			names = append(names, name)
 		}
-		decls = append(decls, InputDecl{Name: m[1], URL: m[2], Line: i + 1})
+		sort.Strings(names)
+		for _, name := range names {
+			d := raw[file][name]
+			line := 0
+			if d.Pos != nil {
+				line = d.Pos.Line
+			}
+			url, _ := d.Value["url"].(string)
+			decls = append(decls, InputDecl{File: file, Name: name, URL: url, Line: line, Value: d.Value})
+		}
 	}
 	return decls, nil
 }
@@ -44,12 +133,14 @@ func InputDecls(file string) ([]InputDecl, error) {
 // BaseChannelInput is the name of the flake input that is the base channel.
 const BaseChannelInput = "nixpkgs"
 
-// ErrNoBaseChannel reports that file holds no literal nixpkgs declaration.
+// ErrNoBaseChannel reports that file holds no nixpkgs declaration.
 var ErrNoBaseChannel = errors.New("missing base channel")
 
 // BaseChannel returns the url and 1-based line of the one nixpkgs declaration
-// in file. None (a non-literal value does not match the declaration form, so it
-// counts as none) is ErrNoBaseChannel; more than one is an error naming the lines.
+// in file. None is ErrNoBaseChannel; more than one is an error naming the
+// lines (only reachable through a merged, not literally duplicated,
+// attribute set — Nix itself refuses two literal definitions of the same
+// attribute).
 func BaseChannel(file string) (url string, line int, err error) {
 	decls, err := InputDecls(file)
 	if err != nil {
@@ -72,4 +163,100 @@ func BaseChannel(file string) (url string, line int, err error) {
 		lines[i] = strconv.Itoa(d.Line)
 	}
 	return "", 0, fmt.Errorf("%s: base channel declared %d times (lines %s); keep one", file, len(found), strings.Join(lines, ", "))
+}
+
+// nixIdentRe matches a bare Nix identifier, safe to write unquoted as an
+// attribute name.
+var nixIdentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_'-]*$`)
+
+// RenderInputs renders decls as the body of a flake.nix `inputs = { ... };`
+// block, one line per name (a name declared more than once keeps its first
+// declaration; flake-file's own evaluation judges any real conflict),
+// sorted by name for a stable, diff-friendly file.
+func RenderInputs(decls []InputDecl) string {
+	seen := map[string]bool{}
+	var names []string
+	values := map[string]map[string]any{}
+	for _, d := range decls {
+		if seen[d.Name] {
+			continue
+		}
+		seen[d.Name] = true
+		names = append(names, d.Name)
+		values[d.Name] = d.Value
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	for _, name := range names {
+		v := values[name]
+		if url, ok := v["url"].(string); ok && len(v) == 1 {
+			fmt.Fprintf(&b, "    %s.url = %s;\n", nixAttrName(name), nixString(url))
+			continue
+		}
+		fmt.Fprintf(&b, "    %s = %s;\n", nixAttrName(name), renderNixValue(v, 2))
+	}
+	return b.String()
+}
+
+// nixAttrName renders name as a Nix attribute name: bare when it is a valid
+// identifier, quoted otherwise.
+func nixAttrName(name string) string {
+	if nixIdentRe.MatchString(name) {
+		return name
+	}
+	return nixString(name)
+}
+
+// renderNixValue renders a decoded JSON value (string, bool, float64 or
+// nested map[string]any, as builtins.toJSON produces from a Nix attrset) as
+// Nix source, indented at depth levels of two spaces.
+func renderNixValue(v any, depth int) string {
+	switch val := v.(type) {
+	case string:
+		return nixString(val)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(val, 'g', -1, 64)
+	case map[string]any:
+		if len(val) == 0 {
+			return "{ }"
+		}
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		pad := strings.Repeat("  ", depth)
+		inner := strings.Repeat("  ", depth+1)
+		var b strings.Builder
+		b.WriteString("{\n")
+		for _, k := range keys {
+			fmt.Fprintf(&b, "%s%s = %s;\n", inner, nixAttrName(k), renderNixValue(val[k], depth+1))
+		}
+		b.WriteString(pad)
+		b.WriteString("}")
+		return b.String()
+	default:
+		return "null"
+	}
+}
+
+// nixString renders s as a double-quoted Nix string literal.
+func nixString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"', '\\', '$':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('"')
+	return b.String()
 }

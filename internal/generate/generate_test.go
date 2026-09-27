@@ -1,11 +1,13 @@
 package generate
 
 import (
+	"bytes"
 	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"text/template"
 
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -111,11 +113,19 @@ func TestFlakeBootstrap_EmptyHostErrors(t *testing.T) {
 }
 
 func TestStaticFlakeNix_Parses(t *testing.T) {
-	content, err := framework.File("flake.nix")
+	raw, err := framework.File("flake.nix")
 	if err != nil {
 		t.Fatalf("framework.File(flake.nix): %v", err)
 	}
-	assertNixParses(t, content)
+	tmpl, err := template.New("flake.nix").Parse(string(raw))
+	if err != nil {
+		t.Fatalf("parse template: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, struct{ Inputs string }{Inputs: "    nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n"}); err != nil {
+		t.Fatalf("execute template: %v", err)
+	}
+	assertNixParses(t, buf.Bytes())
 }
 
 func TestSystemNix_Parses(t *testing.T) {

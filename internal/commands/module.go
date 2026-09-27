@@ -654,15 +654,13 @@ func unitInputs(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	decls, err := nixsrc.InputDecls(files...)
+	if err != nil {
+		return nil, err
+	}
 	set := map[string]bool{}
-	for _, file := range files {
-		decls, err := nixsrc.InputDecls(file)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range decls {
-			set[d.Name] = true
-		}
+	for _, d := range decls {
+		set[d.Name] = true
 	}
 	var names []string
 	for name := range set {

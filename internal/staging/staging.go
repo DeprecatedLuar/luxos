@@ -67,7 +67,12 @@ const (
 // original's location (same category, the shadow's own file or folder name)
 // and every import of that name in the staged config/modules/default.nix is
 // pointed there. The original is not staged; no source file is rewritten.
-func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, nixpkgsURL string) error {
+//
+// inputsNix is the body of flake.nix's `inputs = { ... };` block beyond the
+// flake-file pin, rendered by nixsrc.RenderInputs from the selected modules'
+// flake-file.inputs declarations (the caller's job; Materialize only writes
+// it in).
+func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, inputsNix string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
 	}
@@ -109,7 +114,7 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 	if err := writeFrameworkFile(fwDir, luxosHardwareDefaults); err != nil {
 		return err
 	}
-	if err := writeFlakeNix(stagingDir, nixpkgsURL); err != nil {
+	if err := writeFlakeNix(stagingDir, inputsNix); err != nil {
 		return err
 	}
 
@@ -419,11 +424,11 @@ func checkNoDanglingLinks(root string) error {
 	})
 }
 
-// writeFlakeNix renders the embedded flake.nix template with the base channel
-// url into dst.
-func writeFlakeNix(dst, nixpkgsURL string) error {
-	if nixpkgsURL == "" {
-		return errors.New("staging: base channel url is required")
+// writeFlakeNix renders the embedded flake.nix template with the derived
+// inputs into dst.
+func writeFlakeNix(dst, inputsNix string) error {
+	if inputsNix == "" {
+		return errors.New("staging: flake inputs are required")
 	}
 	data, err := framework.File(flakeNix)
 	if err != nil {
@@ -434,7 +439,7 @@ func writeFlakeNix(dst, nixpkgsURL string) error {
 		return err
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, flakeNixData{Nixpkgs: nixpkgsURL}); err != nil {
+	if err := tmpl.Execute(&buf, flakeNixData{Inputs: inputsNix}); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dst, flakeNix), buf.Bytes(), fileMode)
@@ -442,7 +447,7 @@ func writeFlakeNix(dst, nixpkgsURL string) error {
 
 // flakeNixData feeds the embedded flake.nix template.
 type flakeNixData struct {
-	Nixpkgs string
+	Inputs string
 }
 
 func writeFrameworkFile(dst, name string) error {

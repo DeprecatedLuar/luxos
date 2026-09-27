@@ -14,6 +14,12 @@ import (
 
 const testNixpkgs = "github:NixOS/nixpkgs/nixos-25.11"
 
+// inputsNixFor renders the flake.nix inputs block Materialize now expects,
+// with just a nixpkgs pin at the given url.
+func inputsNixFor(url string) string {
+	return "    nixpkgs.url = \"" + url + "\";\n"
+}
+
 func skipIfNoNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
@@ -82,7 +88,7 @@ func TestMaterialize_Basic(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, testNixpkgs); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -147,7 +153,7 @@ func TestMaterialize_LockOptional(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	missingLock := filepath.Join(t.TempDir(), "flake.lock")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, missingLock, environmentFile, testNixpkgs); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, missingLock, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -161,7 +167,7 @@ func TestMaterialize_MissingEnvironmentFails(t *testing.T) {
 	modulesDir, hostDir, lockFile, _ := fixture(t)
 	missingEnv := filepath.Join(t.TempDir(), "environment")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, missingEnv, testNixpkgs); err == nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, missingEnv, inputsNixFor(testNixpkgs)); err == nil {
 		t.Fatal("expected an error for a missing environment file")
 	}
 }
@@ -176,7 +182,7 @@ func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, testNixpkgs); err != nil {
+		if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
 			t.Fatalf("Materialize #%d: %v", i, err)
 		}
 	}
@@ -198,7 +204,7 @@ func TestMaterialize_DanglingLinkRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, testNixpkgs)
+	err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs))
 	if err == nil {
 		t.Fatalf("expected dangling symlink error")
 	}
@@ -282,7 +288,7 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 		t.Fatal(err)
 	}
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, filepath.Join(root, "flake.lock"), environmentFile, testNixpkgs); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, filepath.Join(root, "flake.lock"), environmentFile, inputsNixFor(testNixpkgs)); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -849,7 +855,7 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
 		{Name: "desktop", Path: "system/desktop.nix"},
 	}
-	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile, testNixpkgs); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -881,7 +887,7 @@ func TestMaterializeRendersFlakeNix(t *testing.T) {
 	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
 	stagingDir := t.TempDir()
 	const url = "github:NixOS/nixpkgs/nixos-99.99"
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, url); err != nil {
+	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(url)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(stagingDir, "flake.nix"))

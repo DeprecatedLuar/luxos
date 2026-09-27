@@ -152,6 +152,27 @@ func ensureHardware(w io.Writer, p paths.Paths) (string, error) {
 	return hwDir, nil
 }
 
+// selectedInputsNix renders the flake.nix `inputs = { ... };` body for host:
+// every flake-file.inputs declaration in the files of host's selected units
+// (refs.SelectedUnits) and in its machine.nix, which is where the base
+// channel is declared the same way. readBaseChannel has already checked one
+// exists by the time this runs.
+func selectedInputsNix(modulesDir, hostDir string) (string, error) {
+	sel, err := refs.SelectedUnits(modulesDir, filepath.Join(hostDir, "modules"), hostDir)
+	if err != nil {
+		return "", err
+	}
+	files := []string{filepath.Join(hostDir, config.MachineFile)}
+	for _, u := range sel {
+		files = append(files, u.Files...)
+	}
+	decls, err := nixsrc.InputDecls(files...)
+	if err != nil {
+		return "", err
+	}
+	return nixsrc.RenderInputs(decls), nil
+}
+
 // readBaseChannel returns the url of the nixpkgs declaration in the machine.nix
 // at path. A missing declaration is an error naming the line to add, taken from
 // the embedded machine.nix template.
@@ -333,8 +354,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	}
 
 	// 6c. the base channel is declared in machine.nix
-	nixpkgsURL, err := readBaseChannel(filepath.Join(hostDir, config.MachineFile))
-	if err != nil {
+	if _, err := readBaseChannel(filepath.Join(hostDir, config.MachineFile)); err != nil {
 		return err
 	}
 
@@ -361,9 +381,18 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		}
 	}
 
+	// derive the bootstrap flake's inputs from the selected modules' own
+	// flake-file.inputs declarations (plus machine.nix's base channel), so a
+	// module that imports from its own input (a nixos-hardware module, say)
+	// already has that input by the time write-flake evaluates it.
+	inputsNix, err := selectedInputsNix(p.Modules, hostDir)
+	if err != nil {
+		return err
+	}
+
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath, nixpkgsURL); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath, inputsNix); err != nil {
 		return err
 	}
 
