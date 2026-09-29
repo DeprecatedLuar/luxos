@@ -9,11 +9,9 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
-// User implements `luxos user`, the same verbs as `luxos module` with the
-// category fixed to "users" (implementation-plan.md #12), ported from
-// bin/lib/lux/commands/user.sh. Only add/list take a category-relative
-// argument; every other verb already operates on bare, globally-unique
-// names and is forwarded to Module's verb functions untouched.
+// Only add/list take a category-relative argument; every other verb
+// operates on bare, globally-unique names and is forwarded to Module's
+// verb functions untouched.
 func User(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", "user"})
@@ -46,13 +44,13 @@ func User(args []string) error {
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		return fmt.Errorf("unknown user command '%s'\n  Usage: luxos user <list|ls|add|a|edit|e|enable|disable|remove|rename> ...", verb)
+		return fmt.Errorf("unknown user command: %s", verb)
 	}
 }
 
 // userTarget prefixes name with "users/" unless it already is, so
 // `luxos user add foo` and `luxos user add users/foo` build the same
-// module-add target (implementation-plan.md #12). Pure.
+// module-add target.
 func userTarget(name string) string {
 	if strings.HasPrefix(name, "users/") {
 		return name
@@ -60,8 +58,6 @@ func userTarget(name string) string {
 	return "users/" + name
 }
 
-// userAdd implements `user add <name> [--enable]` ==
-// `module add users/<name> [--enable]`.
 func userAdd(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse("enable:bool", args)
 	if err != nil {
@@ -84,7 +80,7 @@ func userAdd(p paths.Paths, args []string) error {
 }
 
 // userCategory builds the category-path `user list [subpath]` forwards to
-// `module list`: "users" or "users/<subpath>". Pure.
+// `module list`: "users" or "users/<subpath>".
 func userCategory(sub string) string {
 	if sub == "" {
 		return "users"
@@ -92,9 +88,8 @@ func userCategory(sub string) string {
 	return "users/" + sub
 }
 
-// userList implements `user list [subpath] [flags]` ==
-// `module list users[/subpath] [flags]`. Flags (--flat, --raw, ...) are
-// forwarded untouched; the first non-flag argument, if any, is the subpath.
+// Flags (--flat, --raw, ...) are forwarded untouched; the first non-flag
+// argument, if any, is the subpath.
 func userList(p paths.Paths, args []string) error {
 	var sub string
 	var flags []string

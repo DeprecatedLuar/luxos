@@ -9,18 +9,15 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
-// configDirEnv mirrors internal/paths' LUXOS_CONFIG_DIR override; the
-// resolved config dir is passed through it across the sudo re-exec.
+// Resolved config dir is passed through this across the sudo re-exec.
 const configDirEnv = "LUXOS_CONFIG_DIR"
 
-// backupDirEnv mirrors internal/paths' LUXOS_BACKUP_DIR override; it crosses
-// the sudo re-exec only when set.
+// Crosses the sudo re-exec only when set.
 const backupDirEnv = "LUXOS_BACKUP_DIR"
 
-// EnsureRoot re-execs the running binary under sudo when not already root
-// (implementation-plan.md G9). args are the original CLI arguments (with
-// the command name prepended by the caller). It returns only on error;
-// success replaces the process image.
+// EnsureRoot re-execs the running binary under sudo when not already root.
+// args are the original CLI arguments, command name prepended by the
+// caller. Returns only on error; success replaces the process image.
 func EnsureRoot(args []string) error {
 	if os.Geteuid() == 0 {
 		return nil

@@ -1047,7 +1047,9 @@ func TestUnitChanged(t *testing.T) {
 	write(mods, "d/default.nix", "x")
 	write(mods, "d/extra.nix", "e")
 	check("dir added file", mods, staged, dir, true)
-	os.Remove(filepath.Join(mods, "d/extra.nix"))
+	if err := os.Remove(filepath.Join(mods, "d/extra.nix")); err != nil {
+		t.Fatal(err)
+	}
 	write(staged, "d/gone.nix", "g")
 	check("dir removed file", mods, staged, dir, true)
 

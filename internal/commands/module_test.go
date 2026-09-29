@@ -135,7 +135,7 @@ func TestJoinCategory(t *testing.T) {
 	}
 }
 
-//──[Phase 4: per-host scoping of remove/rename]─────────────────────────────
+//──[per-host scoping of remove/rename]───────────────────────────────────────
 
 func skipIfNoNix(t *testing.T) {
 	t.Helper()

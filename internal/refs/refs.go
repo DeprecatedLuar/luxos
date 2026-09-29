@@ -1,10 +1,9 @@
 // Package refs is the single owner of what a module file under
-// CONFIG_DIR/modules may reference (implementation-plan.md #25, #26, #27,
-// #28, §3 "Module boundary" and "luxos.modules") — paths, and
-// luxos.modules names — as internal/imports is for host entrypoints (#18).
-// It owns the domain logic (owners, closures, dependents, boundary
-// violations); all Nix syntax reading and editing goes through
-// internal/nixsrc, and every function here takes ABSOLUTE file paths.
+// CONFIG_DIR/modules may reference — paths, and luxos.modules names — as
+// internal/imports is for host entrypoints. It owns the domain logic
+// (owners, closures, dependents, boundary violations); all Nix syntax
+// reading and editing goes through internal/nixsrc. Every function here
+// takes absolute file paths.
 package refs
 
 import (
@@ -18,32 +17,19 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// entrypointName is the host-selection mirror file, exempt from Dependents
-// and Retarget (it isn't a module file).
 const entrypointName = "default.nix"
 
-// localName is the reserved entry at modulesDir's own root — the link to
-// the active host's local modules (L5) — that findAllNix must skip when
-// walking modulesDir itself, so passing the modules dir never walks the
-// link.
 const localName = "local"
 
-// modulesDirName is the fixed name Validate's "does not resolve" message
-// refers to (matches bash's CONFIGGEN_MODULES_DIR constant, "modules").
 const modulesDirName = "modules"
 
-// localPrefix marks a unit path (as units.Walk returns it) as belonging to
-// a host's own local modules (L5/L6/L8), e.g. "local/foo.nix".
 const localPrefix = "local/"
 
-// Violation is one boundary, dynamic-path, call-shape or unresolved-name
-// problem found by Validate. File is relative to modulesDir.
 type Violation struct {
 	File, Message string
 }
 
-// Change is one rewrite made by Retarget. New == "" means the element was
-// removed rather than renamed.
+// New == "" means the element was removed rather than renamed.
 type Change struct {
 	File, Old, New string
 }
@@ -332,8 +318,6 @@ func Retarget(modulesDir string, localModulesDirs []string, name, newName string
 
 //──[private: tree walk]──────────────────────────────────────────────────────
 
-// UnitFiles returns the *.nix files a unit consists of: the file itself for
-// a file unit, every *.nix beneath it (sorted) for a folder unit.
 func UnitFiles(unit string) ([]string, error) {
 	info, err := os.Stat(unit)
 	if err != nil {

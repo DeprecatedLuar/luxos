@@ -34,11 +34,8 @@ const (
 	ChangeHealed = "healed"
 )
 
-// ErrNoBackupDir is returned by Adopt when something must be moved but no
-// backup directory is known.
 var ErrNoBackupDir = errors.New("no backup directory to move the existing /etc/nixos entries into")
 
-// Change is one action Adopt took, for the caller to render.
 type Change struct {
 	Kind string // "moved" or "healed"
 	Path string
@@ -119,8 +116,7 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 	return changes, nil
 }
 
-// Prune removes every owned entry from stagingDir. A missing entry is not an
-// error.
+// Prune removes every owned entry from stagingDir. A missing entry is not an error.
 func Prune(stagingDir string) error {
 	for _, name := range owned {
 		if err := os.RemoveAll(filepath.Join(stagingDir, name)); err != nil {
@@ -130,8 +126,7 @@ func Prune(stagingDir string) error {
 	return nil
 }
 
-// hasLuxosHeader reports whether path exists and its first line is luxosHeader.
-func hasLuxosHeader(path string) (bool, error) {
+func hasLuxosHeader(path string) (has bool, err error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -139,7 +134,7 @@ func hasLuxosHeader(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	line, err := bufio.NewReader(f).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, err
@@ -147,8 +142,7 @@ func hasLuxosHeader(path string) (bool, error) {
 	return strings.TrimRight(line, "\r\n") == luxosHeader, nil
 }
 
-// move renames src to dst, falling back to copy-then-remove across
-// filesystems.
+// move renames src to dst, falling back to copy-then-remove across filesystems.
 func move(src, dst string) error {
 	err := os.Rename(src, dst)
 	if err == nil {
@@ -163,7 +157,6 @@ func move(src, dst string) error {
 	return os.RemoveAll(src)
 }
 
-// copyTree copies src to dst preserving symlinks as symlinks and file modes.
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -195,19 +188,16 @@ func copyTree(src, dst string) error {
 	})
 }
 
-func copyRegular(src, dst string, mode fs.FileMode) error {
+func copyRegular(src, dst string, mode fs.FileMode) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { err = errors.Join(err, in.Close()) }()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
+	_, err = io.Copy(out, in)
+	return errors.Join(err, out.Close())
 }

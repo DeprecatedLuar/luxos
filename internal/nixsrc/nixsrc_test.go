@@ -186,8 +186,8 @@ func TestDynamicPaths_ParseSuite(t *testing.T) {
 }
 
 //============================================================================
-// Suite: tests/names.sh — refs.Names call-shape recognition (#28), covering
-// the additional shapes the Phase 6 task calls out beyond boundary/parse.
+// Suite: refs.Names call-shape recognition, additional shapes beyond
+// boundary/parse.
 //============================================================================
 
 func TestNames_CallShapeSuite(t *testing.T) {

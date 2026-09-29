@@ -86,26 +86,18 @@ func RetargetModuleName(file, name, newName string) (changed bool, err error) {
 		content += "\n"
 	}
 
-	tmp, err := os.CreateTemp("", tempPattern)
+	err = WithTemp(tempPattern, []byte(content), func(path string) error {
+		actualParse, perr := parse(path)
+		if perr != nil {
+			return fmt.Errorf("%s: rewrite would fail to parse — refusing to write", file)
+		}
+		if actualParse != expectedParse {
+			return fmt.Errorf("%s: rewrite would change more than the '%s' reference — refusing to write", file, name)
+		}
+		return nil
+	})
 	if err != nil {
 		return false, err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		return false, err
-	}
-	if err := tmp.Close(); err != nil {
-		return false, err
-	}
-
-	actualParse, perr := parse(tmpPath)
-	if perr != nil {
-		return false, fmt.Errorf("%s: rewrite would fail to parse — refusing to write", file)
-	}
-	if actualParse != expectedParse {
-		return false, fmt.Errorf("%s: rewrite would change more than the '%s' reference — refusing to write", file, name)
 	}
 
 	if err := Write(file, []byte(content)); err != nil {
@@ -114,8 +106,6 @@ func RetargetModuleName(file, name, newName string) (changed bool, err error) {
 	return true, nil
 }
 
-// stripFormals strips the outer lambda's formals declaration from the start
-// of a parse, if present.
 func stripFormals(parsed string) string {
 	m := formalsRe.FindStringSubmatch(parsed)
 	if m == nil {
@@ -234,7 +224,6 @@ func rewriteCalls(text, old, newName string, spanRe, itemRe *regexp.Regexp, styl
 	return out.String(), true
 }
 
-// itemStr renders one list element in the given style.
 func itemStr(style, tok string) string {
 	if style == "parens" {
 		return `("` + tok + `")`

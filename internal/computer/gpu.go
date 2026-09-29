@@ -10,11 +10,8 @@ import (
 	"strings"
 )
 
-// sysfsPCIDevices is the sysfs directory (relative to sysDir) holding one
-// entry per PCI device, keyed by its "<domain>:<bus>:<dev>.<fn>" address.
 const sysfsPCIDevices = "bus/pci/devices"
 
-// Per-device files read under each entry of sysfsPCIDevices.
 const (
 	classFile   = "class"
 	vendorFile  = "vendor"
@@ -22,52 +19,43 @@ const (
 	bootVgaFile = "boot_vga"
 )
 
-// PCI-SIG display class codes (base class 0x03), as the top 16 bits of the
-// 24-bit class code (class >> 8).
+// Base class 0x03, top 16 bits of the 24-bit class code (class >> 8).
 const (
 	classCodeVGA = 0x0300
 	class3D      = 0x0302
 )
 
-// classVGA and class3D are the values rendered in GPU.Class.
 const (
 	classVGA = "vga"
 	class3d  = "3d"
 )
 
-// PCI vendor IDs, as read from the "vendor" sysfs file.
 const (
 	vendorIDIntel  = "0x8086"
 	vendorIDAMD    = "0x1002"
 	vendorIDNVIDIA = "0x10de"
 )
 
-// unknownVendor is the Vendor value for any vendor ID not in vendorNames.
 const unknownVendor = "unknown"
 
-// vendorNames maps a PCI vendor ID to the short name used in GPU.Vendor.
 var vendorNames = map[string]string{
 	vendorIDIntel:  "intel",
 	vendorIDAMD:    "amd",
 	vendorIDNVIDIA: "nvidia",
 }
 
-// addrPattern matches a PCI device directory name: "<domain>:<bus>:<dev>.<fn>",
-// each field hex.
+// "<domain>:<bus>:<dev>.<fn>", each field hex.
 var addrPattern = regexp.MustCompile(`^([0-9a-fA-F]+):([0-9a-fA-F]+):([0-9a-fA-F]+)\.([0-9a-fA-F]+)$`)
 
-// GPU is one detected PCI display-class device.
 type GPU struct {
-	BusID    string // "PCI:<bus>@<domain>:<dev>:<fn>", decimal - see G2.
+	BusID    string // "PCI:<bus>@<domain>:<dev>:<fn>", decimal.
 	Vendor   string // "intel", "amd", "nvidia", or "unknown".
-	VendorID string // raw hex vendor ID, e.g. "0x8086".
-	DeviceID string // raw hex device ID; not rendered yet, kept for future use.
+	VendorID string // e.g. "0x8086".
+	DeviceID string // Not rendered yet, kept for future use.
 	Class    string // "vga" or "3d".
 	BootVGA  bool
 }
 
-// readHexFile reads path, trims whitespace, and parses it as a hex integer
-// (with or without a "0x" prefix).
 func readHexFile(path string) (uint64, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -83,8 +71,7 @@ func readHexFile(path string) (uint64, error) {
 	return v, nil
 }
 
-// readTrimmed reads path and returns its trimmed content, or "" if it does
-// not exist.
+// Returns "" if the file does not exist.
 func readTrimmed(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -96,8 +83,7 @@ func readTrimmed(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// busID renders addr (a PCI device directory name) as "PCI:<bus>@<domain>:<dev>:<fn>"
-// per G2, all four fields converted from hex to decimal.
+// All four fields converted from hex to decimal.
 func busID(addr string) (string, error) {
 	m := addrPattern.FindStringSubmatch(addr)
 	if m == nil {
@@ -122,10 +108,8 @@ func busID(addr string) (string, error) {
 	return fmt.Sprintf("PCI:%d@%d:%d:%d", bus, domain, dev, fn), nil
 }
 
-// DetectGPUs reads <sysDir>/bus/pci/devices and returns every PCI device whose
-// class is VGA or 3D controller (G1). A missing devices directory returns
-// (nil, nil) - an empty machine or container, not an error. Any other read
-// error is a hard error naming the offending device directory.
+// A missing devices directory returns (nil, nil) - an empty machine or container, not an error.
+// Any other read error is a hard error naming the offending device directory.
 func DetectGPUs(sysDir string) ([]GPU, error) {
 	devicesDir := filepath.Join(sysDir, sysfsPCIDevices)
 
@@ -205,8 +189,7 @@ func DetectGPUs(sysDir string) ([]GPU, error) {
 	return gpus, nil
 }
 
-// RenderGPUs produces a static, dependency-free Nix file setting
-// luxos.hardware.gpus from gpus, sorted by BusID for stable output (G3).
+// Sorted by BusID for stable output.
 func RenderGPUs(gpus []GPU) ([]byte, error) {
 	sorted := make([]GPU, len(gpus))
 	copy(sorted, gpus)

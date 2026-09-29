@@ -9,17 +9,13 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// entrypointFile is the host's selection file, read the same way
-// internal/heal and internal/commands do.
 const entrypointFile = "modules.nix"
 
-// SelectedUnit is one unit reachable for host: the host's own selection plus
-// everything its selected units pull in through luxos.modules.
 type SelectedUnit struct {
-	Path  string   // unit path as units.Resolve returns it ("local/" prefix for a local unit)
-	Root  string   // filesystem root Files sit under: modulesDir, or localModulesDir for a local unit
-	Rel   string   // Path relative to Root
-	Files []string // absolute *.nix files belonging to this unit
+	Path  string
+	Root  string
+	Rel   string
+	Files []string
 }
 
 // SelectedUnits returns, for host's entrypoint at hostDir, every unit its

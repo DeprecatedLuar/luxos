@@ -15,41 +15,23 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
-// efivarsRel is the sysfs path (relative to sysDir) whose presence means EFI.
 const efivarsRel = "firmware/efi/efivars"
-
-// classBlockRel is the sysfs directory (relative to sysDir) holding one
-// entry per block device, keyed by kernel name.
 const classBlockRel = "class/block"
 
-// slavesDir is the subdirectory of a class/block entry listing the devices
-// it is built on top of (LUKS, LVM, RAID). Non-empty means "not a plain
-// disk or partition".
+// Non-empty means "not a plain disk or partition".
 const slavesDir = "slaves"
 
-// partitionFile, when present in a class/block entry, means that entry is a
-// partition rather than a whole disk.
 const partitionFile = "partition"
-
-// vfat is the filesystem type an EFI system partition must be mounted as.
 const vfat = "vfat"
-
-// devPrefix is the prefix every BIOS boot device must have.
 const devPrefix = "/dev/"
 
-// configurationLimit is the number of generations GRUB keeps in the boot
-// menu. nixpkgs defaults to 100, which no small EFI system partition can
+// nixpkgs defaults to 100, which no small EFI system partition can
 // hold - at roughly 39M per distinct kernel+initrd pair a 196M partition
 // fits four. Installing the loader is the only thing that prunes /boot;
 // nix.gc never touches it.
 const configurationLimit = 4
 
-// efiMounts are the mount points checked in order for a vfat EFI system
-// partition.
 var efiMounts = []string{"/boot/efi", "/boot"}
-
-// biosMounts are the mount points checked in order for the BIOS boot
-// device's source.
 var biosMounts = []string{"/boot", "/"}
 
 //go:embed templates/boot.nix.tmpl
@@ -57,22 +39,19 @@ var templatesFS embed.FS
 
 var bootTmpl = template.Must(template.New("boot.nix.tmpl").ParseFS(templatesFS, "templates/boot.nix.tmpl"))
 
-// Loader is the detected boot loader configuration for this computer.
 // Target is the EFI mount point (B4) or the "/dev/<disk>" device (B5).
 type Loader struct {
 	EFI    bool
 	Target string
 }
 
-// mountEntry is one parsed line of a mounts file.
 type mountEntry struct {
 	source string
 	fstype string
 }
 
-// parseMounts reads a whitespace-separated mounts file (source mountpoint
-// fstype ...). When a mount point appears on more than one line, the last
-// line wins. Mount points are compared as raw strings.
+// When a mount point appears on more than one line, the last line wins.
+// Mount points are compared as raw strings.
 func parseMounts(mountsFile string) (map[string]mountEntry, error) {
 	data, err := os.ReadFile(mountsFile)
 	if err != nil {
@@ -90,9 +69,6 @@ func parseMounts(mountsFile string) (map[string]mountEntry, error) {
 	return mounts, nil
 }
 
-// DetectBoot determines this computer's boot loader firmware and target from
-// sysDir (a sysfs root, normally "/sys") and mountsFile (normally
-// "/proc/mounts").
 func DetectBoot(sysDir, mountsFile string) (Loader, error) {
 	mounts, err := parseMounts(mountsFile)
 	if err != nil {
@@ -109,8 +85,7 @@ func DetectBoot(sysDir, mountsFile string) (Loader, error) {
 	return detectBIOS(sysDir, mounts)
 }
 
-// detectEFI implements B4: the EFI target is the mount point of a vfat
-// filesystem, /boot/efi taking priority over /boot.
+// /boot/efi takes priority over /boot.
 func detectEFI(mounts map[string]mountEntry) (Loader, error) {
 	for _, mp := range efiMounts {
 		if entry, ok := mounts[mp]; ok && entry.fstype == vfat {
@@ -120,8 +95,7 @@ func detectEFI(mounts map[string]mountEntry) (Loader, error) {
 	return Loader{}, fmt.Errorf("no vfat filesystem mounted at %s", strings.Join(efiMounts, " or "))
 }
 
-// detectBIOS implements B5: the target is "/dev/<disk>" for the source
-// device of the /boot mount, falling back to /.
+// The target is "/dev/<disk>" for the source device of the /boot mount, falling back to /.
 func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
 	var device string
 	for _, mp := range biosMounts {
@@ -160,7 +134,6 @@ func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
 	return Loader{EFI: false, Target: devPrefix + disk}, nil
 }
 
-// RenderBoot renders boot.nix for the detected loader (B10).
 func RenderBoot(l Loader) ([]byte, error) {
 	var buf bytes.Buffer
 	data := struct {
@@ -173,9 +146,8 @@ func RenderBoot(l Loader) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// EnsureBoot makes sure bootFile exists, writing it from detection when it does
-// not. An existing entry of any kind is left alone (B1). A detection
-// failure is a hard error naming bootFile (B7).
+// An existing entry of any kind is left alone. A detection
+// failure is a hard error naming bootFile.
 func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
 	if _, err := os.Lstat(bootFile); err == nil {
 		return false, nil

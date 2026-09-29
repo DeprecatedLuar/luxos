@@ -1,21 +1,17 @@
-// Package gitignore appends missing lines to a .gitignore file without
-// ever removing or reordering anything already there.
 package gitignore
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
-// Ensure appends every line in lines that is not already present in the
-// file at path (exact match, ignoring a trailing '\r' and trailing
-// whitespace), preserving existing content and order. It creates the file
-// if it does not exist; a created file gets its parent directory's owner.
-// It returns the lines that were actually added, in
-// the order given.
+// Exact match, ignoring a trailing '\r' and trailing whitespace. Preserves
+// existing content and order. Creates the file if it does not exist; a created
+// file gets its parent directory's owner. Returns the lines that were actually added, in the order given.
 func Ensure(path string, lines []string) (added []string, err error) {
 	existing, err := readLines(path)
 	if err != nil {
@@ -67,16 +63,15 @@ func Ensure(path string, lines []string) (added []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-
-	if _, err := f.WriteString(b.String()); err != nil {
+	_, err = f.WriteString(b.String())
+	if err := errors.Join(err, f.Close()); err != nil {
 		return nil, err
 	}
 
 	return toAdd, nil
 }
 
-func readLines(path string) ([]string, error) {
+func readLines(path string) (lines []string, err error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -84,9 +79,8 @@ func readLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
-	var lines []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		lines = append(lines, sc.Text())
@@ -97,8 +91,6 @@ func readLines(path string) ([]string, error) {
 	return lines, nil
 }
 
-// needsLeadingNewline reports whether path exists and its content does not
-// already end with a newline.
 func needsLeadingNewline(path string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {

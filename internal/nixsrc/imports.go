@@ -8,10 +8,9 @@ import (
 )
 
 var (
-	// Recognized import line (implementation-plan.md §3): optional leading
-	// whitespace, "./" + a path with no whitespace or "#", optional
-	// whitespace, optional trailing "#..." comment. A line starting with
-	// "#" is a plain comment and never matches.
+	// Recognized import line: optional leading whitespace, "./" + a path
+	// with no whitespace or "#", optional whitespace, optional trailing
+	// "#..." comment. A line starting with "#" never matches.
 	lineRe = regexp.MustCompile(`^[ \t]*\./([^ \t#]+)[ \t]*(#.*)?$`)
 
 	// The block's opening line: "imports = [" alone, or the inline-empty
@@ -35,11 +34,10 @@ var (
 	leadingWSRe = regexp.MustCompile(`^[ \t]*`)
 )
 
-// item is one recognized import line found inside a file's single block.
 type item struct {
-	lineNo  int // 1-indexed
+	lineNo  int
 	path    string
-	comment string // "" or "#..."
+	comment string
 	leading string
 }
 
@@ -213,8 +211,6 @@ func RetargetImports(file string, match func(path string) bool, newPath string) 
 	return old, true, nil
 }
 
-// readLines reads file's content split into lines without trailing
-// newlines.
 func readLines(file string) ([]string, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -309,12 +305,10 @@ func itemLines(file string) ([]item, bool, error) {
 	return items, true, nil
 }
 
-// shapeError is the standard "shape not recognized" error for file.
 func shapeError(file string) error {
 	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
 }
 
-// writeLines joins lines into file's new full content and hands it to Write.
 func writeLines(file string, lines []string) error {
 	return Write(file, []byte(strings.Join(lines, "\n")+"\n"))
 }

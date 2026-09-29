@@ -28,14 +28,12 @@ func File(name string) ([]byte, error) {
 	return files.ReadFile("files/" + name)
 }
 
-// Change describes one filesystem action Sync took under dst.
 type Change struct {
 	Path   string // relative to dst
 	Action string // ActionCreated | ActionRestored | ActionRemoved
 }
 
-// Sync makes dst byte-for-byte match the embedded files/modules tree: a
-// missing or differing file is (re)written and locked to mode 0444; any
+// A missing or differing file is (re)written and locked to mode 0444; any
 // file or directory under dst that is not part of the embedded set is
 // removed. If dst is itself a symlink, the symlink is removed (not
 // followed) and replaced with a real directory.
@@ -90,9 +88,8 @@ func Sync(dst string) ([]Change, error) {
 	return changes, nil
 }
 
-// embeddedModulesSet returns, keyed by path relative to files/modules: the
-// embedded FS path for every file, and the set of directories that contain
-// at least one embedded file (including the root, "").
+// Keyed by path relative to files/modules: the embedded FS path for every file,
+// and the set of directories that contain at least one embedded file (including the root, "").
 func embeddedModulesSet() (srcFiles map[string]string, dirSet map[string]bool, err error) {
 	srcFiles = map[string]string{}
 	dirSet = map[string]bool{}
@@ -124,8 +121,7 @@ func embeddedModulesSet() (srcFiles map[string]string, dirSet map[string]bool, e
 	return srcFiles, dirSet, nil
 }
 
-// writeIfNeeded writes wantData to dstPath when missing or differing, and
-// always leaves the file at mode lockedMode. It returns the action taken,
+// Always leaves the file at mode lockedMode. Returns the action taken,
 // or "" if the file already matched.
 func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	haveData, err := os.ReadFile(dstPath)
@@ -156,8 +152,6 @@ func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	}
 }
 
-// removeExtras deletes every file or directory under dst that is not part
-// of the embedded source set.
 func removeExtras(dst string, srcFiles map[string]string, dirSet map[string]bool) ([]Change, error) {
 	var changes []Change
 

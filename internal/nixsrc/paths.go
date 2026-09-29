@@ -17,8 +17,7 @@ var (
 	dynamicRe = regexp.MustCompile(`(^|[ ([])/([A-Za-z0-9._+-][A-Za-z0-9._+/-]*)? \+ `)
 )
 
-// Paths returns every static path literal referenced by file (absolute
-// path), always absolute (as the parser resolved it).
+// Paths returns every static path literal referenced by file, always absolute (as the parser resolved it).
 func Paths(file string) ([]string, error) {
 	parsed, err := parse(file)
 	if err != nil {
@@ -27,8 +26,7 @@ func Paths(file string) ([]string, error) {
 	return pathRe.FindAllString(stripStrings(parsed), -1), nil
 }
 
-// DynamicPaths returns every dynamic-path base (#27) referenced by file
-// (absolute path).
+// DynamicPaths returns every dynamic-path base (#27) referenced by file.
 func DynamicPaths(file string) ([]string, error) {
 	parsed, err := parse(file)
 	if err != nil {
@@ -37,7 +35,6 @@ func DynamicPaths(file string) ([]string, error) {
 	return extractDynamicPaths(stripStrings(parsed)), nil
 }
 
-// PathsAndDynamic returns Paths and DynamicPaths of file from one parse.
 func PathsAndDynamic(file string) (paths, dynamic []string, err error) {
 	parsed, err := parse(file)
 	if err != nil {
@@ -77,8 +74,6 @@ func stripStrings(s string) string {
 	return out.String()
 }
 
-// extractDynamicPaths finds every dynamic-path base in already
-// string-stripped parse output.
 func extractDynamicPaths(stripped string) []string {
 	var out []string
 	for _, m := range dynamicRe.FindAllString(stripped, -1) {

@@ -1,6 +1,5 @@
 // Package units walks CONFIG_DIR/modules to discover named units, resolves
-// a name to its path, and derives a unit's name from an import path — per
-// implementation-plan.md §3 "Name from an import path" and "Walk".
+// a name to its path, and derives a unit's name from an import path.
 package units
 
 import (
@@ -15,17 +14,13 @@ import (
 // that the walk root's own copy is skipped for).
 const entrypointName = "default.nix"
 
-// localName is the reserved entry at modulesDir's own root: the symlink to
-// the active host's local modules directory (L5). Walk never descends into
-// it when walking modulesDir; the active host's local units are discovered
-// separately, via localModulesDir, and prefixed "local/".
+// Walk never descends into it when walking modulesDir; the active host's
+// local units are discovered separately, via localModulesDir, and prefixed "local/".
 const localName = "local"
 
-// localPrefix is prepended to every unit Path found under localModulesDir.
 const localPrefix = "local/"
 
-// Unit is one named module found under a modules directory. Path is
-// relative to that directory, with no leading "./".
+// Path is relative to that directory, with no leading "./".
 // Shadows is the modules-relative path of the shared unit a local unit
 // hides, "" otherwise.
 type Unit struct {
@@ -107,8 +102,6 @@ func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 	return raw, nil
 }
 
-// checkDuplicates errors when a name is claimed by more than one unit in us,
-// listing every path that claims it.
 func checkDuplicates(us []Unit) error {
 	claimants := make(map[string][]string, len(us))
 	for _, u := range us {
@@ -197,7 +190,6 @@ func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
 	return nil
 }
 
-// Find returns the unit named name, if any.
 func Find(us []Unit, name string) (Unit, bool) {
 	for _, u := range us {
 		if u.Name == name {
@@ -207,7 +199,6 @@ func Find(us []Unit, name string) (Unit, bool) {
 	return Unit{}, false
 }
 
-// Resolve looks up name in units, returning its path and true when found.
 // Callers are expected to have gone through Walk first, which already
 // guarantees uniqueness of Name across units.
 func Resolve(units []Unit, name string) (string, bool) {

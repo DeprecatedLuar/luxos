@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// The hardware warning heads the confirmation shown before building or
-// switching without the hardware module: warningHighlighted is red and
-// underlined, the rest is the normal color.
 const (
 	warningLead        = "You are about to "
 	warningHighlighted = "disable the hardware support"
@@ -17,8 +14,6 @@ const (
 	warningAside       = " (scary)"
 )
 
-// hardwareOffArt is printed under the warning; areYouSure inside it is
-// highlighted when stderr is a terminal.
 const hardwareOffArt = `            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
                 ⠀⣠⣴⣾⣶⣶⣤⣄⣄⣤⣶⣾⣿⣿⣿⣿⣿⣶⣤⢀⣀⠀⠀⠀⠀
                 ⡈⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⢸⣿⣿⣶⡄⠀
@@ -37,10 +32,8 @@ const hardwareOffArt = `            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀�
                 ⠀⠀⠀⢿⣧⠹⣿⣿⣿⣷⣿⣿⣿⣿⣿⡟⣱⢃⣾⣿⣿⣿⣿⣄⡀
                 ⠀⠀⠀⠸⠿⠷⠔⠭⠭⠭⠭⠭⠥⠶⠶⠾⠇⠾⠿⠿⠿⠿⠿⠿⠿`
 
-// areYouSure is the text inside hardwareOffArt that gets highlighted.
 const areYouSure = "ARE YOU SURE?"
 
-// ansiAreYouSure is bold italic red; ansiRed is plain red; ansiReset ends them.
 const (
 	ansiAreYouSure = "\x1b[1;3;31m"
 	ansiRed        = "\x1b[31m"
@@ -48,32 +41,25 @@ const (
 	ansiReset      = "\x1b[0m"
 )
 
-// hardwareOffPrompt ends the hardware confirmation.
 const hardwareOffPrompt = "Proceed? [y/N] "
 
-// noColorEnv disables the highlight when set to a non-empty value.
 const noColorEnv = "NO_COLOR"
 
-// isCharDevice reports whether f is a character device (a terminal).
 func isCharDevice(f *os.File) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// readLine reads one line from stdin, trimmed; "" on EOF or an empty line.
 func readLine() string {
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	return strings.TrimSpace(line)
 }
 
-// isYes reports whether reply is "y" or "Y".
 func isYes(reply string) bool {
 	return reply == "y" || reply == "Y"
 }
 
-// Confirm prints prompt and reads one line of input from stdin, returning
-// true for "y"/"Y" and false for anything else. An empty line or EOF
-// returns defYes.
+// An empty line or EOF returns defYes.
 func Confirm(prompt string, defYes bool) (bool, error) {
 	fmt.Print(prompt)
 
@@ -84,8 +70,6 @@ func Confirm(prompt string, defYes bool) (bool, error) {
 	return isYes(reply), nil
 }
 
-// ConfirmHardwareOff warns on stderr that the hardware module will not be
-// part of the system and reads one line from stdin; true only for "y"/"Y".
 func ConfirmHardwareOff() (bool, error) {
 	art := hardwareOffArt
 	warning := warningLead + warningHighlighted + warningTail + warningAside

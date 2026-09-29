@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 )
 
-// Executable returns the absolute, symlink-resolved path to the running
-// luxos binary.
 func Executable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {

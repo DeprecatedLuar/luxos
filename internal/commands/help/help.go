@@ -1,14 +1,9 @@
-// Package help renders luxos's help pages via github.com/DeprecatedLuar/
-// gohelp-luar, adapted from bin/lib/lux/commands/help.sh (implementation-
-// plan.md Phase 11 step 3b). No other command defines help text
-// (implementation-plan.md G13).
 package help
 
 import (
 	gohelp "github.com/DeprecatedLuar/gohelp-luar"
 )
 
-// binaryName is the CLI's own name, used in the root page's usage line.
 const binaryName = "luxos"
 
 const (
@@ -22,8 +17,6 @@ const (
 	environmentDescription = "syntax of CONFIG_DIR/environment"
 )
 
-// rootPage is the top-level usage text, ported from help.sh's cmd_help
-// (extended with rebuild and shell, added ahead of this port).
 func rootPage() *gohelp.Page {
 	return gohelp.NewPage(binaryName, rootDescription).
 		Usage(binaryName+" <command> [args]").
@@ -46,7 +39,6 @@ func rootPage() *gohelp.Page {
 		)
 }
 
-// rebuildPage documents `luxos rebuild`'s flags.
 func rebuildPage() *gohelp.Page {
 	return gohelp.NewPage("rebuild", rebuildDescription).
 		Usage(binaryName+" rebuild [flags] [nixos-rebuild args]").
@@ -60,7 +52,6 @@ func rebuildPage() *gohelp.Page {
 		)
 }
 
-// flakePage documents `luxos flake`.
 func flakePage() *gohelp.Page {
 	return gohelp.NewPage("flake", flakeDescription).
 		Usage(binaryName+" flake <list|ls|update|name> ...").
@@ -87,7 +78,6 @@ func flakePage() *gohelp.Page {
 		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, unstable. The base channel, nixpkgs, is declared in the host's machine.nix as flake-file.inputs.nixpkgs.url = \"<url>\"; and is required. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
 }
 
-// modulePage documents every `luxos module` verb.
 func modulePage() *gohelp.Page {
 	return gohelp.NewPage("module", moduleDescription).
 		Usage(binaryName+" module <verb> ...").
@@ -103,8 +93,6 @@ func modulePage() *gohelp.Page {
 		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off) and the declared inputs, tab-separated. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
 }
 
-// userPage documents `luxos user`, the same verbs as module fixed to
-// modules/users.
 func userPage() *gohelp.Page {
 	return gohelp.NewPage("user", userDescription).
 		Usage(binaryName+" user <verb> ...").
@@ -120,13 +108,11 @@ func userPage() *gohelp.Page {
 		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no local/ equivalent for users.")
 }
 
-// shellPage documents `luxos shell`.
 func shellPage() *gohelp.Page {
 	return gohelp.NewPage("shell", shellDescription).
 		Usage(binaryName + " shell [args]")
 }
 
-// environmentPage documents the syntax of CONFIG_DIR/environment.
 func environmentPage() *gohelp.Page {
 	return gohelp.NewPage("environment", environmentDescription).
 		Usage("CONFIG_DIR/environment").
@@ -150,10 +136,8 @@ func environmentPage() *gohelp.Page {
 		Text("Applied to every host as environment.sessionVariables. A module setting the same key to a different value fails the build; lib.mkForce in a module overrides this file. Your shell rc runs later and overrides it in that shell. Delete the file and the next rebuild restores the template; empty it to set nothing.")
 }
 
-// Run routes luxos's help output: `luxos help`, `luxos help <topic>`,
-// `luxos help --all`, `-h`/`--help` and no args all funnel through here.
 // args is the full argv tail. An unknown topic comes back as a non-nil
-// error; the caller prints and exits like any other command error (G10).
+// error; the caller prints and exits like any other command error.
 func Run(args []string) error {
 	return gohelp.Run(args, rootPage(), rebuildPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage())
 }

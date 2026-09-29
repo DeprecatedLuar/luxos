@@ -7,8 +7,6 @@ import (
 	"sort"
 )
 
-// The four files a hardware folder (.local/hardware/<key>/) must hold, and the
-// unit path the folder is reached by once linked into a host's local modules.
 // Exported so callers name them without repeating the strings.
 const (
 	DefaultFile        = "default.nix"
@@ -20,10 +18,8 @@ const (
 	HardwareUnitPath = "local/" + HardwareUnitName
 )
 
-// ValidateHardware checks that dir holds DefaultFile, HardwareConfigFile,
-// BootFile and HardwareFile as regular files (symlinks followed). Any other
-// entry is allowed. Every problem is reported, sorted, in one error shaped
-// like ValidateHost's: "missing <name>" or "<name> is not a regular file".
+// Any other entry is allowed. Every problem is reported, sorted, in one error
+// shaped like ValidateHost's: "missing <name>" or "<name> is not a regular file".
 func ValidateHardware(dir string) error {
 	var problems []string
 	for _, name := range []string{DefaultFile, HardwareConfigFile, BootFile, HardwareFile} {

@@ -14,7 +14,9 @@ func confirmWith(t *testing.T, input string) bool {
 	if _, err := w.WriteString(input); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	old := os.Stdin
 	os.Stdin = r
 	defer func() { os.Stdin = old }()

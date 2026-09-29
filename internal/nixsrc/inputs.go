@@ -50,13 +50,10 @@ in
   builtins.listToAttrs (map (file: { name = file; value = readFile file; }) files)
 `
 
-// evalPos is one attribute's source position, as builtins.unsafeGetAttrPos
-// reports it (null when the attribute has no single literal position).
 type evalPos struct {
 	Line int `json:"line"`
 }
 
-// evalDecl is one input's value and where it was written.
 type evalDecl struct {
 	Value map[string]any `json:"value"`
 	Pos   *evalPos       `json:"pos"`
@@ -130,10 +127,8 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 	return decls, nil
 }
 
-// BaseChannelInput is the name of the flake input that is the base channel.
 const BaseChannelInput = "nixpkgs"
 
-// ErrNoBaseChannel reports that file holds no nixpkgs declaration.
 var ErrNoBaseChannel = errors.New("missing base channel")
 
 // BaseChannel returns the url and 1-based line of the one nixpkgs declaration
@@ -246,7 +241,6 @@ func renderNixValue(v any, depth int) string {
 	}
 }
 
-// nixString renders s as a double-quoted Nix string literal.
 func nixString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')

@@ -1,5 +1,3 @@
-// Package config validates the fixed .local/machines/<host>/ folder layout: .plsdonttouch.nix, machine.nix,
-// modules.nix, an optional flake.lock and an optional modules/ directory.
 package config
 
 import (
@@ -9,12 +7,11 @@ import (
 	"sort"
 )
 
-// Fixed entries under .local/machines/<host>/ (L1). plsDontTouchFile, MachineFile
-// and selectionFile are required regular files (symlinks followed);
-// lockFile is an optional regular file; localModulesDir is an optional
-// directory. Nothing else may live there. MachineFile is exported so the
-// caller that creates it from a template names it without repeating the
-// string.
+// plsDontTouchFile, MachineFile and selectionFile are required regular files
+// (symlinks followed); lockFile is an optional regular file; localModulesDir
+// is an optional directory. Nothing else may live there. MachineFile is
+// exported so the caller that creates it from a template names it without
+// repeating the string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
 	MachineFile      = "machine.nix"
@@ -25,8 +22,7 @@ const (
 	plsDontTouchMode = 0444
 )
 
-// ResolveHost resolves a host name to its directory under machinesDir. A
-// host is a directory there holding modules.nix.
+// A host is a directory there holding modules.nix.
 func ResolveHost(machinesDir, name string) (string, error) {
 	dir := filepath.Join(machinesDir, name)
 	selection := filepath.Join(dir, selectionFile)
@@ -36,13 +32,12 @@ func ResolveHost(machinesDir, name string) (string, error) {
 		if _, oldErr := os.Stat(filepath.Join(old, selectionFile)); oldErr == nil {
 			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
 		}
-		return "", fmt.Errorf("no %s under %s\n  Pass --machine <name> if this host was renamed or isn't named after $(hostname).", selectionFile, dir)
+		return "", fmt.Errorf("no %s under %s\n  pass --machine <name> if this host was renamed or isn't named after $(hostname)", selectionFile, dir)
 	}
 
 	return dir, nil
 }
 
-// ValidateHost checks hostDir against the fixed host folder layout (L1).
 // Every missing required file is reported as "missing <name>"; every entry
 // that isn't one of the allowed names, or is the wrong type (a required
 // file/flake.lock that isn't a regular file, or modules/ that isn't a
@@ -99,8 +94,6 @@ func ValidateHost(hostDir string) error {
 	return fmt.Errorf("%s", msg)
 }
 
-// ProtectHost chmods hostDir/.plsdonttouch.nix to plsDontTouchMode if its
-// mode differs, reporting whether it changed.
 func ProtectHost(hostDir string) (bool, error) {
 	path := filepath.Join(hostDir, plsDontTouchFile)
 

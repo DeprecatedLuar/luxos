@@ -24,54 +24,46 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// entrypointName is the file name under Paths.Modules that mirrors the
-// active host's selection (implementation-plan.md #18) — the file
-// list/enable/disable act on.
+// entrypointName is the file under Paths.Modules that mirrors the active
+// host's selection.
 const entrypointName = "default.nix"
 
 // localLinkName is the reserved entry at Paths.Modules' own root: the link
-// to the active host's local modules directory (L5). A missing link means
+// to the active host's local modules directory. A missing link means
 // no local units for units.Walk's purposes.
 const localLinkName = "local"
 
-// localPathPrefix marks a unit path (as units.Walk returns it) as
-// belonging to the active host's own local modules (L5/L6), e.g.
-// "local/foo.nix" — used by remove/rename to pick their scope (L7/L13).
+// localPathPrefix marks a unit path as belonging to the active host's own
+// local modules, e.g. "local/foo.nix" — used by remove/rename to pick their scope.
 const localPathPrefix = "local/"
 
-// accountFileName is the file moduleAddUser writes the account definition
-// to; `edit` prefers it over entrypointName for a directory unit that has
-// one, since that's where a user module's actual content lives.
+// accountFileName is where a user module's account definition lives;
+// `edit` prefers it over entrypointName for a directory unit that has one.
 const accountFileName = "account.nix"
 
+const editScratchPattern = "luxos-edit-*.nix"
+
 // moduleSimpleTemplate is the minimal scaffold `module add` writes for a
-// non-user module, ported verbatim from bash's MODULE_SIMPLE_TEMPLATE.
+// non-user module.
 const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 
 // moduleUserPlaceholder is the literal replaced with the real account name
-// in the embedded user template's account.nix, matching bash's
-// MODULE_USER_PLACEHOLDER.
+// in the embedded user template's account.nix.
 const moduleUserPlaceholder = "users.users.user ="
 
 // moduleFrameworkCategory is the reserved top-level category `add`/`remove`/
-// `rename` refuse to touch: modules/system is owned by internal/framework,
-// not by CONFIG_DIR.
+// `rename` refuse to touch: modules/system is owned by internal/framework.
 const moduleFrameworkCategory = "system"
 
-// State markers for `module list`, per implementation-plan.md Phase 5's
-// state table, plus the pulled-by-dependency marker: a module reached
-// transitively through another's "luxos.modules [ ... ]" call (refs.Closure)
-// without being directly selected itself.
 const (
 	markerEnabledOnly = "⊕" // enabled, not running
 	markerEnabledBoth = "◉" // enabled and running
 	markerRunningOnly = "⊘" // running, not enabled
-	markerPulled      = "◍" // not enabled, but pulled in by an enabled module
+	markerPulled      = "◍" // pulled in by luxos.modules transitively, not directly selected
 	markerNeither     = "○" // neither
 )
 
-// State words of the plain output, one per marker; shared by module and flake
-// listings.
+// State words of the plain output, shared by module and flake listings.
 const (
 	stateWordStaged   = "staged"
 	stateWordModified = "modified"
@@ -82,17 +74,11 @@ const (
 	stateWordRemoved  = "removed"
 )
 
-// flakeMark follows the name of a module that declares flake inputs, on a
-// terminal.
 const flakeMark = "❄"
 
-// stagedModulesRel is the module tree inside a staged flake root.
 const stagedModulesRel = "config/modules"
 
-// plainColumnSep separates the columns of plain output.
 const plainColumnSep = "\t"
-
-// plainInputsSep separates input names within the inputs column.
 const plainInputsSep = " "
 
 // Tree palette (TTY only, disabled by NO_COLOR): drawn from the user's
@@ -116,8 +102,7 @@ const (
 )
 
 // treePalette is the set of color codes moduleRenderTTY tints with; an
-// empty treePalette{} renders the same tree shape with no ANSI codes at
-// all, for a non-color TTY (NO_COLOR) or for tests.
+// empty treePalette{} renders the same tree shape with no ANSI codes.
 type treePalette struct {
 	green, teal, red, purple, blue, line, title, off, underline, strike, reset string
 }
@@ -133,9 +118,6 @@ func colorsEnabled(tty bool) bool {
 	return tty && os.Getenv("NO_COLOR") == ""
 }
 
-// Module implements `luxos module`, dispatching to one unexported function
-// per verb over CONFIG_DIR/modules, ported from
-// bin/lib/lux/commands/module.sh.
 func Module(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", "module"})
@@ -168,14 +150,12 @@ func Module(args []string) error {
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		return fmt.Errorf("unknown module command '%s'\n  Usage: luxos module <list|ls|add|a|edit|e|enable|disable|remove|rename> ...", verb)
+		return fmt.Errorf("unknown module command: %s", verb)
 	}
 }
 
 //──[state markers]───────────────────────────────────────────────────────
 
-// moduleMarker returns the one marker character for (enabled?, running?),
-// per Phase 5's state-marker table. Pure.
 func moduleMarker(enabled, running bool) string {
 	switch {
 	case enabled && running:
@@ -189,9 +169,8 @@ func moduleMarker(enabled, running bool) string {
 	}
 }
 
-// moduleMarkerRank returns the sort rank for a marker (lower sorts first),
-// per Phase 5's "ordered by that state order" (⊕, ◉, ⊘, ◍, ○) — pulled sorts
-// after the three enabled states and before plain off. Pure.
+// moduleMarkerRank returns the sort rank for a marker: ⊕, ◉, ⊘, ◍, ○.
+// Pulled sorts after the three enabled states and before plain off.
 func moduleMarkerRank(marker string) int {
 	switch marker {
 	case markerEnabledOnly:
@@ -207,7 +186,6 @@ func moduleMarkerRank(marker string) int {
 	}
 }
 
-// markerWord returns the plain-output state word of a marker.
 func markerWord(marker string) string {
 	switch marker {
 	case markerEnabledOnly:
@@ -223,24 +201,22 @@ func markerWord(marker string) string {
 	}
 }
 
-// moduleRow is one rendered line's worth of data for `module list`.
 type moduleRow struct {
-	category []string // path segments; empty for a root unit
+	category []string
 	name     string
 	marker   string
 	rank     int
-	pulledBy []string    // non-nil only for a non-enabled, pulled-in unit
-	children []moduleRow // rows nested beneath this one (flake list's transitive inputs)
-	note     string      // status glyph shown after the name in the TTY tree (flake list's upstream check)
-	shadow   bool        // a local unit shown in the place of the shared unit it hides
-	inputs   []string    // flake inputs the unit declares, sorted, deduplicated
-	status   string      // flake list's upstream status word (plain output)
-	modified bool        // enabled and running, but its files changed since the running build
-	removed  bool        // imported by the running generation, no longer a unit in the config
+	pulledBy []string
+	children []moduleRow
+	note     string
+	shadow   bool
+	inputs   []string
+	status   string
+	modified bool // files changed since the running build
+	removed  bool // imported by the running generation, no longer a unit in the config
 }
 
-// moduleSortRows sorts rows by rank then name (byte order), matching bash's
-// _module_sort_rows. Pure, stable.
+// moduleSortRows sorts rows by rank then name (byte order), stable.
 func moduleSortRows(rows []moduleRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].rank != rows[j].rank {
@@ -275,12 +251,11 @@ func nameSet(file string) (map[string]bool, error) {
 
 // moduleBuildRows builds one moduleRow per unit in us whose Path lies under
 // categoryPath (or every unit, when categoryPath is ""), using enabled/
-// running name sets. A unit that isn't enabled but is a key in pulled (from
-// refs.Closure) gets the pulled marker and its puller list instead of the
-// plain off marker — pulled never overrides an enabled unit's own state.
-// category is stored as path segments relative to categoryPath, so the
-// filtered subtree renders rooted at itself rather than repeating the
-// filter as a nested category. Pure given its inputs.
+// running name sets. A unit that isn't enabled but is a key in pulled gets
+// the pulled marker and its puller list instead of the plain off marker —
+// pulled never overrides an enabled unit's own state. category is stored as
+// path segments relative to categoryPath, so the filtered subtree renders
+// rooted at itself rather than repeating the filter as a nested category.
 func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
 	var rows []moduleRow
 	for _, u := range us {
@@ -337,9 +312,8 @@ func categorySegments(shown, categoryPath string) ([]string, bool) {
 }
 
 // moduleRemovedRows builds one row per module the running generation imports
-// (runningPaths, as written in its modules.nix) that names no unit in us,
-// filtered and stripped by categoryPath like moduleBuildRows. Duplicate names
-// give one row. Pure.
+// that names no unit in us, filtered and stripped by categoryPath like
+// moduleBuildRows. Duplicate names give one row.
 func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath string) []moduleRow {
 	exists := make(map[string]bool, len(us))
 	for _, u := range us {
@@ -370,8 +344,8 @@ func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath stri
 	return rows
 }
 
-// nameText is a row's name as rendered on a terminal: underlined when the row
-// is a shadow.
+// nameText is a row's name as rendered on a terminal: underlined when shadow,
+// struck through when removed.
 func nameText(r moduleRow, pal treePalette) string {
 	name := r.name
 	if len(r.inputs) > 0 {
@@ -386,15 +360,11 @@ func nameText(r moduleRow, pal treePalette) string {
 	return name
 }
 
-// treeNode is one level of the nested tree moduleRenderTTY builds from
-// rows' category segments: the units living directly at this level, plus
-// one child node per subcategory.
 type treeNode struct {
 	rows     []moduleRow
 	children map[string]*treeNode
 }
 
-// buildTree groups rows into a treeNode hierarchy by category segment.
 func buildTree(rows []moduleRow) *treeNode {
 	root := &treeNode{children: map[string]*treeNode{}}
 	for _, r := range rows {
@@ -412,7 +382,6 @@ func buildTree(rows []moduleRow) *treeNode {
 	return root
 }
 
-// rowColor is the color of a row's marker: blue when modified.
 func rowColor(pal treePalette, r moduleRow) string {
 	if r.modified {
 		return pal.blue
@@ -420,7 +389,6 @@ func rowColor(pal treePalette, r moduleRow) string {
 	return markerColor(pal, r.marker)
 }
 
-// rowWord is the plain-output state word of a row.
 func rowWord(r moduleRow) string {
 	if r.removed {
 		return stateWordRemoved
@@ -432,7 +400,7 @@ func rowWord(r moduleRow) string {
 }
 
 // markerColor returns the palette color for a row's marker, or pal.off for
-// the plain off state (including an empty marker).
+// the plain off state.
 func markerColor(pal treePalette, marker string) string {
 	switch marker {
 	case markerEnabledOnly:
@@ -448,11 +416,10 @@ func markerColor(pal treePalette, marker string) string {
 	}
 }
 
-// moduleRenderTTY writes rows to w as a tree nested under rootLabel
-// ("modules/", or "<categoryPath>/" when filtered): units before
-// subcategories at each level, each group ordered by moduleSortRows. pal's
-// color fields are empty strings to render the same shape with no ANSI
-// codes (NO_COLOR, or a non-color TTY).
+// moduleRenderTTY writes rows to w as a tree nested under rootLabel: units
+// before subcategories at each level, each group ordered by moduleSortRows.
+// pal's color fields are empty strings to render the same shape with no
+// ANSI codes.
 func moduleRenderTTY(w *strings.Builder, rows []moduleRow, rootLabel string, pal treePalette) {
 	if len(rows) == 0 {
 		w.WriteString("(no modules)\n")
@@ -465,9 +432,7 @@ func moduleRenderTTY(w *strings.Builder, rows []moduleRow, rootLabel string, pal
 }
 
 // renderTreeNode prints node's units, then its subcategories (alphabetical),
-// each continuing with prefix — plain box-drawing text with no embedded
-// color, so the leading run of a line is colored once per line rather than
-// re-opened for every ancestor level.
+// each continuing with prefix.
 func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treePalette) {
 	moduleSortRows(node.rows)
 	cats := make([]string, 0, len(node.children))
@@ -500,7 +465,7 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 }
 
 // noteColor returns the palette color of a row note: teal for an available
-// update, the off color for an unknown state.
+// update, off for unknown.
 func noteColor(pal treePalette, note string) string {
 	if note == flakeNoteBehind {
 		return pal.teal
@@ -508,8 +473,6 @@ func noteColor(pal treePalette, note string) string {
 	return pal.off
 }
 
-// renderRow prints one row on its own line, then its children beneath it
-// continuing with childPrefix.
 func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
 	mc := rowColor(pal, r)
 	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, nameText(r, pal), pal.reset)
@@ -531,11 +494,9 @@ func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix s
 	}
 }
 
-// moduleRenderFlat writes rows to w as a flat, colored list: one
-// "marker name" per line (name only, no category path), no headers, no tree
-// connectors — sorted by full path so entries still group by category, even
-// though the path itself isn't printed. pal's color fields are empty
-// strings to render with no ANSI codes (NO_COLOR, or a non-color TTY).
+// moduleRenderFlat writes rows to w as a flat, colored list: one "marker name"
+// per line, sorted by full path so entries group by category. pal's color
+// fields are empty strings to render with no ANSI codes.
 func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
 	if len(rows) == 0 {
 		w.WriteString("(no modules)\n")
@@ -566,7 +527,6 @@ func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
 	}
 }
 
-// rowPath is a row's "category/name" path ("name" for a root row).
 func rowPath(r moduleRow) string {
 	if len(r.category) == 0 {
 		return r.name
@@ -574,15 +534,12 @@ func rowPath(r moduleRow) string {
 	return strings.Join(r.category, "/") + "/" + r.name
 }
 
-// jsonIndent is the indent of --json output.
 const jsonIndent = "  "
 
-// errJSONConflict names both flags when --json is combined with a plain view.
 func errJSONConflict(other string) error {
 	return fmt.Errorf("--json cannot be combined with %s", other)
 }
 
-// writeJSON writes v to w as indented JSON with a trailing newline.
 func writeJSON(w *strings.Builder, v any) error {
 	data, err := json.MarshalIndent(v, "", jsonIndent)
 	if err != nil {
@@ -593,15 +550,12 @@ func writeJSON(w *strings.Builder, v any) error {
 	return nil
 }
 
-// moduleJSONRow is one element of `module list --json`.
 type moduleJSONRow struct {
 	Path   string   `json:"path"`
 	State  string   `json:"state"`
 	Inputs []string `json:"inputs"`
 }
 
-// moduleRenderJSON writes rows to w as one JSON array, byte-sorted by path;
-// inputs is [] when a unit declares none.
 func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 	out := make([]moduleJSONRow, 0, len(rows))
 	for _, r := range rows {
@@ -615,9 +569,6 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 	return writeJSON(w, out)
 }
 
-// moduleRenderPlain writes rows to w in piped form: one
-// "path<TAB>state<TAB>inputs" per line, no headers, byte-sorted by path;
-// inputs are space-separated, empty when the unit declares none.
 func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	sorted := append([]moduleRow(nil), rows...)
 	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
@@ -626,8 +577,6 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 }
 
-// moduleFillInputs sets each row's inputs from the flake input declarations
-// in its unit's files under modulesDir (rows and units are matched by name).
 func moduleFillInputs(rows []moduleRow, us []units.Unit, modulesDir string) error {
 	pathOf := make(map[string]string, len(us))
 	for _, u := range us {
@@ -647,8 +596,6 @@ func moduleFillInputs(rows []moduleRow, us []units.Unit, modulesDir string) erro
 	return nil
 }
 
-// unitInputs returns the sorted, deduplicated flake input names declared in
-// the files of the unit at path (a file, or a folder of *.nix files).
 func unitInputs(path string) ([]string, error) {
 	files, err := refs.UnitFiles(path)
 	if err != nil {
@@ -670,13 +617,11 @@ func unitInputs(path string) ([]string, error) {
 	return names, nil
 }
 
-// stdoutIsTTY reports whether stdout is a terminal.
 func stdoutIsTTY() bool {
 	fi, err := os.Stdout.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// moduleList implements `module list [category-path]`.
 func moduleList(p paths.Paths, args []string) error {
 	var flat, raw, asJSON bool
 	var positional []string
@@ -804,7 +749,7 @@ func moduleList(p paths.Paths, args []string) error {
 
 // moduleChangedUnits returns the names of enabled, running units whose files
 // differ from the baseline tree: the saved previous stage when present, else
-// the staging directory. Without a baseline tree nothing is modified.
+// the staging directory.
 func moduleChangedUnits(p paths.Paths, us []units.Unit, enabled, running map[string]bool) (map[string]bool, error) {
 	changed := map[string]bool{}
 	baseline := filepath.Join(p.PreviousStage, stagedModulesRel)
@@ -837,54 +782,36 @@ func moduleChangedUnits(p paths.Paths, us []units.Unit, enabled, running map[str
 
 // editScratch writes initial to a scratch .nix file, opens it in $EDITOR,
 // waits for the editor to exit, and returns the result once it parses.
-// Shared by `add` (editing content that isn't written anywhere yet) and
-// `edit` (editing an existing file's content) so the spawn-validate step
-// lives in exactly one place.
 func editScratch(initial []byte) ([]byte, error) {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		return nil, fmt.Errorf("$EDITOR is not set")
 	}
 
-	tmp, err := os.CreateTemp("", "luxos-edit-*.nix")
-	if err != nil {
-		return nil, err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmp.Write(initial); err != nil {
-		tmp.Close()
-		return nil, err
-	}
-	if err := tmp.Close(); err != nil {
-		return nil, err
-	}
-
-	cmd := exec.Command(editor, tmpPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("$EDITOR exited with error: %w", err)
-	}
-
-	edited, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := nix.Parse(tmpPath); err != nil {
-		return nil, fmt.Errorf("edited file would fail to parse: %w", err)
-	}
-	return edited, nil
+	var edited []byte
+	err := nixsrc.WithTemp(editScratchPattern, initial, func(path string) error {
+		cmd := exec.Command(editor, path)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("$EDITOR exited with error: %w", err)
+		}
+		var err error
+		if edited, err = os.ReadFile(path); err != nil {
+			return err
+		}
+		if _, err := nix.Parse(path); err != nil {
+			return fmt.Errorf("edited file would fail to parse: %w", err)
+		}
+		return nil
+	})
+	return edited, err
 }
 
-// editNixFileInPlace opens path's current content in $EDITOR via
-// editScratch, then writes back a version that parses using the write
-// discipline for hand-owned files: resolve the symlink, validate off to
-// the side, then O_WRONLY|O_TRUNC in place (never rename), so ownership
-// and mode survive running as root. A no-op edit or an aborted/non-parsing
-// edit leaves path untouched.
+// editNixFileInPlace opens path's current content in $EDITOR via editScratch,
+// then writes back in place (never rename) so ownership and mode survive
+// running as root. A no-op edit leaves path untouched.
 func editNixFileInPlace(path string) error {
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -905,9 +832,8 @@ func editNixFileInPlace(path string) error {
 //──[add]──────────────────────────────────────────────────────────────────
 
 // moduleAddUser scaffolds modules/<target> from the embedded user template,
-// filling in the literal account name. Before anything is written under
-// modulesRoot, account.nix is opened in $EDITOR as a scratch file so the
-// user can flesh it out; only a version that parses is kept.
+// filling in the literal account name. account.nix is opened in $EDITOR as
+// a scratch file before anything is written.
 func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
 	dest := filepath.Join(modulesRoot, target)
@@ -945,7 +871,6 @@ func moduleAddUser(modulesRoot, target string) error {
 	return nil
 }
 
-// moduleAdd implements `module add <category/name> [--enable]`.
 func moduleAdd(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse("enable:bool", args)
 	if err != nil {
@@ -1011,7 +936,6 @@ func moduleAdd(p paths.Paths, args []string) error {
 
 //──[edit]─────────────────────────────────────────────────────────────────
 
-// moduleEdit implements `module edit <name>`.
 func moduleEdit(p paths.Paths, args []string) error {
 	var name string
 	if len(args) > 0 {
@@ -1030,7 +954,7 @@ func moduleEdit(p paths.Paths, args []string) error {
 
 // moduleEditTarget resolves the file `edit` should open for name: the file
 // itself for a single-file unit; account.nix for a directory unit that has
-// one (the file moduleAddUser actually fills in); entrypointName otherwise.
+// one; entrypointName otherwise.
 func moduleEditTarget(modulesRoot, name string) (string, error) {
 	path, found, err := resolveUnitPath(modulesRoot, name)
 	if err != nil {
@@ -1055,7 +979,6 @@ func moduleEditTarget(modulesRoot, name string) (string, error) {
 	return filepath.Join(target, entrypointName), nil
 }
 
-// fileExists reports whether path exists and is a regular file.
 func fileExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && !fi.IsDir()
@@ -1123,7 +1046,7 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 
 func moduleEnable(p paths.Paths, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: luxos module enable <name>...")
+		return fmt.Errorf("module enable requires at least one name")
 	}
 	for _, name := range args {
 		if err := toggleModule(p, name, true); err != nil {

@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -42,12 +41,6 @@ func mustReadFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
-}
-
-func sortedJoin(ss []string) string {
-	cp := append([]string(nil), ss...)
-	sort.Strings(cp)
-	return strings.Join(cp, "\n")
 }
 
 //============================================================================
@@ -428,8 +421,12 @@ func TestRetarget(t *testing.T) {
 	t.Run("idempotent: a second identical retarget changes nothing further", func(t *testing.T) {
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./g.nix ]; }`)
 		gFile := write(t, filepath.Join(mods, "g.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
-		os.Remove(filepath.Join(mods, "e.nix"))
-		os.Remove(filepath.Join(mods, "f.nix"))
+		if err := os.Remove(filepath.Join(mods, "e.nix")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(mods, "f.nix")); err != nil {
+			t.Fatal(err)
+		}
 
 		if _, err := Retarget(mods, nil, "shared", "renamed"); err != nil {
 			t.Fatalf("Retarget (first run): %v", err)
@@ -450,12 +447,10 @@ func TestRetarget(t *testing.T) {
 }
 
 //============================================================================
-// Suite: tests/modules-function.sh — a name-resolving `luxos.modules` inside
-// the real Nix module system. The name map is built with units.Walk (the Go
-// equivalent of configgen::walk_units), over a fixture laid out like
-// $STAGING_DIR. This exercises the §3 "luxos.modules" generated function
-// shape directly with nix-instantiate/nix, independent of internal/generate
-// (Phase 7), which will embed the same function body.
+// Suite: a name-resolving `luxos.modules` inside the real Nix module
+// system. The name map is built with units.Walk over a fixture laid out
+// like $STAGING_DIR. This exercises the "luxos.modules" generated function
+// shape directly with nix-instantiate/nix, independent of internal/generate.
 //============================================================================
 
 func TestModulesFunction(t *testing.T) {
@@ -587,14 +582,9 @@ func TestModulesFunction(t *testing.T) {
 }
 
 //============================================================================
-// implementation-plan.md §6 Verification — items relevant to refs:
-//   13. luxos.modules [ "waylnd" ] -> hard error naming the file and name,
-//       before staging.
-//   14. lux module rename with dependents -> both module files read
-//       luxos.modules [ "wl" ], rebuild succeeds.
-// (Numbered 14-21 in the phase brief; the plan's own §6 list only runs 1-15
-// — see final report for this discrepancy. 13 and 14 are the items that
-// concern refs; the rest of that range govern other packages/phases.)
+// Suite: an unresolved luxos.modules name is a hard error naming the file
+// and name, before staging; a module rename with dependents updates every
+// referencing luxos.modules call and the rebuild succeeds.
 //============================================================================
 
 func TestVerification_UnresolvedNameNamesFileAndName(t *testing.T) {
@@ -649,8 +639,7 @@ func TestVerification_RenameWithDependentsRewritesBothFiles(t *testing.T) {
 }
 
 //============================================================================
-// Suite: Phase 4 — per-host local scoping and the shared/local boundary
-// rule (L7, L8).
+// Suite: per-host local scoping and the shared/local boundary rule.
 //============================================================================
 
 func TestDependents_ScansLocalModulesDirs(t *testing.T) {

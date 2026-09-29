@@ -1,6 +1,3 @@
-// Command luxos routes argv[1] to the matching internal/commands function.
-// It is the only place that prints top-level errors or exits
-// (implementation-plan.md G10).
 package main
 
 import (
@@ -25,15 +22,12 @@ func main() {
 	}
 }
 
-// withDefaultVerb prepends verb to args unless args already starts with a
-// verb — i.e. unless args is non-empty and its first element isn't a flag.
-// It lets `luxos modules`/`luxos users` shortcuts accept flags in place of
-// an explicit "list" ("luxos users --flat") the same way they accept none.
 func withDefaultVerb(args []string, verb string) []string {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		return args
 	}
 	return append([]string{verb}, args...)
+
 }
 
 func run(args []string) error {

@@ -1,7 +1,6 @@
-// Package imports is the sole reader/writer of host entrypoints
-// (implementation-plan.md #18): .local/machines/<host>/modules.nix files, the
-// host's selection (L4). The block's syntax (recognizing, reading and
-// editing the single "imports = [ ... ];" block) lives in internal/nixsrc;
+// Package imports is the sole reader/writer of .local/machines/<host>/modules.nix,
+// the host's selection. Block syntax (recognizing, reading, editing the
+// single "imports = [ ... ];" block) lives in internal/nixsrc;
 // this package owns which hosts and names. A file with more than one
 // recognizable block, or one written some other way (computed imports, a
 // single-line block with items), is refused by the writers (Add/Remove) and
@@ -26,27 +25,18 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// entrypointName is the file name every host's modules selection lives in,
-// found under <LOCAL_DIR>/*/modules.nix (L4).
 const entrypointName = "modules.nix"
 
-// localPrefix marks an import path as belonging to the active host's own
-// local modules (L5/L6), e.g. "local/foo.nix".
 const localPrefix = "local/"
 
-// localModulesSubdir is the directory name under <LOCAL_DIR>/<host>/ that
-// holds that host's local modules (L5).
 const localModulesSubdir = "modules"
 
-// Change is one rewrite made by Retarget or Heal. New == "" means the line
-// was removed.
+// New == "" means the line was removed.
 type Change struct {
 	File, Old, New string
 }
 
-// List returns the active import paths in file, bare (no leading "./"),
-// in file order. Hard error if file doesn't have exactly one recognizable
-// imports block.
+// Hard error if file doesn't have exactly one recognizable imports block.
 func List(file string) ([]string, error) {
 	paths, ok, err := nixsrc.ListImports(file)
 	if err != nil {
@@ -58,14 +48,12 @@ func List(file string) ([]string, error) {
 	return paths, nil
 }
 
-// Add appends one import line for path (leading "./" optional) to file's
-// single imports block. A no-op if path is already present.
+// A no-op if path is already present.
 func Add(file, path string) error {
 	return nixsrc.AddImport(file, path)
 }
 
-// Remove deletes every import line in file's single block whose path
-// equals path (bare, "./" optional). A no-op (no write) if none match.
+// A no-op (no write) if none match.
 func Remove(file, path string) error {
 	return nixsrc.RemoveImport(file, path)
 }
@@ -316,7 +304,6 @@ func entrypointsFor(machinesDir, host string) ([]string, error) {
 	return []string{file}, nil
 }
 
-// shapeError is the standard "shape not recognized" error for file.
 func shapeError(file string) error {
 	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
 }

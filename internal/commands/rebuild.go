@@ -21,9 +21,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
-// rebuildLogoLines is the ASCII-art logo printed at the start of every
-// rebuild, ported verbatim from bin/lib/nixos-rebuild/main.sh's
-// REBUILD_HEADER.
+// Ported verbatim from bin/lib/nixos-rebuild/main.sh's REBUILD_HEADER.
 var rebuildLogoLines = []string{
 	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗",
 	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝",
@@ -33,15 +31,12 @@ var rebuildLogoLines = []string{
 	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝",
 }
 
-// rebuildActivatingActions are the nixos-rebuild actions that activate the
-// built generation; after one succeeds the staged tree is the running system.
+// After one succeeds the staged tree is the running system.
 var rebuildActivatingActions = map[string]bool{"switch": true, "boot": true, "test": true}
 
-// rebuildFooter is the logo's signature line.
 const rebuildFooter = "                          made by me <3 (luar)"
 
-// rebuildHeader is the plain (non-color) header, for a non-TTY or
-// NO_COLOR — the logo lines and footer, unchanged from the original.
+// Plain (non-color) header for a non-TTY or NO_COLOR.
 const rebuildHeader = "\n" +
 	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗\n" +
 	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝\n" +
@@ -51,15 +46,13 @@ const rebuildHeader = "\n" +
 	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n" +
 	rebuildFooter + "\n\n"
 
-// rebuildLogoFrom/To are the gradient's endpoints — green (#CCF391) to
-// purple (#B5A6FA), matching module list's palette.
+// Gradient endpoints: green (#CCF391) to purple (#B5A6FA), matching module list's palette.
 var (
 	rebuildLogoFrom = [3]int{0xCC, 0xF3, 0x91}
 	rebuildLogoTo   = [3]int{0xB5, 0xA6, 0xFA}
 )
 
-// gradientLogo renders rebuildLogoLines as a flat-per-row, top-to-bottom
-// green-to-purple gradient, footer in the tree's connector tone.
+// Renders rebuildLogoLines as a flat-per-row, top-to-bottom green-to-purple gradient.
 func gradientLogo() string {
 	rows := len(rebuildLogoLines)
 
@@ -81,59 +74,43 @@ func gradientLogo() string {
 	return b.String()
 }
 
-// rebuildFlagSpec is the flag spec passed to shared.ParsePassthrough, ported
-// from rebuild::run in bin/lib/nixos-rebuild/main.sh.
+// Ported from rebuild::run in bin/lib/nixos-rebuild/main.sh.
 const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
 
-// modulesFileName is the host folder's selection file.
 const modulesFileName = "modules.nix"
 
-// hardwareUnitName is the module name whose absence from the host's
-// selection needs confirmation before a rebuild.
+// Absence from the host's selection needs confirmation before a rebuild.
 const hardwareUnitName = config.HardwareUnitName
 
-// yesFlag is the argument appended when a prompt was already answered, so
-// the root process does not ask again.
+// Appended when a prompt was already answered, so the root process does not ask again.
 const yesFlag = "--yes"
 
-// goodbyeNixExt marks the entries a replacement configuration folder must
-// contain at least one of.
+// A replacement configuration folder must contain at least one entry with this extension.
 const goodbyeNixExt = ".nix"
 
-// goodbyeFarewell is printed after a successful goodbye build.
 const goodbyeFarewell = "SEE YOU NIX COWBOY..."
 
-// ansiItalic starts italic text.
 const ansiItalic = "\x1b[3m"
 
-// flakeLockName is the host folder's flake.lock.
 const flakeLockName = "flake.lock"
 
-// luxosInputName is the flake input that provides this binary, by convention.
+// By convention, the flake input that provides this binary.
 const luxosInputName = "luxos"
 
-// nixStorePrefix marks a binary installed by a generation; anything else is
-// a hand-built binary that must never replace itself.
+// A binary installed by a generation; anything else is hand-built and must never replace itself.
 const nixStorePrefix = "/nix/store/"
 
-// luxosBinRelpath is the binary's location inside its derivation output.
 const luxosBinRelpath = "bin/luxos"
 
-// githubLockType is the only flake.lock node type the self-update understands.
+// The only flake.lock node type the self-update understands.
 const githubLockType = "github"
 
-// selfUpdateNotice is printed once, right before the swap.
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
 
-// configDirEnv is the environment variable paths.Resolve honors as the one
-// override for CONFIG_DIR.
 const configDirEnv = "LUXOS_CONFIG_DIR"
 
-// backupDirEnv is the environment variable paths.Resolve honors as the
-// override for the directory adoption moves strangers into.
 const backupDirEnv = "LUXOS_BACKUP_DIR"
 
-// printLogo prints the rebuild header, colored when stdout allows it.
 func printLogo() {
 	tty := false
 	if fi, err := os.Stdout.Stat(); err == nil {
@@ -146,9 +123,9 @@ func printLogo() {
 	}
 }
 
-// selfUpdate re-executes this process as the luxos revision pinned in
-// hostLock when the running binary is not already that revision. It returns
-// nil when no swap is needed and does not return when one happens.
+// Re-executes this process as the luxos revision pinned in hostLock when the
+// running binary is not already that revision. Returns nil when no swap is needed
+// and does not return when one happens.
 func selfUpdate(hostLock string, args []string) error {
 	in, ok, err := staging.ReadLockInput(hostLock, luxosInputName)
 	if err != nil {
@@ -184,8 +161,6 @@ func selfUpdate(hostLock string, args []string) error {
 	return nix.Exec(pinned, append([]string{"rebuild"}, args...))
 }
 
-// hardwareSelected reports whether the host's modules.nix selects the
-// hardware unit.
 func hardwareSelected(hostDir string) (bool, error) {
 	list, err := imports.List(filepath.Join(hostDir, modulesFileName))
 	if err != nil {
@@ -199,8 +174,8 @@ func hardwareSelected(hostDir string) (bool, error) {
 	return false, nil
 }
 
-// hardwareGuard asks for confirmation when host does not select the
-// hardware unit. It reports whether a prompt was answered yes.
+// Asks for confirmation when host does not select the hardware unit.
+// Reports whether a prompt was answered yes.
 func hardwareGuard(hostDir, host string, yes bool) (bool, error) {
 	selected, err := hardwareSelected(hostDir)
 	if err != nil {
@@ -219,8 +194,6 @@ func hardwareGuard(hostDir, host string, yes bool) (bool, error) {
 	return true, nil
 }
 
-// Rebuild implements `luxos rebuild`: confirmations first, then escalation
-// to root, then heal.Run before exec'ing the real nixos-rebuild.
 func Rebuild(args []string) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 		return help.Run([]string{"help", "rebuild"})
@@ -304,8 +277,7 @@ func Rebuild(args []string) error {
 	return stagedRebuild(p, host, prune, rest)
 }
 
-// rebuildAction is the nixos-rebuild action in rest: its first element that
-// is not a flag, or "" when there is none.
+// The nixos-rebuild action in rest: its first element that is not a flag, or "" when there is none.
 func rebuildAction(rest []string) string {
 	for _, a := range rest {
 		if !strings.HasPrefix(a, "-") {
@@ -315,9 +287,9 @@ func rebuildAction(rest []string) string {
 	return ""
 }
 
-// stagedRebuild runs heal and nixos-rebuild while /etc/nixos may change. The
-// stage from before is saved in p.PreviousStage and put back unless an
-// activating action succeeded, so /etc/nixos always matches the running system.
+// Runs heal and nixos-rebuild while /etc/nixos may change. The stage from before
+// is saved in p.PreviousStage and put back unless an activating action succeeded,
+// so /etc/nixos always matches the running system.
 func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error {
 	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
 		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
@@ -345,7 +317,6 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	return runErr
 }
 
-// runStaged heals, stages and runs nixos-rebuild as a child.
 func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 	if err := heal.Run(os.Stdout, p, host, prune); err != nil {
 		return err
@@ -369,8 +340,8 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 	return err
 }
 
-// escalationArgs is the rebuild command line handed to the root process,
-// with --yes appended when a prompt was already answered yes.
+// The rebuild command line handed to the root process, with --yes appended
+// when a prompt was already answered yes.
 func escalationArgs(args []string, answered bool) []string {
 	out := append([]string{"rebuild"}, args...)
 	if answered {
@@ -379,9 +350,8 @@ func escalationArgs(args []string, answered bool) []string {
 	return out
 }
 
-// goodbyeConfirm validates dir, lists what will be removed and asks for
-// confirmation unless yes. proceed is false when the answer was no;
-// answered is true when a prompt was answered yes.
+// Validates dir, lists what will be removed and asks for confirmation unless yes.
+// proceed is false when the answer was no; answered is true when a prompt was answered yes.
 func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 	p, err := paths.Resolve()
 	if err != nil {
@@ -430,8 +400,8 @@ func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 	return true, true, nil
 }
 
-// goodbye replaces /etc/nixos with the folder dir, then builds it with a
-// channel-built nixos-rebuild as a child process so the result is known.
+// Replaces /etc/nixos with the folder dir, then builds it with a channel-built
+// nixos-rebuild as a child process so the result is known.
 func goodbye(dir string, rest []string) error {
 	p, err := paths.Resolve()
 	if err != nil {

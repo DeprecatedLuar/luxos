@@ -427,16 +427,6 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func contains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (func() bool {
-		for i := 0; i+len(needle) <= len(haystack); i++ {
-			if haystack[i:i+len(needle)] == needle {
-				return true
-			}
-		}
-		return false
-	})()
-}
 
 func TestRetarget_SkipHosts(t *testing.T) {
 	skipIfNoNix(t)

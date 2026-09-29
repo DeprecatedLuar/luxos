@@ -8,6 +8,7 @@
 package nixsrc
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
-// tempPattern names the scratch file Write validates a candidate in.
 const tempPattern = "luxos-nixsrc-*.nix"
 
 // parse runs nix.Parse and trims the trailing newline nix-instantiate
@@ -42,36 +42,40 @@ func Write(file string, content []byte) error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp("", tempPattern)
+	err = WithTemp(tempPattern, content, func(path string) error {
+		if _, err := nix.Parse(path); err != nil {
+			return fmt.Errorf("rewritten %s would fail to parse: %w", real, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-
-	if _, err := nix.Parse(tmpPath); err != nil {
-		return fmt.Errorf("rewritten %s would fail to parse: %w", real, err)
 	}
 
 	f, err := os.OpenFile(real, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
 	_, err = f.Write(content)
-	return err
+	return errors.Join(err, f.Close())
 }
 
-// lastLine returns the last non-empty line of s.
+// WithTemp writes content to a scratch file named by pattern, calls fn with
+// its path and removes the file, returning every error that occurred.
+func WithTemp(pattern string, content []byte, fn func(path string) error) (err error) {
+	tmp, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, os.Remove(tmp.Name())) }()
+
+	_, err = tmp.Write(content)
+	if err = errors.Join(err, tmp.Close()); err != nil {
+		return err
+	}
+	return fn(tmp.Name())
+}
+
 func lastLine(s string) string {
 	s = strings.TrimRight(s, "\n")
 	lines := strings.Split(s, "\n")

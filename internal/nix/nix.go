@@ -1,6 +1,4 @@
-// Package nix is the sole adapter to external Nix tooling
-// (implementation-plan.md G14). Every call to nix-instantiate, nix, or
-// nix-build goes through here.
+// Package nix is the only adapter for external Nix tooling (nix-instantiate, nix, nix-build).
 package nix
 
 import (
@@ -14,14 +12,10 @@ import (
 	"syscall"
 )
 
-// instantiateBin is the binary used to parse Nix source.
 const instantiateBin = "nix-instantiate"
 
-// flakeBin is the binary used to operate on flakes.
 const flakeBin = "nix"
 
-// buildBin is the classic nix-build binary, used to build nixos-rebuild
-// from the channel-based <nixpkgs/nixos>.
 const buildBin = "nix-build"
 
 // writeFlakeArgs runs flake-file's write-flake app. --no-write-lock-file
@@ -32,20 +26,14 @@ var writeFlakeArgs = []string{"run", "--no-write-lock-file", ".#write-flake"}
 // flakeLockArgs locks missing inputs without moving existing pins.
 var flakeLockArgs = []string{"flake", "lock"}
 
-// hardwareConfigBin generates hardware-configuration.nix for this computer.
 const hardwareConfigBin = "nixos-generate-config"
 
-// hardwareConfigArgs prints the generated file to stdout instead of writing /etc/nixos.
 var hardwareConfigArgs = []string{"--show-hardware-config"}
 
-// rebuildAttr is the nix attribute path to a flake's built nixos-rebuild.
 const rebuildAttr = "config.system.build.nixos-rebuild"
 
-// rebuildBinRelpath is the binary's location inside that derivation's output.
 const rebuildBinRelpath = "bin/nixos-rebuild"
 
-// nixConfigVar is the environment variable nix reads extra settings from,
-// one per line, applied after nix.conf.
 const nixConfigVar = "NIX_CONFIG"
 
 // flakeFeatures enables flakes for luxos's own nix calls, so the first
@@ -53,8 +41,6 @@ const nixConfigVar = "NIX_CONFIG"
 // turns them on) still works. extra- appends, so it is a no-op elsewhere.
 const flakeFeatures = "extra-experimental-features = nix-command flakes"
 
-// rebuildChannelExpr is the classic <nixpkgs/nixos> NIX_PATH entry, used
-// only when staging itself is broken.
 const rebuildChannelExpr = "<nixpkgs/nixos>"
 
 // Parse runs `nix-instantiate --parse <absPath>` and returns its stdout.
@@ -129,7 +115,6 @@ func BuildFlakeRef(ref string) (string, error) {
 	return out, err
 }
 
-// buildFlakeRef runs one `nix build <ref> --no-link --print-out-paths`.
 func buildFlakeRef(ref string, offline bool) (string, error) {
 	args := []string{"build", ref}
 	if offline {
@@ -162,8 +147,6 @@ func FlakeLock(stagingDir string) error {
 	return runIn(stagingDir, flakeLockArgs)
 }
 
-// runIn runs the nix binary with args in dir, wrapping a failure with the
-// command line and its stderr.
 func runIn(dir string, args []string) error {
 	cmd := exec.Command(flakeBin, args...)
 	cmd.Dir = dir

@@ -585,7 +585,7 @@ func TestRun_NoBackupDirNamesFlag(t *testing.T) {
 func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
 	hostDir := t.TempDir()
 	var out bytes.Buffer
-	if err := ensureMachineFile(&out, hostDir); err != nil {
+	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
 		t.Fatal(err)
 	}
 	want, err := framework.File(machineTemplate)
@@ -607,7 +607,7 @@ func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
 	const own = "{ ... }: { }\n"
 	write(t, path, own)
 	var out bytes.Buffer
-	if err := ensureMachineFile(&out, hostDir); err != nil {
+	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustReadFile(t, path); got != own {
@@ -677,7 +677,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	p, _ := fixture(t)
 	fakeNix(t)
 	var out bytes.Buffer
-	hw, err := ensureHardware(&out, p)
+	hw, err := ensureHardware(&progress{w: &out}, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +695,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 
 	write(t, def, "{ }\n")
 	out.Reset()
-	if _, err := ensureHardware(&out, p); err != nil {
+	if _, err := ensureHardware(&progress{w: &out}, p); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustReadFile(t, def); got != "{ }\n" {

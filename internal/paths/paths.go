@@ -1,6 +1,5 @@
-// Package paths resolves every directory luxos operates on. Only
-// internal/commands/* call Resolve(); every other package takes directories
-// as parameters so it can be tested against t.TempDir().
+// Only internal/commands/* call Resolve(); every other package takes
+// directories as parameters so it can be tested against t.TempDir().
 package paths
 
 import (
@@ -30,7 +29,6 @@ const (
 	previousStage  = "/var/lib/luxos/previous-stage"
 )
 
-// Paths holds every directory luxos needs, resolved once per invocation.
 type Paths struct {
 	Home, User     string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
 	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
@@ -46,8 +44,6 @@ type Paths struct {
 	PreviousStage  string // /var/lib/luxos/previous-stage, the stage saved while a rebuild is in flight
 }
 
-// Resolve determines the invoking user (honoring $SUDO_USER) and builds
-// every directory luxos needs from it.
 func Resolve() (Paths, error) {
 	u, err := invokingUser()
 	if err != nil {

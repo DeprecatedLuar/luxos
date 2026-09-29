@@ -12,8 +12,7 @@ import (
 
 const fileMode = 0644
 
-// Write writes data to path (truncating in place, never renaming), sets its
-// mode to 0644 and gives it the uid/gid of its parent directory.
+// Truncates in place, never renaming. Sets mode to 0644 and gives it the uid/gid of its parent directory.
 func Write(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	info, err := os.Stat(dir)
@@ -33,9 +32,7 @@ func Write(path string, data []byte) error {
 	return os.Chown(path, int(st.Uid), int(st.Gid))
 }
 
-// Create writes data to path only when nothing exists there (checked with
-// Lstat, so a symlink or directory counts as existing). It reports whether
-// the file was created.
+// Checked with Lstat, so a symlink or directory counts as existing.
 func Create(path string, data []byte) (created bool, err error) {
 	_, err = os.Lstat(path)
 	if err == nil {
@@ -50,7 +47,7 @@ func Create(path string, data []byte) (created bool, err error) {
 
 const dirMode = 0755
 
-// Mkdir creates the single directory path (0755) and gives it the uid/gid of
+// Creates the single directory path (0755) and gives it the uid/gid of
 // its parent. An existing path is an error, never a silent merge.
 func Mkdir(path string) error {
 	uid, gid, err := ownerOf(filepath.Dir(path))
@@ -66,8 +63,7 @@ func Mkdir(path string) error {
 	return os.Lchown(path, uid, gid)
 }
 
-// MkdirAll creates path and every missing ancestor (0755), each given the
-// uid/gid of its own parent. An existing path is not an error.
+// Each directory gets the uid/gid of its own parent. An existing path is not an error.
 func MkdirAll(path string) error {
 	info, err := os.Stat(path)
 	if err == nil {
@@ -85,8 +81,7 @@ func MkdirAll(path string) error {
 	return Mkdir(path)
 }
 
-// ChownTree gives root and everything under it the uid/gid of root's parent.
-// It uses Lchown throughout, so a symlink is re-owned and never followed.
+// Uses Lchown throughout, so a symlink is re-owned and never followed.
 func ChownTree(root string) error {
 	uid, gid, err := ownerOf(filepath.Dir(root))
 	if err != nil {

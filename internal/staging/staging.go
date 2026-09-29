@@ -1,8 +1,8 @@
 // Package staging materializes the active host's flake root: a real-file
 // copy of the shared modules tree and the active host's own tree (symlinks
 // dereferenced), plus the whitelisted slice of the framework a flake needs
-// to evaluate itself. Every directory is a parameter (implementation-plan.md
-// G10, G11); nothing here calls sudo (it runs as root already).
+// to evaluate itself. Every directory is a parameter; nothing here calls
+// sudo (it runs as root already).
 package staging
 
 import (
@@ -142,8 +142,6 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 	return nil
 }
 
-// StagedPath is the unit's path inside the staged config/modules: its own
-// path, or for a shadow the location of the shared unit it hides.
 func StagedPath(u units.Unit) string {
 	if u.Shadows == "" {
 		return u.Path
@@ -178,8 +176,8 @@ func UnitChanged(modulesDir, stagedModulesDir string, u units.Unit) (bool, error
 	return false, nil
 }
 
-// readUnitFiles returns the contents of root keyed by path relative to root
-// (a single file is keyed "."), following symlinks.
+// readUnitFiles returns the contents of root keyed by path relative to root;
+// a single file is keyed ".". Symlinks are followed.
 func readUnitFiles(root string) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	var walk func(path, rel string) error
@@ -213,8 +211,6 @@ func readUnitFiles(root string) (map[string][]byte, error) {
 	return files, nil
 }
 
-// stageModules copies modulesDir to dst, dereferencing links, then stages
-// each shadow at the location of the shared unit it hides.
 func stageModules(modulesDir, dst string, us []units.Unit) error {
 	skip := make(map[string]bool)
 	var shadows []units.Unit
@@ -260,8 +256,6 @@ func stageModules(modulesDir, dst string, us []units.Unit) error {
 	return nil
 }
 
-// Install writes content as stagingDir/rel, creating parent directories as
-// needed.
 func Install(stagingDir, rel string, content []byte) error {
 	dest := filepath.Join(stagingDir, rel)
 	if err := os.MkdirAll(filepath.Dir(dest), dirMode); err != nil {
@@ -274,7 +268,7 @@ func Install(stagingDir, rel string, content []byte) error {
 }
 
 // LockChanged reports whether the staged flake.lock differs from hostLock.
-// A missing hostLock counts as changed; a missing staged lock is an error.
+// A missing hostLock counts as changed.
 func LockChanged(stagingDir, hostLock string) (bool, error) {
 	staged, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
 	if err != nil {
@@ -291,8 +285,7 @@ func LockChanged(stagingDir, hostLock string) (bool, error) {
 }
 
 // CopyLockBack copies the staged flake.lock to hostLock via userfile.Write,
-// so it is owned by whoever owns hostLock's directory (the invoking user,
-// since rebuild runs as root).
+// so it is owned by whoever owns hostLock's directory.
 func CopyLockBack(stagingDir, hostLock string) error {
 	data, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
 	if err != nil {
@@ -301,7 +294,6 @@ func CopyLockBack(stagingDir, hostLock string) error {
 	return userfile.Write(hostLock, data)
 }
 
-// LockInput is one input's locked identity, read from a flake.lock node.
 type LockInput struct {
 	Type  string
 	Owner string
@@ -311,7 +303,7 @@ type LockInput struct {
 
 // ReadLockInput returns the locked identity of the node called name in
 // lockFile. A missing file or an absent node reports false with no error;
-// malformed JSON is an error. Type is not validated: that is the caller's call.
+// malformed JSON is an error.
 func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
 	data, err := os.ReadFile(lockFile)
 	if err != nil {
@@ -333,10 +325,8 @@ func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
 	return node.Locked, true, nil
 }
 
-// LockRootNode is the key of the root node in a flake.lock's node table.
 const LockRootNode = "root"
 
-// LockRef is the identity of one side (original or locked) of a lock node.
 type LockRef struct {
 	Type  string `json:"type"`
 	Owner string `json:"owner"`
@@ -347,22 +337,20 @@ type LockRef struct {
 }
 
 // LockNode is one node of a flake.lock. Inputs maps an input name to the
-// node key it points at; `follows` entries (array values) are skipped.
+// node key it points at; `follows` entries are skipped.
 type LockNode struct {
 	Inputs   map[string]string
 	Original LockRef
 	Locked   LockRef
 }
 
-// LockGraph is a flake.lock's node table. Root is the root node's input
-// names, sorted; Nodes includes the root node under LockRootNode.
 type LockGraph struct {
 	Root  []string
 	Nodes map[string]LockNode
 }
 
 // ReadLockGraph reads lockFile into a LockGraph. A missing file returns an
-// empty graph and no error; malformed JSON is an error.
+// empty graph and no error.
 func ReadLockGraph(lockFile string) (LockGraph, error) {
 	graph := LockGraph{Nodes: map[string]LockNode{}}
 
@@ -404,8 +392,6 @@ func ReadLockGraph(lockFile string) (LockGraph, error) {
 	return graph, nil
 }
 
-// checkNoDanglingLinks walks root and errors, naming the culprit, on the
-// first symlink whose target does not exist.
 func checkNoDanglingLinks(root string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -424,8 +410,6 @@ func checkNoDanglingLinks(root string) error {
 	})
 }
 
-// writeFlakeNix renders the embedded flake.nix template with the derived
-// inputs into dst.
 func writeFlakeNix(dst, inputsNix string) error {
 	if inputsNix == "" {
 		return errors.New("staging: flake inputs are required")
@@ -445,7 +429,6 @@ func writeFlakeNix(dst, inputsNix string) error {
 	return os.WriteFile(filepath.Join(dst, flakeNix), buf.Bytes(), fileMode)
 }
 
-// flakeNixData feeds the embedded flake.nix template.
 type flakeNixData struct {
 	Inputs string
 }
@@ -458,17 +441,13 @@ func writeFrameworkFile(dst, name string) error {
 	return os.WriteFile(filepath.Join(dst, name), data, fileMode)
 }
 
-// copyDeref copies src into dst, dereferencing every symlink it walks
-// through (a symlink to a directory is copied as that directory's
-// contents; a symlink to a file is copied as that file). No symlink
-// survives under dst.
+// copyDeref copies src into dst, dereferencing every symlink. No symlink survives under dst.
 func copyDeref(src, dst string) error {
 	return copyDerefSkip(src, dst, nil)
 }
 
 // copyDerefSkip is copyDeref that leaves out every entry whose path relative
-// to src (through any followed symlink, so "local/x.nix" names x.nix inside
-// the tree modulesDir/local points at) is a key of skip.
+// to src is a key of skip. Path is through any followed symlink.
 func copyDerefSkip(src, dst string, skip map[string]bool) error {
 	return copyDerefSkipAt(src, dst, "", skip)
 }
@@ -557,8 +536,7 @@ func Seal(stagingDir string) error {
 }
 
 // SavePrevious copies every existing owned entry of stagingDir into prevDir.
-// An existing prevDir is left alone: an interrupted run left it and it holds
-// the stage that matches the running system.
+// An existing prevDir is left alone.
 func SavePrevious(stagingDir, prevDir string) error {
 	if _, err := os.Lstat(prevDir); err == nil {
 		return nil
@@ -582,8 +560,6 @@ func SavePrevious(stagingDir, prevDir string) error {
 	return nil
 }
 
-// RestorePrevious puts the stage saved in prevDir back into stagingDir,
-// seals it and removes prevDir. A missing prevDir means nothing to restore.
 func RestorePrevious(stagingDir, prevDir string) error {
 	if _, err := os.Lstat(prevDir); os.IsNotExist(err) {
 		return nil
@@ -608,7 +584,6 @@ func RestorePrevious(stagingDir, prevDir string) error {
 	return os.RemoveAll(prevDir)
 }
 
-// DropPrevious discards the saved stage.
 func DropPrevious(prevDir string) error {
 	return os.RemoveAll(prevDir)
 }

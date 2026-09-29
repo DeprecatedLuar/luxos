@@ -23,48 +23,34 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
-// flakeFlagSpec is the flag spec passed to shared.Parse.
 const flakeFlagSpec = "machine:value config|C:value"
 
-// flakeUpdateTmpPattern names the temporary staging directory of `flake update`.
 const flakeUpdateTmpPattern = "luxos-flake-update-"
 
-// flakeListFlagSpec is flakeFlagSpec plus the listing's own flags.
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
 const (
-	// flakeInputsLabel is the root label of the input tree.
 	flakeInputsLabel = "inputs/"
 
-	// flakeFileInput is flake-file's own input: rev-pinned in the embedded
-	// bootstrap, never actionable, never listed.
+	// Rev-pinned in the embedded bootstrap, never actionable, never listed.
 	flakeFileInput = "flake-file"
 
-	// flakeNoteBehind marks an input whose upstream tip differs from its
-	// locked rev; flakeNoteUnknown one whose tip could not be determined.
 	flakeNoteBehind  = "↑"
 	flakeNoteUnknown = "?"
 
-	// Status words of the plain output.
 	flakeStatusBehind  = "behind"
 	flakeStatusCurrent = "current"
 	flakeStatusUnknown = "unknown"
 
-	// flakeViewCommitsCurrent is the commits value of an up-to-date input.
 	flakeViewCommitsCurrent = "0"
 
-	// flakeViewListSep separates names within a key=value list value.
 	flakeViewListSep = " "
 )
 
 const (
-	// flakeSharedDisplayDir and flakeLocalDisplayDir prefix a declaring
-	// file's path relative to CONFIG_DIR (`modules` and the `local` link).
 	flakeSharedDisplayDir = "modules"
 	flakeLocalDisplayDir  = "local/modules"
 
-	// flakeMachinesDisplayDir prefixes the host folder in a declaration shown
-	// for machine.nix.
 	flakeMachinesDisplayDir = ".local/machines"
 
 	flakeSourceDefaultBranch = " (default branch)"
@@ -80,12 +66,10 @@ const (
 	flakeViewSep             = "\n"
 )
 
-// flakeBuiltinInputs are declared by the embedded bootstrap flake, so they
-// are declared even when no module says so, and always sit at the tree root.
+// Declared by the embedded bootstrap flake, so they are declared even when no
+// module says so, and always sit at the tree root.
 var flakeBuiltinInputs = []string{"luxos", "nixpkgs"}
 
-// Flake implements `luxos flake`: list|ls, update and `<name>` (the
-// single-input view). A flag-like first argument prints the help page.
 func Flake(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", "flake"})
@@ -104,10 +88,7 @@ func Flake(args []string) error {
 	}
 }
 
-// flakeUpdate escalates to root, stages the host's tree into a temporary
-// directory (never /etc/nixos), runs
-// `nix flake update` on it and copies the lock back to the host folder.
-func flakeUpdate(args []string) error {
+func flakeUpdate(args []string) (err error) {
 	if err := shared.EnsureRoot(append([]string{"flake", "update"}, args...)); err != nil {
 		return err
 	}
@@ -126,7 +107,7 @@ func flakeUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
 	p.Staging = tmp
 
 	// Staging progress is rebuild's output; failures come back as errors.
@@ -147,8 +128,6 @@ func flakeUpdate(args []string) error {
 	return nil
 }
 
-// resolveFlakeHost applies --config, resolves the paths, the host name
-// (--machine, else the hostname) and that host's folder.
 func resolveFlakeHost(opts map[string]string) (p paths.Paths, host, hostDir string, err error) {
 	if opts["config"] != "" {
 		abs, err := filepath.Abs(opts["config"])
@@ -185,8 +164,6 @@ func resolveFlakeHost(opts map[string]string) (p paths.Paths, host, hostDir stri
 
 //──[list]─────────────────────────────────────────────────────────────────
 
-// flakeList implements `flake list|ls`: the host's inputs as a tree. It only
-// reads; no root needed.
 func flakeList(args []string) error {
 	opts, _, err := shared.Parse(flakeListFlagSpec, args)
 	if err != nil {
@@ -238,15 +215,12 @@ func flakeList(args []string) error {
 	return nil
 }
 
-// flakeListJSONRow is one element of `flake list --json`.
 type flakeListJSONRow struct {
 	Path   string `json:"path"`
 	State  string `json:"state"`
 	Status string `json:"status"`
 }
 
-// flakeListEntries flattens the tree into one entry per input (children as
-// parent/child), byte-sorted by path.
 func flakeListEntries(rows []moduleRow) []flakeListJSONRow {
 	var entries []flakeListJSONRow
 	var add func(prefix string, rows []moduleRow)
@@ -266,7 +240,6 @@ func flakeListEntries(rows []moduleRow) []flakeListJSONRow {
 	return entries
 }
 
-// flakeRenderListJSON writes the tree as one JSON array of path, state, status.
 func flakeRenderListJSON(w *strings.Builder, rows []moduleRow) error {
 	entries := flakeListEntries(rows)
 	if entries == nil {
@@ -275,16 +248,13 @@ func flakeRenderListJSON(w *strings.Builder, rows []moduleRow) error {
 	return writeJSON(w, entries)
 }
 
-// flakeRenderPlain writes rows in piped form: one "tree path<TAB>state<TAB>
-// status" per line (children as parent/child), byte-sorted by path.
 func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
 	for _, e := range flakeListEntries(rows) {
 		fmt.Fprintln(w, strings.Join([]string{e.Path, e.State, e.Status}, plainColumnSep))
 	}
 }
 
-// flakeStatus is the plain status word for a node: unknown when offline
-// (online false), not locked, or its check failed; behind or current otherwise.
+// Unknown when offline, not locked, or its check failed; behind or current otherwise.
 func flakeStatus(locked, online bool, note string) string {
 	switch {
 	case !locked || !online || note == flakeNoteUnknown:
@@ -296,10 +266,10 @@ func flakeStatus(locked, online bool, note string) string {
 	}
 }
 
-// flakeUpstreamNotes checks the upstream tip of every locked node reachable
-// from the root (flake-file excluded), one goroutine per node, and returns
-// node key -> note: flakeNoteBehind when the tip differs from the locked rev,
-// flakeNoteUnknown on any failure, absent when equal.
+// Checks the upstream tip of every locked node reachable from the root
+// (flake-file excluded), one goroutine per node. Returns node key -> note:
+// flakeNoteBehind when the tip differs from the locked rev, flakeNoteUnknown
+// on any failure, absent when equal.
 func flakeUpstreamNotes(graph staging.LockGraph) map[string]string {
 	rootInputs := graph.Nodes[staging.LockRootNode].Inputs
 	keys := map[string]bool{}
@@ -350,16 +320,13 @@ func flakeUpstreamNotes(graph staging.LockGraph) map[string]string {
 	return notes
 }
 
-// flakeDecl is one `flake-file.inputs.<name>.url` definition.
 type flakeDecl struct {
-	unit string // unit path that holds it
-	file string // file path relative to CONFIG_DIR
+	unit string
+	file string
 	line int
 	url  string
 }
 
-// flakeDeclarations returns, per input name, the sorted unit paths that
-// declare it, over the host's selected units and the units they pull in.
 func flakeDeclarations(p paths.Paths, hostDir string) (map[string][]string, error) {
 	sites, err := flakeDeclSites(p, hostDir)
 	if err != nil {
@@ -368,8 +335,6 @@ func flakeDeclarations(p paths.Paths, hostDir string) (map[string][]string, erro
 	return flakeUnitsByInput(sites), nil
 }
 
-// flakeUnitsByInput reduces declaration sites to the sorted declaring unit
-// paths per input name.
 func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
 	out := make(map[string][]string, len(sites))
 	for input, decls := range sites {
@@ -385,8 +350,6 @@ func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
 	return out
 }
 
-// flakeDeclSites returns, per input name, every declaring definition over the
-// host's selected units and the units they pull in, sorted by file then line.
 func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, error) {
 	localModules := filepath.Join(hostDir, "modules")
 
@@ -436,9 +399,8 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 	return out, nil
 }
 
-// flakeBaseChannelDecl is the base channel's declaration in the host's
-// machine.nix, or nil when it has none (the rebuild preflight reports that).
-// It belongs to no unit.
+// Nil when the host's machine.nix has no base channel (the rebuild preflight
+// reports that). Belongs to no unit.
 func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
 	url, line, err := nixsrc.BaseChannel(filepath.Join(hostDir, config.MachineFile))
 	if errors.Is(err, nixsrc.ErrNoBaseChannel) {
@@ -451,9 +413,9 @@ func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
 	return &flakeDecl{file: filepath.ToSlash(rel), line: line, url: url}, nil
 }
 
-// flakeBuildRows builds the input tree's rows from declarations (input name
-// -> declaring unit paths) and the lock graph. Pure given its inputs.
-// notes maps a lock node key to the row note for that node (nil: no notes).
+// Builds the input tree's rows from declarations (input name -> declaring unit
+// paths) and the lock graph. notes maps a lock node key to the row note for
+// that node (nil: no notes).
 func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes map[string]string) []moduleRow {
 	builtin := map[string]bool{}
 	declared := map[string]bool{}
@@ -520,9 +482,8 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes ma
 	return rows
 }
 
-// flakeTransitiveRows returns the inputs of lock node key as pulled-in rows,
-// recursing without depth limit. ancestors holds the node keys on the path
-// from the root input, so a cyclic lock cannot recurse forever.
+// Recurses without depth limit. ancestors holds the node keys on the path from
+// the root input, so a cyclic lock cannot recurse forever.
 func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[string]bool, notes map[string]string) []moduleRow {
 	var rows []moduleRow
 	for name, target := range graph.Nodes[key].Inputs {
@@ -545,9 +506,8 @@ func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[stri
 
 //──[show]─────────────────────────────────────────────────────────────────
 
-// flakeUpstream is what the network told us about one input: the tip, the
-// tags, and the locked..tip range. Each part carries its own error so one
-// failed request renders `?` for its value only.
+// Each part carries its own error so one failed request renders `?` for its
+// value only.
 type flakeUpstream struct {
 	tip        string
 	tipErr     error
@@ -558,15 +518,13 @@ type flakeUpstream struct {
 	compareErr error
 }
 
-// flakeLine is one line of the single-input view; children nest beneath it.
 type flakeLine struct {
 	label    string
 	value    string
-	dim      string // dimmed suffix after value
+	dim      string
 	children []flakeLine
 }
 
-// flakeViewData is the single-input view as key=value fields (plain output).
 type flakeViewData struct {
 	name     string
 	state    string
@@ -579,7 +537,6 @@ type flakeViewData struct {
 	pulls    []string
 }
 
-// flakeView is the single-input view: a header and its lines.
 type flakeView struct {
 	marker string
 	name   string
@@ -588,8 +545,6 @@ type flakeView struct {
 	data   flakeViewData
 }
 
-// flakeShow implements `flake <name>...`: where each input comes from and what
-// updating it would give. It only reads; no root needed.
 func flakeShow(args []string) error {
 	opts, names, err := shared.Parse(flakeListFlagSpec, args)
 	if err != nil {
@@ -657,8 +612,6 @@ func flakeShow(args []string) error {
 	return nil
 }
 
-// flakeViewsFor builds the views for one name: the root input of that name,
-// then every pulled-in input of that name. A name matching nothing is an error.
 func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph staging.LockGraph,
 	fetch func(staging.LockRef, string) *flakeUpstream) ([]flakeView, error) {
 
@@ -683,8 +636,6 @@ func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph stagin
 	return views, nil
 }
 
-// flakeNestedPaths returns the tree path of every pulled-in input called name
-// (below a root input, at any depth), in sorted tree order.
 func flakeNestedPaths(graph staging.LockGraph, name string) []string {
 	var found []string
 	var walk func(key, prefix string, ancestors map[string]bool)
@@ -711,8 +662,6 @@ func flakeNestedPaths(graph staging.LockGraph, name string) []string {
 	return found
 }
 
-// flakeFetchUpstream asks the network about ref's tip, tags and the range
-// from locked to the tip.
 func flakeFetchUpstream(ref staging.LockRef, locked string) *flakeUpstream {
 	up := &flakeUpstream{}
 	up.tip, up.tipErr = upstream.Tip(ref)
@@ -723,8 +672,7 @@ func flakeFetchUpstream(ref staging.LockRef, locked string) *flakeUpstream {
 	return up
 }
 
-// flakeBuildView resolves name (a root input or a tree path) against the lock
-// graph and declarations and builds its view. fetch is nil offline.
+// fetch is nil offline.
 func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph staging.LockGraph,
 	fetch func(staging.LockRef, string) *flakeUpstream) (flakeView, error) {
 
@@ -809,9 +757,8 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 	return view, nil
 }
 
-// flakeSourceText renders the node's original as a flake ref, with the
-// default-branch note when it names no ref. An unlocked input falls back to
-// its first declared url; with neither it is empty.
+// Appends the default-branch note when it names no ref. An unlocked input falls
+// back to its first declared url; with neither it is empty.
 func flakeSourceText(orig staging.LockRef, decls []flakeDecl, hasNode bool) string {
 	if !hasNode {
 		if len(decls) > 0 {
@@ -839,8 +786,6 @@ func flakeSourceText(orig staging.LockRef, decls []flakeDecl, hasNode bool) stri
 	return text
 }
 
-// flakeDeclaredLine is the `declared` line: pulled-in parent, the declaring
-// definitions (inline when one, children when several), built in, or gone.
 func flakeDeclaredLine(parent string, decls []flakeDecl, builtin bool, marker string) flakeLine {
 	line := flakeLine{label: "declared"}
 	switch {
@@ -860,8 +805,7 @@ func flakeDeclaredLine(parent string, decls []flakeDecl, builtin bool, marker st
 	return line
 }
 
-// flakeVersion is the version part of the key=value view. checked is false
-// when no upstream answer was obtained (offline, not locked).
+// checked is false when no upstream answer was obtained (offline, not locked).
 type flakeVersion struct {
 	current string
 	latest  string
@@ -869,8 +813,7 @@ type flakeVersion struct {
 	checked bool
 }
 
-// flakeVersionLine builds the `version` line, the header note and the
-// key=value fields. fetch nil (offline) shows the current rev only.
+// fetch nil (offline) shows the current rev only.
 func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.LockRef, string) *flakeUpstream) (flakeLine, string, flakeVersion) {
 	line := flakeLine{label: "version"}
 	if !hasNode {
@@ -943,7 +886,6 @@ func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.Lo
 	return line, flakeNoteBehind, version
 }
 
-// flakeRenderViewPlain writes the view as key=value lines, every key present.
 func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
 	for _, kv := range [][2]string{
 		{"name", d.name}, {"state", d.state}, {"status", d.status}, {"source", d.source},
@@ -954,8 +896,7 @@ func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
 	}
 }
 
-// flakeViewJSON is one input's view in `flake <name> --json`. current, latest
-// and commits are null when empty (not checked, or not known).
+// current, latest and commits are null when empty (not checked, or not known).
 type flakeViewJSON struct {
 	Name     string   `json:"name"`
 	State    string   `json:"state"`
@@ -968,7 +909,6 @@ type flakeViewJSON struct {
 	Commits  *int     `json:"commits"`
 }
 
-// flakeViewToJSON converts the key=value view data to its JSON shape.
 func flakeViewToJSON(d flakeViewData) (flakeViewJSON, error) {
 	out := flakeViewJSON{
 		Name: d.name, State: d.state, Status: d.status, Source: d.source,
@@ -990,7 +930,6 @@ func flakeViewToJSON(d flakeViewData) (flakeViewJSON, error) {
 	return out, nil
 }
 
-// flakeRenderViewsJSON writes one object for a single view, an array for several.
 func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
 	objs := make([]flakeViewJSON, 0, len(views))
 	for _, v := range views {
@@ -1022,8 +961,7 @@ func flakeSortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// flakeRenderView writes the view as a tree with the palette and connectors
-// of `module list`; an empty palette renders the same text without color.
+// An empty palette renders the same text without color.
 func flakeRenderView(w *strings.Builder, v flakeView, pal treePalette) {
 	fmt.Fprintf(w, "%s%s %s%s", markerColor(pal, v.marker), v.marker, v.name, pal.reset)
 	if v.note != "" {
@@ -1033,8 +971,6 @@ func flakeRenderView(w *strings.Builder, v flakeView, pal treePalette) {
 	flakeRenderLines(w, v.lines, "", pal)
 }
 
-// flakeRenderLines prints siblings with connectors, padding labels to the
-// widest sibling label plus two spaces so values align.
 func flakeRenderLines(w *strings.Builder, lines []flakeLine, prefix string, pal treePalette) {
 	width := 0
 	for _, l := range lines {

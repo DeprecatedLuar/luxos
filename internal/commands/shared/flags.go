@@ -1,6 +1,3 @@
-// Package shared holds CLI-only helpers used by internal/commands: flag
-// parsing, prompts, self-escalation and executable-path resolution. Nothing
-// here is imported outside internal/commands (implementation-plan.md G13).
 package shared
 
 import (
@@ -8,7 +5,6 @@ import (
 	"strings"
 )
 
-// flagType is the type of a flag's value, as declared in a spec string.
 type flagType int
 
 const (
@@ -16,15 +12,12 @@ const (
 	flagValue
 )
 
-// flagDef is one parsed entry from a spec string.
 type flagDef struct {
 	name  string
 	short string
 	typ   flagType
 }
 
-// parseSpec parses a spec string like "prune:bool machine:value help|h:bool"
-// into flagDefs keyed by their long and short names.
 func parseSpec(spec string) (byLong map[string]flagDef, byShort map[string]flagDef) {
 	byLong = map[string]flagDef{}
 	byShort = map[string]flagDef{}
@@ -54,15 +47,13 @@ func parseSpec(spec string) (byLong map[string]flagDef, byShort map[string]flagD
 }
 
 // Parse parses args against spec (strict: an unrecognized flag is an
-// error). Ports flags::parse from bin/lib/flags.sh.
+// error).
 func Parse(spec string, args []string) (map[string]string, []string, error) {
 	return parse(spec, args, false)
 }
 
 // ParsePassthrough parses args against spec, but pushes an unrecognized
-// flag (and, per the case logic, nothing after it specially - each
-// unrecognized flag is simply forwarded) onto the remaining args instead of
-// erroring. Ports flags::parse_passthrough from bin/lib/flags.sh.
+// flag onto the remaining args instead of erroring.
 func ParsePassthrough(spec string, args []string) (map[string]string, []string, error) {
 	return parse(spec, args, true)
 }

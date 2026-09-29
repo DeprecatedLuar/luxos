@@ -20,14 +20,11 @@ var (
 	bootstrapTmpl     = template.Must(template.New("bootstrap.nix.tmpl").ParseFS(templatesFS, "templates/bootstrap.nix.tmpl"))
 )
 
-// configurationData feeds templates/configuration.nix.tmpl.
 type configurationData struct {
 	Host string
 }
 
-// Configuration renders configuration.nix for host. Its imports are fixed (L9): time zone, locale and
-// stateVersion come from config/machine.nix and config/.plsdonttouch.nix via those imports,
-// not from any value passed here.
+// Configuration renders configuration.nix for host. Its imports are fixed.
 func Configuration(host string) ([]byte, error) {
 	data := configurationData{
 		Host: host,
@@ -40,16 +37,11 @@ func Configuration(host string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// bootstrapData feeds templates/bootstrap.nix.tmpl.
 type bootstrapData struct {
 	Host string
 }
 
-// FlakeBootstrap renders flake-file.nix for host: the module flake.nix
-// (embedded, static) loads through flake-file. It imports the host's
-// selection, declares the bootstrap inputs and defines
-// nixosConfigurations.<host>. The channel overlay and luxos.modules are
-// computed in Nix from framework/overlay.nix and framework/units.nix.
+// FlakeBootstrap renders flake-file.nix for host.
 func FlakeBootstrap(host string) ([]byte, error) {
 	if host == "" {
 		return nil, fmt.Errorf("generate.FlakeBootstrap: host name is required")

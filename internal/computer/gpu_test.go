@@ -10,7 +10,7 @@ import (
 
 // busIDTypePattern is nixpkgs' own busIDType regex, copied verbatim from
 // nixos/modules/hardware/video/nvidia.nix (options.hardware.nvidia.prime.*BusId
-// definitions, `types.strMatching`), cited in G2 of implementation-plan.md.
+// definitions, `types.strMatching`).
 const busIDTypePattern = `([[:print:]]+:[0-9]{1,3}(@[0-9]{1,10})?:[0-9]{1,2}:[0-9])?`
 
 var busIDTypeRegex = regexp.MustCompile(`^` + busIDTypePattern + `$`)

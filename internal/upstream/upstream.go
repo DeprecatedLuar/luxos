@@ -1,6 +1,6 @@
 // Package upstream is the network adapter for asking where a locked flake
 // input's source currently points: the GitHub commit feed and REST API over
-// HTTP (tip, tags, compare) and `git ls-remote`. It never prints and never resolves paths.
+// HTTP (tip, tags, compare) and `git ls-remote`.
 package upstream
 
 import (
@@ -21,7 +21,6 @@ const (
 	typeGitHub = "github"
 	typeGit    = "git"
 
-	// defaultRef resolves to the repository's default branch.
 	defaultRef = "HEAD"
 
 	requestTimeout = 10 * time.Second
@@ -35,22 +34,19 @@ const (
 	apiAccept        = "application/vnd.github+json"
 )
 
-// githubBase is the GitHub site root; a variable so tests can point it at a
-// local server.
+// A variable so tests can point it at a local server.
 var githubBase = "https://github.com"
 
-// githubAPIBase is the GitHub REST API root; a variable so tests can point it
-// at a local server.
+// A variable so tests can point it at a local server.
 var githubAPIBase = "https://api.github.com"
 
-// ErrUnsupported is returned for an input type Tip cannot query.
 var ErrUnsupported = errors.New("upstream: unsupported input type")
 
+// Matches a 40-character commit hash in a GitHub feed.
 var feedCommitRe = regexp.MustCompile(`Commit/([0-9a-f]{40})`)
 
 var httpClient = &http.Client{Timeout: requestTimeout}
 
-// Tip returns the rev the input's tracked ref currently points at upstream.
 func Tip(ref staging.LockRef) (string, error) {
 	switch ref.Type {
 	case typeGitHub:
@@ -62,7 +58,7 @@ func Tip(ref staging.LockRef) (string, error) {
 	}
 }
 
-func githubTip(ref staging.LockRef) (string, error) {
+func githubTip(ref staging.LockRef) (tip string, err error) {
 	branch := ref.Ref
 	if branch == "" {
 		branch = defaultRef
@@ -73,7 +69,7 @@ func githubTip(ref staging.LockRef) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("upstream: GET %s: %s", url, resp.Status)
 	}
@@ -104,9 +100,8 @@ func gitTip(ref staging.LockRef) (string, error) {
 	return fields[0], nil
 }
 
-// apiGet GETs a GitHub REST URL and decodes the JSON body into out. Any
-// non-2xx status, rate limiting included, is an error.
-func apiGet(url string, out any) error {
+// Any non-2xx status, rate limiting included, is an error.
+func apiGet(url string, out any) (err error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -116,7 +111,7 @@ func apiGet(url string, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("upstream: GET %s: %s", url, resp.Status)
 	}
@@ -126,8 +121,7 @@ func apiGet(url string, out any) error {
 	return nil
 }
 
-// Tags returns the input's tags as rev -> tag name. When several tags share a
-// rev, the first the source lists wins.
+// When several tags share a rev, the first the source lists wins.
 func Tags(ref staging.LockRef) (map[string]string, error) {
 	switch ref.Type {
 	case typeGitHub:
@@ -192,9 +186,7 @@ func gitTags(ref staging.LockRef) (map[string]string, error) {
 	return tags, nil
 }
 
-// Compare returns how many commits head is ahead of base and their revs,
-// oldest first. GitHub only; the API lists at most 250 commits, ahead is the
-// full count.
+// Oldest first. GitHub only; the API lists at most 250 commits, ahead is the full count.
 func Compare(ref staging.LockRef, base, head string) (ahead int, shas []string, err error) {
 	if ref.Type != typeGitHub {
 		return 0, nil, ErrUnsupported
