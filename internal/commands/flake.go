@@ -15,9 +15,9 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
@@ -350,25 +350,31 @@ func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
 }
 
 func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, error) {
-	localModules := filepath.Join(hostDir, "modules")
-
-	sel, err := refs.SelectedUnits(p.Modules, localModules, hostDir)
+	h, err := modules.Load(p.Modules, hostDir)
+	if err != nil {
+		return nil, err
+	}
+	built, err := h.Built()
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]flakeDecl{}
-	for _, u := range sel {
+	for _, u := range built {
 		display := flakeSharedDisplayDir
-		if u.Root == localModules {
+		if strings.HasPrefix(u.Path, modules.LocalPrefix) {
 			display = flakeLocalDisplayDir
 		}
-		fileDecls, err := nix.InputDecls(u.Files...)
+		files, err := u.Files()
+		if err != nil {
+			return nil, err
+		}
+		fileDecls, err := nix.InputDecls(files...)
 		if err != nil {
 			return nil, err
 		}
 		for _, d := range fileDecls {
-			fileRel, err := filepath.Rel(u.Root, d.File)
+			fileRel, err := filepath.Rel(u.Root(), d.File)
 			if err != nil {
 				return nil, err
 			}

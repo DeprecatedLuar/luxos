@@ -414,9 +414,13 @@ func TestModuleFillInputs(t *testing.T) {
 	write("folder/sub/inner.nix", decl("deep"))
 	write("none.nix", "{ ... }: { }\n")
 
-	us := []modules.Module{{Name: "file", Path: "file.nix"}, {Name: "folder", Path: "folder"}, {Name: "none", Path: "none.nix"}}
+	us := []modules.Module{
+		{Name: "file", Path: "file.nix", Abs: filepath.Join(dir, "file.nix")},
+		{Name: "folder", Path: "folder", Abs: filepath.Join(dir, "folder")},
+		{Name: "none", Path: "none.nix", Abs: filepath.Join(dir, "none.nix")},
+	}
 	rows := []moduleRow{{name: "file", unit: "file"}, {name: "folder", unit: "folder"}, {name: "none", unit: "none"}}
-	if err := moduleFillInputs(rows, us, dir); err != nil {
+	if err := moduleFillInputs(rows, us); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(rows[0].inputs, ","); got != "abc,zed" {

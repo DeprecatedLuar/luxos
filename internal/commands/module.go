@@ -16,7 +16,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
@@ -629,17 +628,13 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 }
 
-func moduleFillInputs(rows []moduleRow, us []modules.Module, modulesDir string) error {
-	pathOf := make(map[string]string, len(us))
-	for _, u := range us {
-		pathOf[u.Name] = u.Path
-	}
+func moduleFillInputs(rows []moduleRow, us []modules.Module) error {
 	for i := range rows {
-		unitPath, ok := pathOf[rows[i].unit]
+		m, ok := modules.Find(us, rows[i].unit)
 		if !ok {
 			continue
 		}
-		inputs, err := unitInputs(filepath.Join(modulesDir, unitPath))
+		inputs, err := unitInputs(m)
 		if err != nil {
 			return err
 		}
@@ -648,8 +643,8 @@ func moduleFillInputs(rows []moduleRow, us []modules.Module, modulesDir string) 
 	return nil
 }
 
-func unitInputs(path string) ([]string, error) {
-	files, err := refs.UnitFiles(path)
+func unitInputs(m modules.Module) ([]string, error) {
+	files, err := m.Files()
 	if err != nil {
 		return nil, err
 	}
@@ -763,7 +758,7 @@ func moduleList(p paths.Paths, args []string) error {
 			return err
 		}
 	}
-	pulled, err := refs.Closure(p.Modules, us, selection)
+	pulled, err := (&modules.Host{ModulesDir: p.Modules, Modules: us, Selection: selection}).Closure()
 	if err != nil {
 		return err
 	}
@@ -774,7 +769,7 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 
 	rows := moduleBuildRows(us, enabled, running, pulled, changed, categoryPath)
-	if err := moduleFillInputs(rows, us, p.Modules); err != nil {
+	if err := moduleFillInputs(rows, us); err != nil {
 		return err
 	}
 	rows = append(rows, moduleRemovedRows(runningPaths, us, categoryPath)...)
@@ -1406,7 +1401,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is imported by:", name), importers, fmt.Sprintf("'%s' is not imported by any host.", name))
 
-	dependents, err := refs.Dependents(p.Modules, localDirs, name)
+	dependents, err := modules.Dependents(p.Modules, localDirs, name)
 	if err != nil {
 		return err
 	}
@@ -1424,10 +1419,10 @@ func moduleRemove(p paths.Paths, args []string) error {
 		}
 	}
 
-	// refs.Retarget first: it validates every dependent's call shape before
+	// modules.RetargetRefs first: it validates every dependent's call shape before
 	// writing anything and refuses the whole operation on a bad shape, so a
 	// refusal here leaves the tree completely untouched.
-	if _, err := refs.Retarget(p.Modules, localDirs, name, ""); err != nil {
+	if _, err := modules.RetargetRefs(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
 	if _, err := modules.RetargetSelections(p.Machines, name, "", host, skipHosts); err != nil {
@@ -1511,7 +1506,7 @@ func moduleRename(p paths.Paths, args []string) error {
 		return err
 	}
 
-	dependents, err := refs.Dependents(p.Modules, localDirs, oldName)
+	dependents, err := modules.Dependents(p.Modules, localDirs, oldName)
 	if err != nil {
 		return err
 	}
@@ -1543,12 +1538,12 @@ func moduleRename(p paths.Paths, args []string) error {
 		newPath = joinCategory(category, newName+".nix")
 	}
 
-	// refs.Retarget first (validates every dependent's call shape before
+	// modules.RetargetRefs first (validates every dependent's call shape before
 	// writing anything, refusing the whole operation on a bad shape): a
 	// refusal here leaves the unit unmoved and every host entrypoint
 	// untouched.
 	bundle := modules.IsBundle(oldFull)
-	if _, err := refs.Retarget(p.Modules, localDirs, oldName, newQualified); err != nil {
+	if _, err := modules.RetargetRefs(p.Modules, localDirs, oldName, newQualified); err != nil {
 		return err
 	}
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {

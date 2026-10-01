@@ -16,7 +16,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 )
 
@@ -26,14 +25,18 @@ var (
 	flakeLock  = nix.FlakeLock
 )
 
-func selectedInputsNix(modulesDir, hostDir string) (string, error) {
-	sel, err := refs.SelectedUnits(modulesDir, filepath.Join(hostDir, "modules"), hostDir)
+func selectedInputsNix(h *modules.Host) (string, error) {
+	built, err := h.Built()
 	if err != nil {
 		return "", err
 	}
-	files := []string{filepath.Join(hostDir, config.MachineFile)}
-	for _, u := range sel {
-		files = append(files, u.Files...)
+	files := []string{filepath.Join(h.HostDir, config.MachineFile)}
+	for _, m := range built {
+		mf, err := m.Files()
+		if err != nil {
+			return "", err
+		}
+		files = append(files, mf...)
 	}
 	decls, err := nix.InputDecls(files...)
 	if err != nil {
@@ -73,15 +76,11 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 6. validate module boundaries
 	fmt.Fprintf(w, "Validating module boundaries...\n")
-	us, err := modules.Walk(p.Modules, filepath.Join(hostDir, "modules"))
+	h, err := modules.Load(p.Modules, hostDir)
 	if err != nil {
 		return err
 	}
-	selection, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
-	if err != nil {
-		return err
-	}
-	violations, err := refs.Validate(p.Modules, us, selection)
+	violations, err := h.Validate()
 	if err != nil {
 		return err
 	}
@@ -113,14 +112,14 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	// flake-file.inputs declarations (plus machine.nix's base channel), so a
 	// module that imports from its own input (a nixos-hardware module, say)
 	// already has that input by the time write-flake evaluates it.
-	inputsNix, err := selectedInputsNix(p.Modules, hostDir)
+	inputsNix, err := selectedInputsNix(h)
 	if err != nil {
 		return err
 	}
 
 	// 8. materialize staging
 	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, us, filepath.Join(hostDir, "flake.lock"), envPath, inputsNix); err != nil {
+	if err := staging.Materialize(p.Staging, p.Modules, hostDir, h.Modules, filepath.Join(hostDir, "flake.lock"), envPath, inputsNix); err != nil {
 		return err
 	}
 
