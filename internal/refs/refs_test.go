@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
@@ -628,7 +628,7 @@ func TestVerification_RenameWithDependentsRewritesBothFiles(t *testing.T) {
 		t.Fatalf("expected 2 changes, got %d: %v", len(changes), changes)
 	}
 	for _, f := range []string{"a.nix", "b.nix"} {
-		names, err := nixsrc.Names(filepath.Join(mods, f))
+		names, err := nix.Names(filepath.Join(mods, f))
 		if err != nil {
 			t.Fatalf("Names(%s): %v", f, err)
 		}
@@ -696,7 +696,7 @@ func TestRetarget_ScopedToOneHostsLocalModulesDir(t *testing.T) {
 	if len(changes) != 1 || changes[0].File != aFile {
 		t.Fatalf("changes = %v, want exactly one change to %s", changes, aFile)
 	}
-	names, err := nixsrc.Names(aFile)
+	names, err := nix.Names(aFile)
 	if err != nil {
 		t.Fatalf("Names: %v", err)
 	}

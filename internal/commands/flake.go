@@ -16,7 +16,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -364,7 +363,7 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 		if u.Root == localModules {
 			display = flakeLocalDisplayDir
 		}
-		fileDecls, err := nixsrc.InputDecls(u.Files...)
+		fileDecls, err := nix.InputDecls(u.Files...)
 		if err != nil {
 			return nil, err
 		}
@@ -386,7 +385,7 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 		return nil, err
 	}
 	if base != nil {
-		out[nixsrc.BaseChannelInput] = append(out[nixsrc.BaseChannelInput], *base)
+		out[nix.BaseChannelInput] = append(out[nix.BaseChannelInput], *base)
 	}
 	for _, decls := range out {
 		sort.Slice(decls, func(i, j int) bool {
@@ -402,8 +401,8 @@ func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, erro
 // Nil when the host's machine.nix has no base channel (the rebuild preflight
 // reports that). Belongs to no unit.
 func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
-	url, line, err := nixsrc.BaseChannel(filepath.Join(hostDir, config.MachineFile))
-	if errors.Is(err, nixsrc.ErrNoBaseChannel) {
+	url, line, err := nix.BaseChannel(filepath.Join(hostDir, config.MachineFile))
+	if errors.Is(err, nix.ErrNoBaseChannel) {
 		return nil, nil
 	}
 	if err != nil {

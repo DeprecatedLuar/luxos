@@ -1,4 +1,4 @@
-package nixsrc
+package nix
 
 import (
 	"regexp"

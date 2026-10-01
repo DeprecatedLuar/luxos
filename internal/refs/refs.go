@@ -2,7 +2,7 @@
 // CONFIG_DIR/modules may reference — paths, and luxos.modules names — as
 // internal/imports is for host entrypoints. It owns the domain logic
 // (owners, closures, dependents, boundary violations); all Nix syntax
-// reading and editing goes through internal/nixsrc. Every function here
+// reading and editing goes through internal/nix. Every function here
 // takes absolute file paths.
 //
 // Bundles (a folder unit with a modules/ subdirectory) add three boundary
@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
@@ -125,12 +125,12 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 				return nil, err
 			}
 
-			static, dynamic, perr := nixsrc.PathsAndDynamic(file)
+			static, dynamic, perr := nix.PathsAndDynamic(file)
 			if perr != nil {
 				violations = append(violations, Violation{File: rel, Message: "failed to parse"})
 				continue
 			}
-			names, callViolations, perr := nixsrc.ModuleNames(file)
+			names, callViolations, perr := nix.ModuleNames(file)
 			if perr != nil {
 				violations = append(violations, Violation{File: rel, Message: "failed to parse"})
 				continue
@@ -238,7 +238,7 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 				continue
 			}
 
-			names, violations, err := nixsrc.ModuleNames(file)
+			names, violations, err := nix.ModuleNames(file)
 			if err != nil || len(violations) > 0 {
 				continue
 			}
@@ -301,7 +301,7 @@ func Dependents(modulesDir string, localModulesDirs []string, name string) ([]st
 		if file == rootDefault {
 			continue
 		}
-		names, _, err := nixsrc.ModuleNames(file)
+		names, _, err := nix.ModuleNames(file)
 		if err != nil {
 			continue
 		}
@@ -318,10 +318,10 @@ func Dependents(modulesDir string, localModulesDirs []string, name string) ([]st
 // Retarget is the single writer of module files (#30, §3 "Rewrite"): in
 // every module file under modulesDir whose luxos.modules list contains
 // name, rewrite it to newName if given, else delete it from the list.
-// Every dependent's call shape is validated (nixsrc.Names, which errors on an
+// Every dependent's call shape is validated (nix.Names, which errors on an
 // unrecognized use of luxos) before any file is touched, so a bad shape
 // anywhere refuses the whole operation before anything changes (item 20).
-// nixsrc.RetargetModuleName refuses any candidate that differs from the
+// nix.RetargetModuleName refuses any candidate that differs from the
 // original by more than the one substitution.
 func Retarget(modulesDir string, localModulesDirs []string, name, newName string) ([]Change, error) {
 	files, err := Dependents(modulesDir, localModulesDirs, name)
@@ -334,14 +334,14 @@ func Retarget(modulesDir string, localModulesDirs []string, name, newName string
 
 	// Validate shape everywhere first — Names errors naming the file.
 	for _, file := range files {
-		if _, err := nixsrc.Names(file); err != nil {
+		if _, err := nix.Names(file); err != nil {
 			return nil, err
 		}
 	}
 
 	var changes []Change
 	for _, file := range files {
-		changed, err := nixsrc.RetargetModuleName(file, name, newName)
+		changed, err := nix.RetargetModuleName(file, name, newName)
 		if err != nil {
 			return nil, err
 		}

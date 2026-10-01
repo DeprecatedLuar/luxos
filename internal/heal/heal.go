@@ -19,7 +19,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/links"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -150,16 +149,16 @@ func selectedInputsNix(modulesDir, hostDir string) (string, error) {
 	for _, u := range sel {
 		files = append(files, u.Files...)
 	}
-	decls, err := nixsrc.InputDecls(files...)
+	decls, err := nix.InputDecls(files...)
 	if err != nil {
 		return "", err
 	}
-	return nixsrc.RenderInputs(decls), nil
+	return nix.RenderInputs(decls), nil
 }
 
 func readBaseChannel(path string) (string, error) {
-	url, _, err := nixsrc.BaseChannel(path)
-	if errors.Is(err, nixsrc.ErrNoBaseChannel) {
+	url, _, err := nix.BaseChannel(path)
+	if errors.Is(err, nix.ErrNoBaseChannel) {
 		return "", fmt.Errorf("%s: %w\n  add: %s", path, err, baseChannelHint())
 	}
 	return url, err
@@ -169,7 +168,7 @@ func baseChannelHint() string {
 	tmpl, err := templates.File(machineTemplate)
 	if err == nil {
 		for _, line := range strings.Split(string(tmpl), "\n") {
-			if strings.Contains(line, nixsrc.BaseChannelInput+".url") {
+			if strings.Contains(line, nix.BaseChannelInput+".url") {
 				return strings.TrimSpace(line)
 			}
 		}
@@ -180,11 +179,11 @@ func baseChannelHint() string {
 // checkMachineFile fails when the machine.nix at path holds any static or
 // dynamic path literal.
 func checkMachineFile(path string) error {
-	static, err := nixsrc.Paths(path)
+	static, err := nix.Paths(path)
 	if err != nil {
 		return err
 	}
-	dynamic, err := nixsrc.DynamicPaths(path)
+	dynamic, err := nix.DynamicPaths(path)
 	if err != nil {
 		return err
 	}

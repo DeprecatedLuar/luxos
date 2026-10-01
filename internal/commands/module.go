@@ -15,7 +15,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
@@ -659,7 +658,7 @@ func unitInputs(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	decls, err := nixsrc.InputDecls(files...)
+	decls, err := nix.InputDecls(files...)
 	if err != nil {
 		return nil, err
 	}
@@ -859,7 +858,7 @@ func editScratch(initial []byte) ([]byte, error) {
 	}
 
 	var edited []byte
-	err := nixsrc.WithTemp(editScratchPattern, initial, func(path string) error {
+	err := nix.WithTemp(editScratchPattern, initial, func(path string) error {
 		if err := shell.Run(shell.Cmd{Bin: editor, Args: []string{path}}); err != nil {
 			return fmt.Errorf("$EDITOR exited with error: %w", err)
 		}
@@ -892,7 +891,7 @@ func editNixFileInPlace(path string) error {
 		return nil
 	}
 
-	return nixsrc.Write(path, edited)
+	return nix.Write(path, edited)
 }
 
 //──[add]──────────────────────────────────────────────────────────────────

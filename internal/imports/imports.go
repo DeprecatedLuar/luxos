@@ -1,6 +1,6 @@
 // Package imports is the sole reader/writer of .local/machines/<host>/modules.nix,
 // the host's selection. Block syntax (recognizing, reading, editing the
-// single "imports = [ ... ];" block) lives in internal/nixsrc;
+// single "imports = [ ... ];" block) lives in internal/nix;
 // this package owns which hosts and names. A file with more than one
 // recognizable block, or one written some other way (computed imports, a
 // single-line block with items), is refused by the writers (Add/Remove) and
@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
@@ -42,7 +42,7 @@ type Change struct {
 
 // Hard error if file doesn't have exactly one recognizable imports block.
 func List(file string) ([]string, error) {
-	paths, ok, err := nixsrc.ListImports(file)
+	paths, ok, err := nix.ListImports(file)
 	if err != nil {
 		return nil, err
 	}
@@ -54,12 +54,12 @@ func List(file string) ([]string, error) {
 
 // A no-op if path is already present.
 func Add(file, path string) error {
-	return nixsrc.AddImport(file, path)
+	return nix.AddImport(file, path)
 }
 
 // A no-op (no write) if none match.
 func Remove(file, path string) error {
-	return nixsrc.RemoveImport(file, path)
+	return nix.RemoveImport(file, path)
 }
 
 // Importers returns every entrypoint file with a line whose name (from its
@@ -76,7 +76,7 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 
 	var out []string
 	for _, file := range files {
-		paths, ok, err := nixsrc.ListImports(file)
+		paths, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Ch
 	var warnings []string
 
 	for _, file := range files {
-		old, ok, err := nixsrc.RetargetImports(file, match, newPath)
+		old, ok, err := nix.RetargetImports(file, match, newPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -148,7 +148,7 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 
 	var changes []Change
 	for _, file := range files {
-		paths, ok, err := nixsrc.ListImports(file)
+		paths, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +165,7 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 			if newPrefix != "" {
 				newPath = newPrefix + strings.TrimPrefix(path, oldPrefix)
 			}
-			old, _, err := nixsrc.RetargetImports(file, func(p string) bool { return p == path }, newPath)
+			old, _, err := nix.RetargetImports(file, func(p string) bool { return p == path }, newPath)
 			if err != nil {
 				return nil, err
 			}
@@ -224,7 +224,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 			continue
 		}
 
-		paths, ok, err := nixsrc.ListImports(file)
+		paths, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -2,17 +2,9 @@ package nix
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
-
-func skipIfNoNix(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath(instantiateBin); err != nil {
-		t.Skip("nix-instantiate not on PATH")
-	}
-}
 
 func TestParse_RelativePathErrors(t *testing.T) {
 	if _, err := Parse("relative/path.nix"); err == nil {

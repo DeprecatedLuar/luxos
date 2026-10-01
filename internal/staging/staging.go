@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
@@ -65,7 +65,7 @@ const (
 // pointed there. The original is not staged; no source file is rewritten.
 //
 // inputsNix is the body of flake.nix's `inputs = { ... };` block beyond the
-// flake-file pin (nixsrc.RenderInputs output); Materialize only writes it in.
+// flake-file pin (nix.RenderInputs output); Materialize only writes it in.
 func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, inputsNix string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
@@ -251,7 +251,7 @@ func stageModules(modulesDir, dst string, us []units.Unit) error {
 
 		entry := filepath.Join(dst, entrypointFile)
 		name := u.Name
-		_, ok, err := nixsrc.RetargetImports(entry, func(p string) bool { return units.NameFromPath(p) == name }, staged)
+		_, ok, err := nix.RetargetImports(entry, func(p string) bool { return units.NameFromPath(p) == name }, staged)
 		if err != nil {
 			return err
 		}

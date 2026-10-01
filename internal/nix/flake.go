@@ -1,4 +1,4 @@
-package nixsrc
+package nix
 
 import (
 	"encoding/json"
@@ -11,8 +11,96 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
+
+const flakeBin = "nix"
+
+// writeFlakeArgs runs flake-file's write-flake app. --no-write-lock-file
+// keeps the bootstrap's default nixpkgs from moving a lock pinned to another
+// one; flakeLockArgs then fills in whatever is missing.
+var writeFlakeArgs = []string{"run", "--no-write-lock-file", ".#write-flake"}
+
+// flakeLockArgs locks missing inputs without moving existing pins.
+var flakeLockArgs = []string{"flake", "lock"}
+
+const nixConfigVar = "NIX_CONFIG"
+
+// flakeFeatures enables flakes for luxos's own nix calls, so the first
+// rebuild on a machine whose nix.conf has them off (before system.nix
+// turns them on) still works. extra- appends, so it is a no-op elsewhere.
+const flakeFeatures = "extra-experimental-features = nix-command flakes"
+
+// FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
+// stdout and stderr through to the caller's. With no inputs every input moves.
+func FlakeUpdate(flakeDir string, inputs ...string) error {
+	args := append([]string{"flake", "update"}, inputs...)
+	args = append(args, "--flake", flakeDir)
+	return shell.Run(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
+}
+
+// BuildFlakeRef builds the flake reference ref and returns its store path.
+// It tries --offline first; a reference that is not yet realized fails there
+// and is retried once with the network allowed.
+func BuildFlakeRef(ref string) (string, error) {
+	out, err := buildFlakeRef(ref, true)
+	if err != nil {
+		out, err = buildFlakeRef(ref, false)
+	}
+	return out, err
+}
+
+func buildFlakeRef(ref string, offline bool) (string, error) {
+	args := []string{"build", ref}
+	if offline {
+		args = append(args, "--offline")
+	}
+	args = append(args, "--no-link", "--print-out-paths")
+	out, err := shell.OutputLive(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
+	if err != nil {
+		return "", err
+	}
+	outPath := strings.TrimSpace(string(out))
+	if outPath == "" {
+		return "", fmt.Errorf("%s %s: no output path printed", flakeBin, strings.Join(args, " "))
+	}
+	return outPath, nil
+}
+
+// WriteFlake runs flake-file's write-flake app in stagingDir, regenerating
+// flake.nix from the input declarations in the staged modules.
+func WriteFlake(stagingDir string) error {
+	return runIn(stagingDir, writeFlakeArgs)
+}
+
+// FlakeLock runs `nix flake lock` in stagingDir: missing inputs are locked,
+// existing pins stay where they are.
+func FlakeLock(stagingDir string) error {
+	return runIn(stagingDir, flakeLockArgs)
+}
+
+func runIn(dir string, args []string) error {
+	_, err := shell.Output(shell.Cmd{Bin: flakeBin, Args: args, Dir: dir, Env: flakeEnv(os.Environ())})
+	return err
+}
+
+// flakeEnv returns env with flakeFeatures added to NIX_CONFIG, keeping any
+// settings already there.
+func flakeEnv(env []string) []string {
+	prefix := nixConfigVar + "="
+	out := make([]string, 0, len(env)+1)
+	value := flakeFeatures
+	for _, kv := range env {
+		if existing, ok := strings.CutPrefix(kv, prefix); ok {
+			if existing != "" {
+				value = existing + "\n" + flakeFeatures
+			}
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, prefix+value)
+}
 
 // evalInputsExpr reads flake-file.inputs from each file in a batch by
 // evaluating it, not parsing it: a module's value can be either the flat
@@ -88,7 +176,7 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 			return nil, err
 		}
 		if _, err := os.Stat(a); err != nil {
-			return nil, fmt.Errorf("nixsrc.InputDecls: %w", err)
+			return nil, fmt.Errorf("nix.InputDecls: %w", err)
 		}
 		abs[i] = a
 	}
@@ -97,14 +185,14 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := nix.EvalJSON(evalInputsExpr, map[string]string{"filesJson": string(payload)})
+	out, err := EvalJSON(evalInputsExpr, map[string]string{"filesJson": string(payload)})
 	if err != nil {
 		return nil, err
 	}
 
 	var raw map[string]map[string]evalDecl
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("nixsrc.InputDecls: parse nix-instantiate output: %w", err)
+		return nil, fmt.Errorf("nix.InputDecls: parse nix-instantiate output: %w", err)
 	}
 
 	var decls []InputDecl
