@@ -18,7 +18,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
@@ -182,7 +181,7 @@ func flakeList(args []string) error {
 	if err != nil {
 		return err
 	}
-	graph, err := staging.ReadLockGraph(filepath.Join(hostDir, flakeLockName))
+	graph, err := nix.ReadLock(filepath.Join(hostDir, flakeLockName))
 	if err != nil {
 		return err
 	}
@@ -269,8 +268,8 @@ func flakeStatus(locked, online bool, note string) string {
 // (flake-file excluded), one goroutine per node. Returns node key -> note:
 // flakeNoteBehind when the tip differs from the locked rev, flakeNoteUnknown
 // on any failure, absent when equal.
-func flakeUpstreamNotes(graph staging.LockGraph) map[string]string {
-	rootInputs := graph.Nodes[staging.LockRootNode].Inputs
+func flakeUpstreamNotes(graph nix.Lock) map[string]string {
+	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
 	keys := map[string]bool{}
 	var walk func(key string)
 	walk = func(key string) {
@@ -287,7 +286,7 @@ func flakeUpstreamNotes(graph staging.LockGraph) map[string]string {
 			walk(key)
 		}
 	}
-	delete(keys, staging.LockRootNode)
+	delete(keys, nix.LockRootNode)
 
 	notes := map[string]string{}
 	var mu sync.Mutex
@@ -421,7 +420,7 @@ func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
 // Builds the input tree's rows from declarations (input name -> declaring unit
 // paths) and the lock graph. notes maps a lock node key to the row note for
 // that node (nil: no notes).
-func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes map[string]string) []moduleRow {
+func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]string) []moduleRow {
 	builtin := map[string]bool{}
 	declared := map[string]bool{}
 	for _, name := range flakeBuiltinInputs {
@@ -446,7 +445,7 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes ma
 	}
 	delete(names, flakeFileInput)
 
-	rootInputs := graph.Nodes[staging.LockRootNode].Inputs
+	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
 
 	var rows []moduleRow
 	for name := range names {
@@ -489,7 +488,7 @@ func flakeBuildRows(decls map[string][]string, graph staging.LockGraph, notes ma
 
 // Recurses without depth limit. ancestors holds the node keys on the path from
 // the root input, so a cyclic lock cannot recurse forever.
-func flakeTransitiveRows(graph staging.LockGraph, key string, ancestors map[string]bool, notes map[string]string) []moduleRow {
+func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, notes map[string]string) []moduleRow {
 	var rows []moduleRow
 	for name, target := range graph.Nodes[key].Inputs {
 		if ancestors[target] {
@@ -570,12 +569,12 @@ func flakeShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	graph, err := staging.ReadLockGraph(filepath.Join(hostDir, flakeLockName))
+	graph, err := nix.ReadLock(filepath.Join(hostDir, flakeLockName))
 	if err != nil {
 		return err
 	}
 
-	var fetch func(staging.LockRef, string) *flakeUpstream
+	var fetch func(nix.LockRef, string) *flakeUpstream
 	if opts["offline"] == "" {
 		fetch = flakeFetchUpstream
 	}
@@ -617,8 +616,8 @@ func flakeShow(args []string) error {
 	return nil
 }
 
-func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph staging.LockGraph,
-	fetch func(staging.LockRef, string) *flakeUpstream) ([]flakeView, error) {
+func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph nix.Lock,
+	fetch func(nix.LockRef, string) *flakeUpstream) ([]flakeView, error) {
 
 	var views []flakeView
 	rootView, rootErr := flakeBuildView(name, host, sites, graph, fetch)
@@ -641,7 +640,7 @@ func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph stagin
 	return views, nil
 }
 
-func flakeNestedPaths(graph staging.LockGraph, name string) []string {
+func flakeNestedPaths(graph nix.Lock, name string) []string {
 	var found []string
 	var walk func(key, prefix string, ancestors map[string]bool)
 	walk = func(key, prefix string, ancestors map[string]bool) {
@@ -663,11 +662,11 @@ func flakeNestedPaths(graph staging.LockGraph, name string) []string {
 			delete(ancestors, target)
 		}
 	}
-	walk(staging.LockRootNode, "", map[string]bool{})
+	walk(nix.LockRootNode, "", map[string]bool{})
 	return found
 }
 
-func flakeFetchUpstream(ref staging.LockRef, locked string) *flakeUpstream {
+func flakeFetchUpstream(ref nix.LockRef, locked string) *flakeUpstream {
 	up := &flakeUpstream{}
 	up.tip, up.tipErr = upstream.Tip(ref)
 	up.tags, up.tagsErr = upstream.Tags(ref)
@@ -678,8 +677,8 @@ func flakeFetchUpstream(ref staging.LockRef, locked string) *flakeUpstream {
 }
 
 // fetch is nil offline.
-func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph staging.LockGraph,
-	fetch func(staging.LockRef, string) *flakeUpstream) (flakeView, error) {
+func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph nix.Lock,
+	fetch func(nix.LockRef, string) *flakeUpstream) (flakeView, error) {
 
 	unknown := fmt.Errorf("no input '%s' for %s\n  list them with: luxos flakes", name, host)
 
@@ -693,7 +692,7 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 	for _, b := range flakeBuiltinInputs {
 		builtin = builtin || b == root
 	}
-	rootKey, locked := graph.Nodes[staging.LockRootNode].Inputs[root]
+	rootKey, locked := graph.Nodes[nix.LockRootNode].Inputs[root]
 	declared := builtin || len(sites[root]) > 0
 	if !locked && !declared {
 		return flakeView{}, unknown
@@ -720,7 +719,7 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 		view.marker = markerPulled
 	}
 
-	var node staging.LockNode
+	var node nix.LockNode
 	if hasNode {
 		node = graph.Nodes[key]
 	}
@@ -764,7 +763,7 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph stagi
 
 // Appends the default-branch note when it names no ref. An unlocked input falls
 // back to its first declared url; with neither it is empty.
-func flakeSourceText(orig staging.LockRef, decls []flakeDecl, hasNode bool) string {
+func flakeSourceText(orig nix.LockRef, decls []flakeDecl, hasNode bool) string {
 	if !hasNode {
 		if len(decls) > 0 {
 			return decls[0].url
@@ -819,7 +818,7 @@ type flakeVersion struct {
 }
 
 // fetch nil (offline) shows the current rev only.
-func flakeVersionLine(node staging.LockNode, hasNode bool, fetch func(staging.LockRef, string) *flakeUpstream) (flakeLine, string, flakeVersion) {
+func flakeVersionLine(node nix.LockNode, hasNode bool, fetch func(nix.LockRef, string) *flakeUpstream) (flakeLine, string, flakeVersion) {
 	line := flakeLine{label: "version"}
 	if !hasNode {
 		line.children = []flakeLine{{label: "current", value: flakeNotLocked}}

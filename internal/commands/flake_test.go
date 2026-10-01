@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
-func testLockGraph() staging.LockGraph {
-	return staging.LockGraph{
+func testLockGraph() nix.Lock {
+	return nix.Lock{
 		Root: []string{"ambxst", "flake-file", "luxos", "old", "shared"},
-		Nodes: map[string]staging.LockNode{
-			staging.LockRootNode: {Inputs: map[string]string{
+		Nodes: map[string]nix.LockNode{
+			nix.LockRootNode: {Inputs: map[string]string{
 				"ambxst": "ambxst", "flake-file": "flake-file", "luxos": "luxos", "old": "old", "shared": "shared_2",
 			}},
 			"ambxst":    {Inputs: map[string]string{"axctl": "axctl", "nixpkgs": "nixpkgs_2"}},
@@ -81,7 +81,7 @@ func TestFlakeBuildRowsMarkersAndPlacement(t *testing.T) {
 }
 
 func TestFlakeBuildRowsBuiltinsWithoutDeclarationsOrLock(t *testing.T) {
-	rows := flakeBuildRows(nil, staging.LockGraph{}, nil)
+	rows := flakeBuildRows(nil, nix.Lock{}, nil)
 	for _, name := range []string{"luxos", "nixpkgs"} {
 		r, ok := rowByName(rows, name)
 		if !ok || r.marker != markerEnabledOnly || len(r.category) != 0 {
@@ -165,11 +165,11 @@ func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
 }
 
 func TestFlakeUpstreamNotesUnsupportedIsUnknown(t *testing.T) {
-	graph := staging.LockGraph{
-		Nodes: map[string]staging.LockNode{
-			staging.LockRootNode: {Inputs: map[string]string{"a": "a", "flake-file": "ff"}},
-			"a":                  {Original: staging.LockRef{Type: "path"}, Locked: staging.LockRef{Type: "path", Rev: "abc"}},
-			"ff":                 {Original: staging.LockRef{Type: "path"}, Locked: staging.LockRef{Rev: "abc"}},
+	graph := nix.Lock{
+		Nodes: map[string]nix.LockNode{
+			nix.LockRootNode: {Inputs: map[string]string{"a": "a", "flake-file": "ff"}},
+			"a":              {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Type: "path", Rev: "abc"}},
+			"ff":             {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Rev: "abc"}},
 		},
 	}
 	notes := flakeUpstreamNotes(graph)
@@ -190,19 +190,19 @@ const (
 	showMid    = "3333333000000000000000000000000000000000"
 )
 
-func showGraph() staging.LockGraph {
-	gh := func(rev string) staging.LockRef {
-		return staging.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst", Rev: rev}
+func showGraph() nix.Lock {
+	gh := func(rev string) nix.LockRef {
+		return nix.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst", Rev: rev}
 	}
-	return staging.LockGraph{
+	return nix.Lock{
 		Root: []string{"ambxst", "old", "unstable"},
-		Nodes: map[string]staging.LockNode{
-			staging.LockRootNode: {Inputs: map[string]string{"ambxst": "ambxst", "old": "old", "unstable": "unstable"}},
-			"ambxst":             {Inputs: map[string]string{"nixpkgs": "nixpkgs_2", "axctl": "axctl"}, Original: staging.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst"}, Locked: gh(showLocked)},
-			"axctl":              {Original: staging.LockRef{Type: "github", Owner: "Axenide", Repo: "axctl"}, Locked: gh(showLocked)},
-			"nixpkgs_2":          {},
-			"old":                {Original: staging.LockRef{Type: "git", URL: "https://example.org/x.git", Ref: "main"}, Locked: staging.LockRef{Rev: showLocked}},
-			"unstable":           {Original: staging.LockRef{Type: "github", Owner: "NixOS", Repo: "nixpkgs", Ref: "nixpkgs-unstable"}, Locked: gh(showLocked)},
+		Nodes: map[string]nix.LockNode{
+			nix.LockRootNode: {Inputs: map[string]string{"ambxst": "ambxst", "old": "old", "unstable": "unstable"}},
+			"ambxst":         {Inputs: map[string]string{"nixpkgs": "nixpkgs_2", "axctl": "axctl"}, Original: nix.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst"}, Locked: gh(showLocked)},
+			"axctl":          {Original: nix.LockRef{Type: "github", Owner: "Axenide", Repo: "axctl"}, Locked: gh(showLocked)},
+			"nixpkgs_2":      {},
+			"old":            {Original: nix.LockRef{Type: "git", URL: "https://example.org/x.git", Ref: "main"}, Locked: nix.LockRef{Rev: showLocked}},
+			"unstable":       {Original: nix.LockRef{Type: "github", Owner: "NixOS", Repo: "nixpkgs", Ref: "nixpkgs-unstable"}, Locked: gh(showLocked)},
 		},
 	}
 }
@@ -218,7 +218,7 @@ func showSites() map[string][]flakeDecl {
 	}
 }
 
-func showRender(t *testing.T, name string, fetch func(staging.LockRef, string) *flakeUpstream) string {
+func showRender(t *testing.T, name string, fetch func(nix.LockRef, string) *flakeUpstream) string {
 	t.Helper()
 	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
 	if err != nil {
@@ -230,7 +230,7 @@ func showRender(t *testing.T, name string, fetch func(staging.LockRef, string) *
 }
 
 func TestFlakeShowBehindWithTagAndCommits(t *testing.T) {
-	fetch := func(staging.LockRef, string) *flakeUpstream {
+	fetch := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{
 			tip:   showTip,
 			tags:  map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
@@ -253,7 +253,7 @@ func TestFlakeShowBehindWithTagAndCommits(t *testing.T) {
 }
 
 func TestFlakeShowUntaggedAndMultipleDeclarations(t *testing.T) {
-	fetch := func(staging.LockRef, string) *flakeUpstream {
+	fetch := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{tip: showTip, ahead: 7853, shas: []string{showMid, showTip}}
 	}
 	want := `◉ unstable ↑
@@ -271,7 +271,7 @@ func TestFlakeShowUntaggedAndMultipleDeclarations(t *testing.T) {
 }
 
 func TestFlakeShowUpToDate(t *testing.T) {
-	fetch := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
+	fetch := func(nix.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
 	want := `◍ axctl
 ├── source    github:Axenide/axctl (default branch)
 ├── declared  pulled in by ambxst
@@ -285,19 +285,19 @@ func TestFlakeShowUpToDate(t *testing.T) {
 
 func TestFlakeShowFailuresRenderQuestionMark(t *testing.T) {
 	boom := errors.New("boom")
-	tip := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tipErr: boom} }
+	tip := func(nix.LockRef, string) *flakeUpstream { return &flakeUpstream{tipErr: boom} }
 	got := showRender(t, "unstable", tip)
 	if !strings.Contains(got, "unstable ?\n") || !strings.Contains(got, "latest   ?\n") {
 		t.Errorf("tip failure:\n%s", got)
 	}
 
-	cmp := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showTip, compareErr: boom} }
+	cmp := func(nix.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showTip, compareErr: boom} }
 	got = showRender(t, "unstable", cmp)
 	if !strings.Contains(got, "unstable ↑\n") || !strings.Contains(got, "latest   ?\n") || strings.Contains(got, "commits") {
 		t.Errorf("compare failure:\n%s", got)
 	}
 
-	tags := func(staging.LockRef, string) *flakeUpstream {
+	tags := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{tip: showTip, tagsErr: boom, ahead: 3, shas: []string{showTip}}
 	}
 	got = showRender(t, "unstable", tags)
@@ -307,7 +307,7 @@ func TestFlakeShowFailuresRenderQuestionMark(t *testing.T) {
 }
 
 func TestFlakeShowUnsupportedCompareUsesTagOnTip(t *testing.T) {
-	fetch := func(staging.LockRef, string) *flakeUpstream {
+	fetch := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{tip: showTip, tags: map[string]string{showTip: "v2"}, compareErr: upstream.ErrUnsupported}
 	}
 	got := showRender(t, "old", fetch)
@@ -349,7 +349,7 @@ func TestFlakeShowUnknownInput(t *testing.T) {
 	}
 }
 
-func plainView(t *testing.T, name string, fetch func(staging.LockRef, string) *flakeUpstream) string {
+func plainView(t *testing.T, name string, fetch func(nix.LockRef, string) *flakeUpstream) string {
 	t.Helper()
 	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
 	if err != nil {
@@ -361,7 +361,7 @@ func plainView(t *testing.T, name string, fetch func(staging.LockRef, string) *f
 }
 
 func TestFlakeShowPlainBehindCurrentOffline(t *testing.T) {
-	behind := func(staging.LockRef, string) *flakeUpstream {
+	behind := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{
 			tip:   showTip,
 			tags:  map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
@@ -375,7 +375,7 @@ func TestFlakeShowPlainBehindCurrentOffline(t *testing.T) {
 		t.Errorf("behind:\n%s\nwant:\n%s", got, want)
 	}
 
-	current := func(staging.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
+	current := func(nix.LockRef, string) *flakeUpstream { return &flakeUpstream{tip: showLocked} }
 	want = "name=ambxst/axctl\nstate=pulled\nstatus=current\nsource=github:Axenide/axctl\n" +
 		"declared=\ncurrent=1e9592a\nlatest=\ncommits=0\npulls=\n"
 	if got := plainView(t, "ambxst/axctl", current); got != want {
@@ -409,7 +409,7 @@ func TestFlakeListJSON(t *testing.T) {
 	}
 }
 
-func showViews(t *testing.T, fetch func(staging.LockRef, string) *flakeUpstream, names ...string) []flakeView {
+func showViews(t *testing.T, fetch func(nix.LockRef, string) *flakeUpstream, names ...string) []flakeView {
 	t.Helper()
 	var views []flakeView
 	for _, name := range names {
@@ -423,7 +423,7 @@ func showViews(t *testing.T, fetch func(staging.LockRef, string) *flakeUpstream,
 }
 
 func TestFlakeViewJSONSingleBehind(t *testing.T) {
-	behind := func(staging.LockRef, string) *flakeUpstream {
+	behind := func(nix.LockRef, string) *flakeUpstream {
 		return &flakeUpstream{tip: showTip, tags: map[string]string{showLocked: "1.3.4", showTag138: "1.3.8"},
 			ahead: 55, shas: []string{"x", showTag138, showMid, showTip}}
 	}

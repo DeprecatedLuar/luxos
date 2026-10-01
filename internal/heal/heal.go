@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/generate"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -25,24 +24,22 @@ var (
 	flakeLock  = nix.FlakeLock
 )
 
-func selectedInputsNix(h *modules.Host) (string, error) {
+// selectedInputs returns the flake-file.inputs declarations of the host's
+// machine.nix and of every module it builds.
+func selectedInputs(h *modules.Host) ([]nix.InputDecl, error) {
 	built, err := h.Built()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	files := []string{filepath.Join(h.HostDir, config.MachineFile)}
 	for _, m := range built {
 		mf, err := m.Files()
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		files = append(files, mf...)
 	}
-	decls, err := nix.InputDecls(files...)
-	if err != nil {
-		return "", err
-	}
-	return nix.RenderInputs(decls), nil
+	return nix.InputDecls(files...)
 }
 
 // Run performs the full self-heal sequence for host: ensure .gitignore,
@@ -108,32 +105,19 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 		}
 	}
 
-	// derive the bootstrap flake's inputs from the selected modules' own
+	// the bootstrap flake's inputs come from the selected modules' own
 	// flake-file.inputs declarations (plus machine.nix's base channel), so a
 	// module that imports from its own input (a nixos-hardware module, say)
 	// already has that input by the time write-flake evaluates it.
-	inputsNix, err := selectedInputsNix(h)
+	inputs, err := selectedInputs(h)
+	if err != nil {
+		return err
+	}
+	hwDir, err := config.HardwareDir(p.Sys, p.HardwareRoot)
 	if err != nil {
 		return err
 	}
 
-	// 8. materialize staging
-	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
-	if err := staging.Materialize(p.Staging, p.Modules, hostDir, h.Modules, filepath.Join(hostDir, "flake.lock"), envPath, inputsNix); err != nil {
-		return err
-	}
-
-	// 9. generate framework/flake-file.nix, let flake-file write flake.nix, lock
-	fmt.Fprintf(w, "Generating flake.nix with flake-file...\n")
-	bootstrap, err := generate.FlakeBootstrap(host)
-	if err != nil {
-		return err
-	}
-	if err := staging.Install(p.Staging, "framework/flake-file.nix", bootstrap); err != nil {
-		return err
-	}
-
-	// 9b. detect GPUs and install the fact file
 	fmt.Fprintf(w, "Detecting GPUs...\n")
 	gpus, err := hardware.DetectGPUs(p.Sys)
 	if err != nil {
@@ -142,14 +126,14 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	for _, g := range gpus {
 		fmt.Fprintf(w, "  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}
-	gpuContent, err := hardware.RenderGPUs(gpus)
-	if err != nil {
-		return err
-	}
-	if err := staging.Install(p.Staging, "framework/gpu.nix", gpuContent); err != nil {
+
+	fmt.Fprintf(w, "Materializing %s for %s...\n", p.Staging, host)
+	if err := staging.Materialize(p.Staging, h, hwDir, envPath, inputs, gpus); err != nil {
 		return err
 	}
 
+	// let flake-file write flake.nix, then lock
+	fmt.Fprintf(w, "Generating flake.nix with flake-file...\n")
 	if err := writeFlake(p.Staging); err != nil {
 		return err
 	}
@@ -163,16 +147,6 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	}
 	if changed {
 		fmt.Fprintf(w, "  locked new inputs: %s\n", hostLock)
-	}
-
-	// 10. generate and install framework/configuration.nix
-	fmt.Fprintf(w, "Generating configuration.nix...\n")
-	configContent, err := generate.Configuration(host)
-	if err != nil {
-		return err
-	}
-	if err := staging.Install(p.Staging, "framework/configuration.nix", configContent); err != nil {
-		return err
 	}
 
 	// 11. make the generated tree read-only

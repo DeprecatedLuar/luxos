@@ -6,18 +6,25 @@
 package staging
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
+
+// frameworkFiles are copied verbatim into framework/.
+var frameworkFiles = []string{
+	"system.nix", "units.nix", "overlay.nix", "outputs.nix", "environment.nix",
+	"luxos-hardware.nix", "nvidia-generations.nix", "luxos-hardware-defaults.nix",
+}
 
 const (
 	dirMode        = 0755
@@ -27,17 +34,16 @@ const (
 	frameworkDir = "framework"
 	configDir    = "config"
 
-	flakeNix   = "flake.nix"
-	systemNix  = "system.nix"
-	unitsNix   = "units.nix"
-	overlayNix = "overlay.nix"
-	outputsNix = "outputs.nix"
+	flakeNix          = "flake.nix"
+	flakeFileNix      = "flake-file.nix"
+	gpuNix            = "gpu.nix"
+	configurationNix  = "configuration.nix"
+	stagedEnvironment = "environment"
 
-	environmentNix        = "environment.nix"
-	luxosHardwareNix      = "luxos-hardware.nix"
-	luxosHardwareDefaults = "luxos-hardware-defaults.nix"
-	nvidiaGenerations     = "nvidia-generations.nix"
-	stagedEnvironment     = "environment"
+	// rootLocalEntry is the entry of the modules dir, and of config/modules,
+	// that holds a host's own modules.
+	rootLocalEntry  = "local"
+	localModulesDir = "modules"
 
 	stagedModulesDir   = "modules"
 	entrypointFile     = "default.nix"
@@ -47,25 +53,33 @@ const (
 	lockFileName = "flake.lock"
 )
 
-// Materialize regenerates the luxos-owned entries of stagingDir (pruning
-// them first). lockFile is the active host's own flake.lock
-// (hostDir/flake.lock), not a config-root one; entries outside the owned
-// list are left alone for Adopt to handle. Every symlink under modulesDir
-// and hostDir is dereferenced; a dangling one refuses the whole call,
-// naming it, before anything is touched.
+// Materialize regenerates every luxos-owned entry of stagingDir for h
+// (pruning them first): the framework files, flake.nix, framework/flake-file.nix,
+// framework/gpu.nix, framework/configuration.nix, config/ and the host's
+// flake.lock. Every symlink under h.ModulesDir and h.HostDir is dereferenced; a
+// dangling one refuses the whole call, naming it, before anything is touched.
+// Nothing is read through modules/local or modules/default.nix, so the stage
+// does not depend on which host those links point at.
 //
-// us is the host's unit set: each unit with Shadows set is staged at its
-// original's location (same category, its own file or folder name), and
-// every import of that name in the staged config/modules/default.nix is
-// pointed there. The original is not staged; no source file is rewritten.
+// config/modules holds the shared tree, h's own modules under local/ with
+// hwDir as local/hardware-support, and h's selection as default.nix. Each
+// module of h.Modules with Shadows set is staged at its original's location
+// (same category, its own file or folder name), and every import of that name
+// in the staged default.nix is pointed there. The original is not staged; no
+// source file is rewritten.
 //
-// inputsNix is the body of flake.nix's `inputs = { ... };` block beyond the
-// flake-file pin (nix.RenderInputs output); Materialize only writes it in.
-func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lockFile, environmentFile, inputsNix string) error {
-	if err := checkNoDanglingLinks(modulesDir); err != nil {
+// inputs are the flake-file.inputs declarations of the modules h builds plus
+// the host's machine.nix; they become flake.nix's `inputs = { ... };` block
+// beyond the flake-file pin.
+func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, gpus []hardware.GPU) error {
+	inputsNix := nix.RenderInputs(inputs)
+	if inputsNix == "" {
+		return errors.New("staging: flake inputs are required")
+	}
+	if err := checkNoDanglingLinks(h.ModulesDir); err != nil {
 		return err
 	}
-	if err := checkNoDanglingLinks(hostDir); err != nil {
+	if err := checkNoDanglingLinks(h.HostDir); err != nil {
 		return err
 	}
 
@@ -82,39 +96,38 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lo
 		return err
 	}
 
-	if err := writeFrameworkFile(fwDir, systemNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, unitsNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, overlayNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, outputsNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, environmentNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, luxosHardwareNix); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, nvidiaGenerations); err != nil {
-		return err
-	}
-	if err := writeFrameworkFile(fwDir, luxosHardwareDefaults); err != nil {
-		return err
+	for _, name := range frameworkFiles {
+		if err := writeFrameworkFile(fwDir, name); err != nil {
+			return err
+		}
 	}
 	if err := writeFlakeNix(stagingDir, inputsNix); err != nil {
 		return err
 	}
 
-	if err := stageModules(modulesDir, filepath.Join(cfgDir, stagedModulesDir), us); err != nil {
+	generated := []struct {
+		name   string
+		render func() ([]byte, error)
+	}{
+		{flakeFileNix, func() ([]byte, error) { return flakeBootstrap(h.Name) }},
+		{gpuNix, func() ([]byte, error) { return hardware.RenderGPUs(gpus) }},
+		{configurationNix, func() ([]byte, error) { return configuration(h.Name) }},
+	}
+	for _, g := range generated {
+		content, err := g.render()
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(fwDir, g.name), content, fileMode); err != nil {
+			return err
+		}
+	}
+
+	if err := stageModules(h, hwDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
 		return err
 	}
 	for _, name := range []string{stagedMachineNix, stagedPlsdonttouch} {
-		if err := copyFile(filepath.Join(hostDir, name), filepath.Join(cfgDir, name)); err != nil {
+		if err := copyFile(filepath.Join(h.HostDir, name), filepath.Join(cfgDir, name)); err != nil {
 			return err
 		}
 	}
@@ -123,6 +136,7 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lo
 		return err
 	}
 
+	lockFile := filepath.Join(h.HostDir, lockFileName)
 	if _, err := os.Stat(lockFile); err == nil {
 		if err := copyFile(lockFile, filepath.Join(stagingDir, lockFileName)); err != nil {
 			return err
@@ -134,40 +148,63 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lo
 	return nil
 }
 
-func stageModules(modulesDir, dst string, us []modules.Module) error {
-	skip := make(map[string]bool)
+// stageModules writes h's config/modules tree into dst.
+func stageModules(h *modules.Host, hwDir, dst string) error {
+	sharedSkip := map[string]bool{rootLocalEntry: true, entrypointFile: true}
+	localSkip := map[string]bool{config.HardwareUnitName: true}
 	var shadows []modules.Module
-	for _, u := range us {
-		if u.Shadows == "" {
+	for _, m := range h.Modules {
+		if m.Shadows == "" {
 			continue
 		}
-		shadows = append(shadows, u)
-		skip[u.Shadows] = true
-		skip[u.Path] = true
+		shadows = append(shadows, m)
+		sharedSkip[m.Shadows] = true
+		localSkip[strings.TrimPrefix(m.Path, modules.LocalPrefix)] = true
 	}
-	if err := copyDerefSkip(modulesDir, dst, skip); err != nil {
+	if err := copyDerefSkip(h.ModulesDir, dst, sharedSkip); err != nil {
 		return err
 	}
 
-	for _, u := range shadows {
-		staged := u.StagedPath()
-		src := filepath.Join(modulesDir, u.Path)
-		info, err := os.Stat(src)
+	localDst := filepath.Join(dst, rootLocalEntry)
+	hostModules := filepath.Join(h.HostDir, localModulesDir)
+	if _, err := os.Stat(hostModules); err == nil {
+		if err := copyDerefSkip(hostModules, localDst, localSkip); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	} else if err := os.MkdirAll(localDst, dirMode); err != nil {
+		return err
+	}
+	if _, err := os.Stat(hwDir); err != nil {
+		return fmt.Errorf("hardware folder %s: %w\n  run: luxos rebuild", hwDir, err)
+	}
+	if err := copyDeref(hwDir, filepath.Join(localDst, config.HardwareUnitName)); err != nil {
+		return err
+	}
+
+	entry := filepath.Join(dst, entrypointFile)
+	if err := copyFile(filepath.Join(h.HostDir, modules.SelectionFile), entry); err != nil {
+		return err
+	}
+
+	for _, m := range shadows {
+		staged := m.StagedPath()
+		info, err := os.Stat(m.Abs)
 		if err != nil {
 			return err
 		}
 		target := filepath.Join(dst, staged)
 		if info.IsDir() {
-			err = copyDeref(src, target)
+			err = copyDeref(m.Abs, target)
 		} else {
-			err = copyFile(src, target)
+			err = copyFile(m.Abs, target)
 		}
 		if err != nil {
 			return err
 		}
 
-		entry := filepath.Join(dst, entrypointFile)
-		name := u.Name
+		name := m.Name
 		_, ok, err := nix.RetargetImports(entry, func(p string) bool { return modules.NameFromPath(p) == name }, staged)
 		if err != nil {
 			return err
@@ -177,115 +214,6 @@ func stageModules(modulesDir, dst string, us []modules.Module) error {
 		}
 	}
 	return nil
-}
-
-func Install(stagingDir, rel string, content []byte) error {
-	dest := filepath.Join(stagingDir, rel)
-	if err := os.MkdirAll(filepath.Dir(dest), dirMode); err != nil {
-		return err
-	}
-	if err := os.WriteFile(dest, content, fileMode); err != nil {
-		return err
-	}
-	return os.Chmod(dest, fileMode)
-}
-
-type LockInput struct {
-	Type  string
-	Owner string
-	Repo  string
-	Rev   string
-}
-
-// ReadLockInput returns the locked identity of the node called name in
-// lockFile. A missing file or an absent node reports false with no error;
-// malformed JSON is an error.
-func ReadLockInput(lockFile, name string) (LockInput, bool, error) {
-	data, err := os.ReadFile(lockFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return LockInput{}, false, nil
-		}
-		return LockInput{}, false, err
-	}
-	var lock struct {
-		Nodes map[string]struct{ Locked LockInput }
-	}
-	if err := json.Unmarshal(data, &lock); err != nil {
-		return LockInput{}, false, fmt.Errorf("parse %s: %w", lockFile, err)
-	}
-	node, ok := lock.Nodes[name]
-	if !ok {
-		return LockInput{}, false, nil
-	}
-	return node.Locked, true, nil
-}
-
-const LockRootNode = "root"
-
-type LockRef struct {
-	Type  string `json:"type"`
-	Owner string `json:"owner"`
-	Repo  string `json:"repo"`
-	Ref   string `json:"ref"`
-	Rev   string `json:"rev"`
-	URL   string `json:"url"`
-}
-
-// LockNode is one node of a flake.lock. Inputs maps an input name to the
-// node key it points at; `follows` entries are skipped.
-type LockNode struct {
-	Inputs   map[string]string
-	Original LockRef
-	Locked   LockRef
-}
-
-type LockGraph struct {
-	Root  []string
-	Nodes map[string]LockNode
-}
-
-// ReadLockGraph reads lockFile into a LockGraph. A missing file returns an
-// empty graph and no error.
-func ReadLockGraph(lockFile string) (LockGraph, error) {
-	graph := LockGraph{Nodes: map[string]LockNode{}}
-
-	data, err := os.ReadFile(lockFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return graph, nil
-		}
-		return LockGraph{}, err
-	}
-
-	var lock struct {
-		Nodes map[string]struct {
-			Inputs   map[string]json.RawMessage `json:"inputs"`
-			Original LockRef                    `json:"original"`
-			Locked   LockRef                    `json:"locked"`
-		} `json:"nodes"`
-	}
-	if err := json.Unmarshal(data, &lock); err != nil {
-		return LockGraph{}, fmt.Errorf("parse %s: %w", lockFile, err)
-	}
-
-	for key, raw := range lock.Nodes {
-		node := LockNode{Inputs: map[string]string{}, Original: raw.Original, Locked: raw.Locked}
-		for name, target := range raw.Inputs {
-			var nodeKey string
-			if err := json.Unmarshal(target, &nodeKey); err != nil {
-				continue // a follows array
-			}
-			node.Inputs[name] = nodeKey
-		}
-		graph.Nodes[key] = node
-	}
-
-	for name := range graph.Nodes[LockRootNode].Inputs {
-		graph.Root = append(graph.Root, name)
-	}
-	sort.Strings(graph.Root)
-	return graph, nil
 }
 
 func checkNoDanglingLinks(root string) error {
@@ -307,9 +235,6 @@ func checkNoDanglingLinks(root string) error {
 }
 
 func writeFlakeNix(dst, inputsNix string) error {
-	if inputsNix == "" {
-		return errors.New("staging: flake inputs are required")
-	}
 	out, err := templates.Render("flake.nix.tmpl", flakeNixData{Inputs: inputsNix})
 	if err != nil {
 		return err

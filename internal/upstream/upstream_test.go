@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
 const tipRev = "b6018f87aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -30,7 +30,7 @@ func TestTipGitHub(t *testing.T) {
 	paths := serve(t, `<feed><entry><id>tag:github.com,2008:Grit::Commit/`+tipRev+`</id></entry>
 <entry><id>tag:github.com,2008:Grit::Commit/1111111111111111111111111111111111111111</id></entry></feed>`, 200)
 
-	got, err := Tip(staging.LockRef{Type: "github", Owner: "o", Repo: "r", Ref: "nixos-25.11"})
+	got, err := Tip(nix.LockRef{Type: "github", Owner: "o", Repo: "r", Ref: "nixos-25.11"})
 	if err != nil || got != tipRev {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -38,7 +38,7 @@ func TestTipGitHub(t *testing.T) {
 		t.Errorf("path %q", (*paths)[0])
 	}
 
-	if _, err := Tip(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}); err != nil {
+	if _, err := Tip(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	if (*paths)[1] != "/o/r/commits/HEAD.atom" {
@@ -48,20 +48,20 @@ func TestTipGitHub(t *testing.T) {
 
 func TestTipGitHubBadFeed(t *testing.T) {
 	serve(t, `<feed>nothing</feed>`, 200)
-	if _, err := Tip(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
+	if _, err := Tip(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
 		t.Fatal("expected parse error")
 	}
 }
 
 func TestTipGitHubStatus(t *testing.T) {
 	serve(t, ``, 404)
-	if _, err := Tip(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
+	if _, err := Tip(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
 		t.Fatal("expected status error")
 	}
 }
 
 func TestTipUnsupported(t *testing.T) {
-	if _, err := Tip(staging.LockRef{Type: "path"}); !errors.Is(err, ErrUnsupported) {
+	if _, err := Tip(nix.LockRef{Type: "path"}); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func serveAPI(t *testing.T, body string, status int) *[]string {
 
 func TestTagsGitHub(t *testing.T) {
 	uris := serveAPI(t, `[{"name":"1.3.8","commit":{"sha":"aaa"}},{"name":"1.3.4","commit":{"sha":"bbb"}},{"name":"dup","commit":{"sha":"aaa"}}]`, 200)
-	got, err := Tags(staging.LockRef{Type: "github", Owner: "o", Repo: "r"})
+	got, err := Tags(nix.LockRef{Type: "github", Owner: "o", Repo: "r"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +96,13 @@ func TestTagsGitHub(t *testing.T) {
 
 func TestTagsGitHubStatus(t *testing.T) {
 	serveAPI(t, `{"message":"rate limit"}`, 403)
-	if _, err := Tags(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
+	if _, err := Tags(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}); err == nil {
 		t.Fatal("want error")
 	}
 }
 
 func TestTagsUnsupported(t *testing.T) {
-	if _, err := Tags(staging.LockRef{Type: "tarball"}); !errors.Is(err, ErrUnsupported) {
+	if _, err := Tags(nix.LockRef{Type: "tarball"}); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestTagsGit(t *testing.T) {
 	lightRev := trimNL(run("rev-parse", "light"))
 	annRev := trimNL(run("rev-parse", "annotated^{commit}"))
 
-	got, err := Tags(staging.LockRef{Type: "git", URL: dir})
+	got, err := Tags(nix.LockRef{Type: "git", URL: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func trimNL(s string) string {
 
 func TestCompareGitHub(t *testing.T) {
 	uris := serveAPI(t, `{"ahead_by":55,"commits":[{"sha":"c1"},{"sha":"c2"}]}`, 200)
-	ahead, shas, err := Compare(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}, "base", "head")
+	ahead, shas, err := Compare(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}, "base", "head")
 	if err != nil || ahead != 55 || len(shas) != 2 || shas[1] != "c2" {
 		t.Fatalf("got %d %v %v", ahead, shas, err)
 	}
@@ -157,11 +157,11 @@ func TestCompareGitHub(t *testing.T) {
 }
 
 func TestCompareErrors(t *testing.T) {
-	if _, _, err := Compare(staging.LockRef{Type: "git"}, "a", "b"); !errors.Is(err, ErrUnsupported) {
+	if _, _, err := Compare(nix.LockRef{Type: "git"}, "a", "b"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("got %v", err)
 	}
 	serveAPI(t, ``, 429)
-	if _, _, err := Compare(staging.LockRef{Type: "github", Owner: "o", Repo: "r"}, "a", "b"); err == nil {
+	if _, _, err := Compare(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}, "a", "b"); err == nil {
 		t.Fatal("want error")
 	}
 }

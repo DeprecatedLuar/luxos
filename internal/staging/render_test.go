@@ -1,10 +1,9 @@
-package generate
+package staging
 
 import (
 	"bytes"
 	"flag"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"text/template"
@@ -14,13 +13,6 @@ import (
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
-
-func skipIfNoNix(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("nix-instantiate"); err != nil {
-		t.Skip("nix-instantiate not on PATH")
-	}
-}
 
 // assertGolden compares got against testdata/<name>.golden, rewriting the
 // golden file instead when -update is passed.
@@ -60,54 +52,54 @@ func assertNixParses(t *testing.T, content []byte) {
 	}
 }
 
-func TestConfiguration_Golden(t *testing.T) {
-	out, err := Configuration("paraloid")
+func TestRenderConfiguration_Golden(t *testing.T) {
+	out, err := configuration("paraloid")
 	if err != nil {
-		t.Fatalf("Configuration: %v", err)
+		t.Fatalf("configuration: %v", err)
 	}
 	assertGolden(t, "configuration", out)
 	assertNixParses(t, out)
 }
 
-func TestConfiguration_Deterministic(t *testing.T) {
-	a, err := Configuration("paraloid")
+func TestRenderConfiguration_Deterministic(t *testing.T) {
+	a, err := configuration("paraloid")
 	if err != nil {
-		t.Fatalf("Configuration: %v", err)
+		t.Fatalf("configuration: %v", err)
 	}
-	b, err := Configuration("paraloid")
+	b, err := configuration("paraloid")
 	if err != nil {
-		t.Fatalf("Configuration: %v", err)
+		t.Fatalf("configuration: %v", err)
 	}
 	if string(a) != string(b) {
 		t.Errorf("Configuration is not deterministic")
 	}
 }
 
-func TestFlakeBootstrap_Golden(t *testing.T) {
-	out, err := FlakeBootstrap("paraloid")
+func TestRenderFlakeBootstrap_Golden(t *testing.T) {
+	out, err := flakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("FlakeBootstrap: %v", err)
+		t.Fatalf("flakeBootstrap: %v", err)
 	}
 	assertGolden(t, "bootstrap", out)
 	assertNixParses(t, out)
 }
 
-func TestFlakeBootstrap_Deterministic(t *testing.T) {
-	a, err := FlakeBootstrap("paraloid")
+func TestRenderFlakeBootstrap_Deterministic(t *testing.T) {
+	a, err := flakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("FlakeBootstrap: %v", err)
+		t.Fatalf("flakeBootstrap: %v", err)
 	}
-	b, err := FlakeBootstrap("paraloid")
+	b, err := flakeBootstrap("paraloid")
 	if err != nil {
-		t.Fatalf("FlakeBootstrap: %v", err)
+		t.Fatalf("flakeBootstrap: %v", err)
 	}
 	if string(a) != string(b) {
 		t.Errorf("FlakeBootstrap is not deterministic")
 	}
 }
 
-func TestFlakeBootstrap_EmptyHostErrors(t *testing.T) {
-	if _, err := FlakeBootstrap(""); err == nil {
+func TestRenderFlakeBootstrap_EmptyHostErrors(t *testing.T) {
+	if _, err := flakeBootstrap(""); err == nil {
 		t.Fatalf("FlakeBootstrap: want error for empty host")
 	}
 }

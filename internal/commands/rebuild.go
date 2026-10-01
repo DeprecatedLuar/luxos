@@ -123,13 +123,15 @@ func printLogo() {
 // running binary is not already that revision. Returns nil when no swap is needed
 // and does not return when one happens.
 func selfUpdate(hostLock string, args []string) error {
-	in, ok, err := staging.ReadLockInput(hostLock, luxosInputName)
+	lock, err := nix.ReadLock(hostLock)
 	if err != nil {
 		return err
 	}
+	node, ok := lock.Input(luxosInputName)
 	if !ok {
 		return nil
 	}
+	in := node.Locked
 	if in.Type != githubLockType {
 		return fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
 	}

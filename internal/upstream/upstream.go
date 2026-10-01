@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
-	"github.com/DeprecatedLuar/luxos/internal/staging"
 )
 
 const (
@@ -48,7 +48,7 @@ var feedCommitRe = regexp.MustCompile(`Commit/([0-9a-f]{40})`)
 
 var httpClient = &http.Client{Timeout: requestTimeout}
 
-func Tip(ref staging.LockRef) (string, error) {
+func Tip(ref nix.LockRef) (string, error) {
 	switch ref.Type {
 	case typeGitHub:
 		return githubTip(ref)
@@ -59,7 +59,7 @@ func Tip(ref staging.LockRef) (string, error) {
 	}
 }
 
-func githubTip(ref staging.LockRef) (tip string, err error) {
+func githubTip(ref nix.LockRef) (tip string, err error) {
 	branch := ref.Ref
 	if branch == "" {
 		branch = defaultRef
@@ -85,7 +85,7 @@ func githubTip(ref staging.LockRef) (tip string, err error) {
 	return string(m[1]), nil
 }
 
-func gitTip(ref staging.LockRef) (string, error) {
+func gitTip(ref nix.LockRef) (string, error) {
 	target := defaultRef
 	if ref.Ref != "" {
 		target = fmt.Sprintf(headsRefFormat, ref.Ref)
@@ -123,7 +123,7 @@ func apiGet(url string, out any) (err error) {
 }
 
 // When several tags share a rev, the first the source lists wins.
-func Tags(ref staging.LockRef) (map[string]string, error) {
+func Tags(ref nix.LockRef) (map[string]string, error) {
 	switch ref.Type {
 	case typeGitHub:
 		return githubTags(ref)
@@ -134,7 +134,7 @@ func Tags(ref staging.LockRef) (map[string]string, error) {
 	}
 }
 
-func githubTags(ref staging.LockRef) (map[string]string, error) {
+func githubTags(ref nix.LockRef) (map[string]string, error) {
 	url := fmt.Sprintf(tagsURLFormat, githubAPIBase, ref.Owner, ref.Repo)
 	var list []struct {
 		Name   string `json:"name"`
@@ -154,7 +154,7 @@ func githubTags(ref staging.LockRef) (map[string]string, error) {
 	return tags, nil
 }
 
-func gitTags(ref staging.LockRef) (map[string]string, error) {
+func gitTags(ref nix.LockRef) (map[string]string, error) {
 	out, err := shell.Output(shell.Cmd{Bin: gitBin, Args: []string{"ls-remote", "--tags", ref.URL}})
 	if err != nil {
 		return nil, fmt.Errorf("upstream: %w", err)
@@ -188,7 +188,7 @@ func gitTags(ref staging.LockRef) (map[string]string, error) {
 }
 
 // Oldest first. GitHub only; the API lists at most 250 commits, ahead is the full count.
-func Compare(ref staging.LockRef, base, head string) (ahead int, shas []string, err error) {
+func Compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err error) {
 	if ref.Type != typeGitHub {
 		return 0, nil, ErrUnsupported
 	}

@@ -10,14 +10,26 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/modules"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
 const testNixpkgs = "github:NixOS/nixpkgs/nixos-25.11"
 
-// inputsNixFor renders the flake.nix inputs block Materialize now expects,
-// with just a nixpkgs pin at the given url.
-func inputsNixFor(url string) string {
-	return "    nixpkgs.url = \"" + url + "\";\n"
+// hwDirOf is the hardware folder fixture builds next to hostDir.
+func hwDirOf(hostDir string) string {
+	return filepath.Join(filepath.Dir(hostDir), "hardware")
+}
+
+// materialize stages hostDir against modulesDir through Materialize with just
+// a nixpkgs pin at nixpkgsURL ("" declares no input), no GPUs, and us as the
+// host's modules.
+func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, environmentFile, nixpkgsURL string) error {
+	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, Modules: us}
+	var inputs []nix.InputDecl
+	if nixpkgsURL != "" {
+		inputs = []nix.InputDecl{{Name: "nixpkgs", URL: nixpkgsURL, Value: map[string]any{"url": nixpkgsURL}}}
+	}
+	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, nil)
 }
 
 func skipIfNoNix(t *testing.T) {
@@ -27,9 +39,9 @@ func skipIfNoNix(t *testing.T) {
 	}
 }
 
-// fixture builds a modulesDir and hostDir tree, the latter containing a
-// symlink into the former (like the generated mirror link), plus a
-// flake.lock. Returns their paths.
+// fixture builds a modulesDir and hostDir tree with the generated mirror and
+// local links under modulesDir, a hardware folder, and the host's flake.lock.
+// Returns their paths.
 func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile string) {
 	t.Helper()
 	root := t.TempDir()
@@ -46,16 +58,16 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 	if err := os.MkdirAll(filepath.Join(hostDir, "modules"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	// Real file the mirror symlink would otherwise point at.
-	if err := os.WriteFile(filepath.Join(hostDir, "modules", "default.nix"), []byte("{ imports = [ ./system/desktop.nix ]; }"), 0644); err != nil {
+	// The host's selection, which the mirror symlink points at.
+	if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte("{ imports = [ ./system/desktop.nix ]; }"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	// Mirror symlink under modulesDir, like links.EnsureMirror creates.
-	if err := os.Symlink(filepath.Join(hostDir, "modules", "default.nix"), filepath.Join(modulesDir, "default.nix")); err != nil {
+	// Mirror symlink under modulesDir, like config.EnsureMirror creates.
+	if err := os.Symlink(filepath.Join(hostDir, "modules.nix"), filepath.Join(modulesDir, "default.nix")); err != nil {
 		t.Fatal(err)
 	}
 
-	// Local modules link under modulesDir, like links.EnsureLocalModules
+	// Local modules link under modulesDir, like config.EnsureLocalModules
 	// creates: modulesDir/local -> hostDir/modules.
 	if err := os.WriteFile(filepath.Join(hostDir, "modules", "foo.nix"), []byte("{ }"), 0644); err != nil {
 		t.Fatal(err)
@@ -71,8 +83,15 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 		t.Fatal(err)
 	}
 
-	lockFile = filepath.Join(root, "flake.lock")
+	lockFile = filepath.Join(hostDir, "flake.lock")
 	if err := os.WriteFile(lockFile, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(hwDirOf(hostDir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hwDirOf(hostDir), "default.nix"), []byte("{ hw = 1; }"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,9 +105,9 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 
 func TestMaterialize_Basic(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -101,6 +120,10 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "environment.nix"),
 		filepath.Join(stagingDir, "framework", "luxos-hardware-defaults.nix"),
 		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
+		filepath.Join(stagingDir, "framework", "flake-file.nix"),
+		filepath.Join(stagingDir, "framework", "gpu.nix"),
+		filepath.Join(stagingDir, "framework", "configuration.nix"),
+		filepath.Join(stagingDir, "config", "modules", "local", "hardware-support", "default.nix"),
 		filepath.Join(stagingDir, "config", "environment"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
@@ -152,10 +175,12 @@ func TestMaterialize_Basic(t *testing.T) {
 
 func TestMaterialize_LockOptional(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, _, environmentFile := fixture(t)
-	missingLock := filepath.Join(t.TempDir(), "flake.lock")
+	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	if err := os.Remove(lockFile); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, missingLock, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -166,17 +191,17 @@ func TestMaterialize_LockOptional(t *testing.T) {
 
 func TestMaterialize_MissingEnvironmentFails(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, lockFile, _ := fixture(t)
+	modulesDir, hostDir, _, _ := fixture(t)
 	missingEnv := filepath.Join(t.TempDir(), "environment")
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, missingEnv, inputsNixFor(testNixpkgs)); err == nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, missingEnv, testNixpkgs); err == nil {
 		t.Fatal("expected an error for a missing environment file")
 	}
 }
 
 func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 	stagingDir := t.TempDir()
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 	for _, name := range []string{"hardware-configuration.nix", "boot.nix"} {
 		if err := os.WriteFile(filepath.Join(stagingDir, name), []byte("keep"), 0644); err != nil {
 			t.Fatal(err)
@@ -184,7 +209,7 @@ func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+		if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
 			t.Fatalf("Materialize #%d: %v", i, err)
 		}
 	}
@@ -199,55 +224,19 @@ func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 
 func TestMaterialize_DanglingLinkRefused(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 
 	dangling := filepath.Join(modulesDir, "broken.nix")
 	if err := os.Symlink(filepath.Join(modulesDir, "does-not-exist.nix"), dangling); err != nil {
 		t.Fatal(err)
 	}
 
-	err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(testNixpkgs))
+	err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs)
 	if err == nil {
 		t.Fatalf("expected dangling symlink error")
 	}
 	if _, statErr := os.Stat(stagingDir); !os.IsNotExist(statErr) {
 		t.Fatalf("staging dir should not have been created on dangling-link error")
-	}
-}
-
-func TestInstall(t *testing.T) {
-	stagingDir := t.TempDir()
-
-	if err := Install(stagingDir, "flake.nix", []byte("{ }")); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	path := filepath.Join(stagingDir, "flake.nix")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if info.Mode().Perm() != 0644 {
-		t.Fatalf("mode = %o, want 0644", info.Mode().Perm())
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "{ }" {
-		t.Fatalf("content = %q", data)
-	}
-}
-
-func TestInstall_NestedRel(t *testing.T) {
-	stagingDir := t.TempDir()
-
-	if err := Install(stagingDir, filepath.Join("sub", "dir", "file.nix"), []byte("x")); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(stagingDir, "sub", "dir", "file.nix")); err != nil {
-		t.Fatalf("Stat: %v", err)
 	}
 }
 
@@ -280,17 +269,20 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 	if err := os.MkdirAll(hostDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"machine.nix", ".plsdonttouch.nix"} {
+	for _, name := range []string{"machine.nix", ".plsdonttouch.nix", "modules.nix"} {
 		if err := os.WriteFile(filepath.Join(hostDir, name), []byte("{ }"), 0644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.MkdirAll(hwDirOf(hostDir), 0755); err != nil {
+		t.Fatal(err)
 	}
 	environmentFile := filepath.Join(root, "environment")
 	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, filepath.Join(root, "flake.lock"), environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -401,48 +393,6 @@ func mustJoin(t *testing.T, base string, elem ...string) string {
 		t.Fatal(err)
 	}
 	return full
-}
-
-const luxosLockFixture = `{"nodes":{"luxos":{"locked":{"lastModified":1790088510,"narHash":"sha256-7Qp0Ew+0CZeNZjnKSuWI4GTdNllVrPPYzAcTcSGAybw=","owner":"DeprecatedLuar","repo":"luxos","rev":"769dcdb00b27f4aea190db70d1a9d65d858c788d","type":"github"},"original":{"owner":"DeprecatedLuar","ref":"main","repo":"luxos","type":"github"}},"root":{"inputs":{"luxos":"luxos"}}},"root":"root","version":7}`
-
-func writeLock(t *testing.T, content string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "flake.lock")
-	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-func TestReadLockInput(t *testing.T) {
-	got, ok, err := ReadLockInput(writeLock(t, luxosLockFixture), "luxos")
-	if err != nil || !ok {
-		t.Fatalf("ok=%v err=%v", ok, err)
-	}
-	want := LockInput{Type: "github", Owner: "DeprecatedLuar", Repo: "luxos", Rev: "769dcdb00b27f4aea190db70d1a9d65d858c788d"}
-	if got != want {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-}
-
-func TestReadLockInputAbsentNode(t *testing.T) {
-	_, ok, err := ReadLockInput(writeLock(t, luxosLockFixture), "nixpkgs")
-	if ok || err != nil {
-		t.Errorf("ok=%v err=%v", ok, err)
-	}
-}
-
-func TestReadLockInputMissingFile(t *testing.T) {
-	_, ok, err := ReadLockInput(filepath.Join(t.TempDir(), "nope.lock"), "luxos")
-	if ok || err != nil {
-		t.Errorf("ok=%v err=%v", ok, err)
-	}
-}
-
-func TestReadLockInputMalformed(t *testing.T) {
-	if _, _, err := ReadLockInput(writeLock(t, "{not json"), "luxos"); err == nil {
-		t.Error("want error")
-	}
 }
 
 const testHeader = "# LUXOS property - keep walking buddy\n"
@@ -694,95 +644,10 @@ func TestSeal(t *testing.T) {
 	}
 }
 
-const lockGraphFixture = `{
-  "nodes": {
-    "ambxst": {
-      "inputs": {"axctl": "axctl", "nixpkgs": "nixpkgs"},
-      "locked": {"owner": "Axenide", "repo": "Ambxst", "rev": "1e95", "type": "github"},
-      "original": {"owner": "Axenide", "repo": "Ambxst", "type": "github"}
-    },
-    "axctl": {
-      "inputs": {"nixpkgs": ["ambxst", "nixpkgs"]},
-      "locked": {"owner": "Axenide", "repo": "axctl", "rev": "86ce", "type": "github"},
-      "original": {"owner": "Axenide", "repo": "axctl", "type": "github"}
-    },
-    "luxos": {
-      "inputs": {"nixpkgs": ["nixpkgs"]},
-      "locked": {"owner": "DeprecatedLuar", "repo": "luxos", "rev": "769d", "type": "github"},
-      "original": {"owner": "DeprecatedLuar", "ref": "main", "repo": "luxos", "type": "github"}
-    },
-    "nixpkgs": {
-      "locked": {"owner": "NixOS", "repo": "nixpkgs", "rev": "8ce4", "type": "github"},
-      "original": {"owner": "NixOS", "ref": "nixos-unstable", "repo": "nixpkgs", "type": "github"}
-    },
-    "root": {"inputs": {"ambxst": "ambxst", "luxos": "luxos", "nixpkgs": "nixpkgs"}}
-  },
-  "root": "root",
-  "version": 7
-}`
-
-func TestReadLockGraph(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "flake.lock")
-	if err := os.WriteFile(file, []byte(lockGraphFixture), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	g, err := ReadLockGraph(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wantRoot := []string{"ambxst", "luxos", "nixpkgs"}
-	if len(g.Root) != len(wantRoot) {
-		t.Fatalf("Root = %v, want %v", g.Root, wantRoot)
-	}
-	for i := range wantRoot {
-		if g.Root[i] != wantRoot[i] {
-			t.Errorf("Root = %v, want %v", g.Root, wantRoot)
-		}
-	}
-
-	if got := g.Nodes["ambxst"].Inputs; got["axctl"] != "axctl" || got["nixpkgs"] != "nixpkgs" {
-		t.Errorf("ambxst inputs = %v", got)
-	}
-	if got := g.Nodes["axctl"].Inputs; len(got) != 0 {
-		t.Errorf("axctl follows must be skipped, got %v", got)
-	}
-	if got := g.Nodes["luxos"].Inputs; len(got) != 0 {
-		t.Errorf("luxos follows must be skipped, got %v", got)
-	}
-	if got := g.Nodes["luxos"].Original.Ref; got != "main" {
-		t.Errorf("luxos original ref = %q, want main", got)
-	}
-	if got := g.Nodes["nixpkgs"].Locked.Rev; got != "8ce4" {
-		t.Errorf("nixpkgs locked rev = %q", got)
-	}
-}
-
-func TestReadLockGraphMissingFile(t *testing.T) {
-	g, err := ReadLockGraph(filepath.Join(t.TempDir(), "flake.lock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(g.Root) != 0 || len(g.Nodes) != 0 {
-		t.Errorf("want empty graph, got %+v", g)
-	}
-}
-
-func TestReadLockGraphMalformed(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "flake.lock")
-	if err := os.WriteFile(file, []byte("{"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadLockGraph(file); err == nil {
-		t.Error("want error for malformed JSON")
-	}
-}
-
 func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	skipIfNoNix(t)
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 
 	write := func(p, content string) {
 		t.Helper()
@@ -795,14 +660,14 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	}
 	write(filepath.Join(modulesDir, "desktop", "shells", "ambxst", "default.nix"), "{ shared = 1; }")
 	write(filepath.Join(hostDir, "modules", "ambxst.nix"), "{ local = 1; }")
-	write(filepath.Join(hostDir, "modules", "default.nix"),
+	write(filepath.Join(hostDir, "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst\n    ./local/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n")
 
 	us := []modules.Module{
-		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
-		{Name: "desktop", Path: "system/desktop.nix"},
+		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst", Abs: filepath.Join(hostDir, "modules", "ambxst.nix")},
+		{Name: "desktop", Path: "system/desktop.nix", Abs: filepath.Join(modulesDir, "system", "desktop.nix")},
 	}
-	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, us, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -824,16 +689,16 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	if string(entry) != want {
 		t.Errorf("staged default.nix = %q, want %q", entry, want)
 	}
-	src, _ := os.ReadFile(filepath.Join(hostDir, "modules", "default.nix"))
+	src, _ := os.ReadFile(filepath.Join(hostDir, "modules.nix"))
 	if !strings.Contains(string(src), "./local/ambxst.nix") {
-		t.Errorf("source default.nix was rewritten: %q", src)
+		t.Errorf("source modules.nix was rewritten: %q", src)
 	}
 }
 
 func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 	skipIfNoNix(t)
 	stagingDir := filepath.Join(t.TempDir(), "staging")
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 
 	write := func(p, content string) {
 		t.Helper()
@@ -848,15 +713,15 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 	write(filepath.Join(modulesDir, "users", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
 	write(filepath.Join(hostDir, "modules", "eduardo", "default.nix"), "{ local = 1; }")
 	write(filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix"), "{ local = 2; }")
-	write(filepath.Join(hostDir, "modules", "default.nix"),
+	write(filepath.Join(hostDir, "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./local/eduardo\n    ./local/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n")
 
 	us := []modules.Module{
-		{Name: "eduardo", Path: "local/eduardo", Shadows: "users/eduardo"},
-		{Name: "eduardo/git", Path: "local/eduardo/modules/git.nix", Shadows: "users/eduardo/modules/git.nix"},
-		{Name: "desktop", Path: "system/desktop.nix"},
+		{Name: "eduardo", Path: "local/eduardo", Shadows: "users/eduardo", Abs: filepath.Join(hostDir, "modules", "eduardo")},
+		{Name: "eduardo/git", Path: "local/eduardo/modules/git.nix", Shadows: "users/eduardo/modules/git.nix", Abs: filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix")},
+		{Name: "desktop", Path: "system/desktop.nix", Abs: filepath.Join(modulesDir, "system", "desktop.nix")},
 	}
-	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, us, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -886,10 +751,10 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 }
 
 func TestMaterializeRendersFlakeNix(t *testing.T) {
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
 	stagingDir := t.TempDir()
 	const url = "github:NixOS/nixpkgs/nixos-99.99"
-	if err := Materialize(stagingDir, modulesDir, hostDir, nil, lockFile, environmentFile, inputsNixFor(url)); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, url); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(stagingDir, "flake.nix"))
@@ -904,8 +769,8 @@ func TestMaterializeRendersFlakeNix(t *testing.T) {
 }
 
 func TestMaterializeEmptyNixpkgsErrors(t *testing.T) {
-	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
-	if err := Materialize(t.TempDir(), modulesDir, hostDir, nil, lockFile, environmentFile, ""); err == nil {
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	if err := materialize(t.TempDir(), modulesDir, hostDir, nil, environmentFile, ""); err == nil {
 		t.Fatal("expected error for empty base channel url")
 	}
 }
@@ -1009,5 +874,71 @@ func TestDropPrevious(t *testing.T) {
 	}
 	if _, err := os.Stat(prev); err == nil {
 		t.Error("prev still exists")
+	}
+}
+
+func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{
+		"system", "units", "overlay", "outputs", "environment", "luxos-hardware", "luxos-hardware-defaults",
+		"flake-file", "gpu", "configuration",
+	} {
+		if _, err := os.Stat(filepath.Join(stagingDir, "framework", name+".nix")); err != nil {
+			t.Errorf("framework/%s.nix: %v", name, err)
+		}
+	}
+	for rel, wantFrom := range map[string]string{
+		"config/modules/default.nix":                        filepath.Join(hostDir, "modules.nix"),
+		"config/modules/local/hardware-support/default.nix": filepath.Join(hwDirOf(hostDir), "default.nix"),
+	} {
+		got, err := os.ReadFile(filepath.Join(stagingDir, rel))
+		want, werr := os.ReadFile(wantFrom)
+		if err != nil || werr != nil || string(got) != string(want) {
+			t.Errorf("%s = %q, %v; want the content of %s", rel, got, err, wantFrom)
+		}
+	}
+	config, err := os.ReadFile(filepath.Join(stagingDir, "framework", "configuration.nix"))
+	if err != nil || !strings.Contains(string(config), "host1") {
+		t.Errorf("configuration.nix does not name the host: %q, %v", config, err)
+	}
+}
+
+func TestMaterializeIgnoresRootLinks(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	other := filepath.Join(filepath.Dir(hostDir), "host2")
+	for rel, content := range map[string]string{
+		"modules.nix":        "{ imports = [ ]; }",
+		"machine.nix":        "{ }",
+		".plsdonttouch.nix":  "{ }",
+		"modules/theirs.nix": "{ }",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(other, rel)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(other, rel), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// modulesDir/local and modulesDir/default.nix point at host1; staging host2 must not see host1.
+	if err := materialize(stagingDir, modulesDir, other, nil, environmentFile, testNixpkgs); err != nil {
+		t.Fatal(err)
+	}
+	mods := filepath.Join(stagingDir, "config", "modules")
+	if _, err := os.Stat(filepath.Join(mods, "local", "theirs.nix")); err != nil {
+		t.Errorf("host2's own module not staged: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(mods, "local", "foo.nix")); !os.IsNotExist(err) {
+		t.Errorf("host1's module leaked into host2's stage (err=%v)", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(mods, "default.nix"))
+	if string(got) != "{ imports = [ ]; }" {
+		t.Errorf("default.nix = %q, want host2's selection", got)
 	}
 }
