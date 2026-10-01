@@ -883,6 +883,61 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	}
 }
 
+func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
+	skipIfNoNix(t)
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
+
+	write := func(p, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(modulesDir, "users", "eduardo", "default.nix"), "{ shared = 1; }")
+	write(filepath.Join(modulesDir, "users", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
+	write(filepath.Join(hostDir, "modules", "eduardo", "default.nix"), "{ local = 1; }")
+	write(filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix"), "{ local = 2; }")
+	write(filepath.Join(hostDir, "modules", "default.nix"),
+		"{ ... }:\n{\n  imports = [\n    ./local/eduardo\n    ./local/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n")
+
+	us := []units.Unit{
+		{Name: "eduardo", Path: "local/eduardo", Shadows: "users/eduardo"},
+		{Name: "eduardo/git", Path: "local/eduardo/modules/git.nix", Shadows: "users/eduardo/modules/git.nix"},
+		{Name: "desktop", Path: "system/desktop.nix"},
+	}
+	if err := Materialize(stagingDir, modulesDir, hostDir, us, lockFile, environmentFile, inputsNixFor(testNixpkgs)); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	mods := filepath.Join(stagingDir, "config", "modules")
+	for rel, want := range map[string]string{
+		"users/eduardo/default.nix":     "{ local = 1; }",
+		"users/eduardo/modules/git.nix": "{ local = 2; }",
+	} {
+		got, err := os.ReadFile(filepath.Join(mods, rel))
+		if err != nil || string(got) != want {
+			t.Errorf("staged %s = %q, %v", rel, got, err)
+		}
+	}
+	for _, gone := range []string{"users/eduardo/modules/zsh.nix", "local/eduardo"} {
+		if _, err := os.Stat(filepath.Join(mods, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s should not be staged (err=%v)", gone, err)
+		}
+	}
+	entry, err := os.ReadFile(filepath.Join(mods, "default.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{ ... }:\n{\n  imports = [\n    ./users/eduardo\n    ./users/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n"
+	if string(entry) != want {
+		t.Errorf("staged default.nix = %q, want %q", entry, want)
+	}
+}
+
 func TestMaterializeRendersFlakeNix(t *testing.T) {
 	modulesDir, hostDir, lockFile, environmentFile := fixture(t)
 	stagingDir := t.TempDir()

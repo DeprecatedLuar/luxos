@@ -338,3 +338,176 @@ func TestNameFromPath(t *testing.T) {
 		}
 	}
 }
+
+func TestNameFromPath_Bundles(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"users/eduardo/modules/git.nix", "eduardo/git"},
+		{"users/eduardo/modules/cli/git.nix", "eduardo/git"},
+		{"a/eduardo/modules/nvim/modules/lsp/default.nix", "eduardo/nvim/lsp"},
+		{"local/eduardo/modules/git.nix", "eduardo/git"},
+		{"desktop/hyprland.nix", "hyprland"},
+		{"modules/foo.nix", "foo"},
+		{"users/eduardo/modules/git/default.nix", "eduardo/git"},
+	}
+	for _, c := range cases {
+		if got := NameFromPath(c.path); got != c.want {
+			t.Errorf("NameFromPath(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
+func TestParentAndTop(t *testing.T) {
+	cases := []struct{ name, parent, top string }{
+		{"hyprland", "", "hyprland"},
+		{"eduardo/git", "eduardo", "eduardo"},
+		{"eduardo/nvim/lsp", "eduardo/nvim", "eduardo"},
+	}
+	for _, c := range cases {
+		if got := Parent(c.name); got != c.parent {
+			t.Errorf("Parent(%q) = %q, want %q", c.name, got, c.parent)
+		}
+		if got := Top(c.name); got != c.top {
+			t.Errorf("Top(%q) = %q, want %q", c.name, got, c.top)
+		}
+	}
+}
+
+func TestIsBundle(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "bundle", "default.nix"), "{ }")
+	mustMkdirAll(t, filepath.Join(root, "bundle", "modules"))
+	mustWriteFile(t, filepath.Join(root, "plain", "default.nix"), "{ }")
+	mustMkdirAll(t, filepath.Join(root, "nodefault", "modules"))
+	for dir, want := range map[string]bool{"bundle": true, "plain": false, "nodefault": false, "missing": false} {
+		if got := IsBundle(filepath.Join(root, dir)); got != want {
+			t.Errorf("IsBundle(%s) = %v, want %v", dir, got, want)
+		}
+	}
+}
+
+func bundleFixture(t *testing.T, root, category string) {
+	t.Helper()
+	b := filepath.Join(root, category, "eduardo")
+	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "git.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "cli", "zsh.nix"), "{ }")
+}
+
+func TestWalk_BundleSubmodulesQualified(t *testing.T) {
+	root := t.TempDir()
+	bundleFixture(t, root, "users")
+	mustWriteFile(t, filepath.Join(root, "users", "eduardo", "plumbing.nix"), "{ }")
+
+	us, err := Walk(root, "")
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	for name, path := range map[string]string{
+		"eduardo":     "users/eduardo",
+		"eduardo/git": "users/eduardo/modules/git.nix",
+		"eduardo/zsh": "users/eduardo/modules/cli/zsh.nix",
+	} {
+		if u := unitByName(t, us, name); u.Path != path {
+			t.Errorf("%s Path = %q, want %q", name, u.Path, path)
+		}
+	}
+	if len(us) != 3 {
+		t.Errorf("got %d units, want 3: %+v", len(us), us)
+	}
+}
+
+func TestWalk_NestedBundle(t *testing.T) {
+	root := t.TempDir()
+	b := filepath.Join(root, "users", "eduardo")
+	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "modules", "lsp.nix"), "{ }")
+
+	us, err := Walk(root, "")
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if u := unitByName(t, us, "eduardo/nvim/lsp"); u.Path != "users/eduardo/modules/nvim/modules/lsp.nix" {
+		t.Errorf("Path = %q", u.Path)
+	}
+	unitByName(t, us, "eduardo/nvim")
+}
+
+func TestWalk_SameSubmoduleNameInTwoBundles(t *testing.T) {
+	root := t.TempDir()
+	for _, b := range []string{"eduardo", "luar"} {
+		mustWriteFile(t, filepath.Join(root, "users", b, "default.nix"), "{ }")
+		mustWriteFile(t, filepath.Join(root, "users", b, "modules", "git.nix"), "{ }")
+	}
+	us, err := Walk(root, "")
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	unitByName(t, us, "eduardo/git")
+	unitByName(t, us, "luar/git")
+}
+
+func TestWalk_DuplicateInsideOneBundleErrors(t *testing.T) {
+	root := t.TempDir()
+	b := filepath.Join(root, "users", "eduardo")
+	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "a", "git.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "b", "git.nix"), "{ }")
+	_, err := Walk(root, "")
+	if err == nil || !strings.Contains(err.Error(), "duplicate module name 'eduardo/git'") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWalk_BundleModulesWithDefaultNixErrors(t *testing.T) {
+	root := t.TempDir()
+	b := filepath.Join(root, "users", "eduardo")
+	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "default.nix"), "{ }")
+	_, err := Walk(root, "")
+	if err == nil || !strings.Contains(err.Error(), "users/eduardo/modules has its own default.nix: a bundle's modules/ folder is not a module") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWalk_ModulesFolderUnderCategoryErrors(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "users", "modules", "git.nix"), "{ }")
+	_, err := Walk(root, "")
+	if err == nil || !strings.Contains(err.Error(), "users/modules: a folder named modules is only allowed directly inside a module (a bundle)") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWalk_LocalBundleShadowsSharedBundle(t *testing.T) {
+	root := t.TempDir()
+	local := t.TempDir()
+	bundleFixture(t, root, "users")
+	b := filepath.Join(local, "eduardo")
+	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "git.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(b, "modules", "extra.nix"), "{ }")
+
+	us, err := Walk(root, local)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if u := unitByName(t, us, "eduardo"); u.Path != "local/eduardo" || u.Shadows != "users/eduardo" {
+		t.Errorf("bundle = %+v", u)
+	}
+	if u := unitByName(t, us, "eduardo/git"); u.Path != "local/eduardo/modules/git.nix" || u.Shadows != "users/eduardo/modules/git.nix" {
+		t.Errorf("git = %+v", u)
+	}
+	if u := unitByName(t, us, "eduardo/extra"); u.Shadows != "users/eduardo/modules/extra.nix" {
+		t.Errorf("extra = %+v", u)
+	}
+	// The shared-only submodule is dropped with its bundle.
+	for _, u := range us {
+		if u.Name == "eduardo/zsh" {
+			t.Errorf("shared submodule survived: %+v", u)
+		}
+	}
+}

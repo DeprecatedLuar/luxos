@@ -20,9 +20,17 @@ const localName = "local"
 
 const localPrefix = "local/"
 
+// bundleModulesDir is the subdirectory of a folder unit that holds its
+// submodules; the unit is then a bundle.
+const bundleModulesDir = "modules"
+
+const nameSep = "/"
+
 // Path is relative to that directory, with no leading "./".
+// A submodule's Name is qualified by its bundle ("eduardo/git").
 // Shadows is the modules-relative path of the shared unit a local unit
-// hides, "" otherwise.
+// hides, or, for a submodule of a shadowing bundle, the path it takes when
+// the bundle is staged in the shared bundle's place; "" otherwise.
 type Unit struct {
 	Name    string
 	Path    string
@@ -53,7 +61,7 @@ type Unit struct {
 // dropped from the result.
 func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 	var shared []Unit
-	if err := walkDir(modulesDir, modulesDir, true, &shared); err != nil {
+	if err := walkDir(modulesDir, modulesDir, "", true, &shared); err != nil {
 		return nil, err
 	}
 
@@ -61,7 +69,7 @@ func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 	if localModulesDir != "" {
 		if _, err := os.Stat(localModulesDir); err == nil {
 			var localRaw []Unit
-			if err := walkDir(localModulesDir, localModulesDir, false, &localRaw); err != nil {
+			if err := walkDir(localModulesDir, localModulesDir, "", false, &localRaw); err != nil {
 				return nil, err
 			}
 			for _, u := range localRaw {
@@ -84,16 +92,28 @@ func Walk(modulesDir, localModulesDir string) ([]Unit, error) {
 		sharedByName[u.Name] = u
 	}
 	shadowed := make(map[string]bool)
-	for i, u := range local {
-		if orig, ok := sharedByName[u.Name]; ok {
-			local[i].Shadows = orig.Path
-			shadowed[u.Name] = true
+	for _, l := range local {
+		if Parent(l.Name) != "" {
+			continue
+		}
+		orig, ok := sharedByName[l.Name]
+		if !ok {
+			continue
+		}
+		shadowed[l.Name] = true
+		for i, u := range local {
+			switch {
+			case u.Name == l.Name:
+				local[i].Shadows = orig.Path
+			case Top(u.Name) == l.Name:
+				local[i].Shadows = filepath.Join(filepath.Dir(orig.Path), filepath.Base(l.Path), strings.TrimPrefix(u.Path, l.Path))
+			}
 		}
 	}
 
 	raw := make([]Unit, 0, len(shared)+len(local))
 	for _, u := range shared {
-		if !shadowed[u.Name] {
+		if !shadowed[Top(u.Name)] {
 			raw = append(raw, u)
 		}
 	}
@@ -135,9 +155,10 @@ func checkDuplicates(us []Unit) error {
 
 // walkDir emits (unsorted, duplicates left in) units found under dir into
 // *out. root is the fixed walk root, used to compute relative paths.
-// skipLocalRoot, when true, also skips an entry named localName at the walk
-// root (used for the shared modulesDir walk only; L5).
-func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
+// prefix is the qualified-name prefix of the bundle being walked ("" outside
+// one). skipLocalRoot, when true, also skips an entry named localName at the
+// walk root (used for the shared modulesDir walk only; L5).
+func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Unit) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -163,14 +184,23 @@ func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
 
 		if info.IsDir() {
 			defaultNix := filepath.Join(entryPath, entrypointName)
+			relPath, err := filepath.Rel(root, entryPath)
+			if err != nil {
+				return err
+			}
 			if fi, err := os.Stat(defaultNix); err == nil && !fi.IsDir() {
-				relPath, err := filepath.Rel(root, entryPath)
-				if err != nil {
-					return err
+				name := prefix + entry.Name()
+				*out = append(*out, Unit{Name: name, Path: relPath})
+				if IsBundle(entryPath) {
+					if err := walkBundle(root, entryPath, relPath, name, skipLocalRoot, out); err != nil {
+						return err
+					}
 				}
-				*out = append(*out, Unit{Name: entry.Name(), Path: relPath})
 			} else {
-				if err := walkDir(root, entryPath, skipLocalRoot, out); err != nil {
+				if entry.Name() == bundleModulesDir {
+					return fmt.Errorf("%s: a folder named modules is only allowed directly inside a module (a bundle)", relPath)
+				}
+				if err := walkDir(root, entryPath, prefix, skipLocalRoot, out); err != nil {
 					return err
 				}
 			}
@@ -182,12 +212,46 @@ func walkDir(root, dir string, skipLocalRoot bool, out *[]Unit) error {
 			if err != nil {
 				return err
 			}
-			name := strings.TrimSuffix(entry.Name(), ".nix")
+			name := prefix + strings.TrimSuffix(entry.Name(), ".nix")
 			*out = append(*out, Unit{Name: name, Path: relPath})
 		}
 	}
 
 	return nil
+}
+
+// walkBundle emits the submodules under a bundle's modules/ folder, named
+// under the bundle's qualified name.
+func walkBundle(root, bundleDir, rel, name string, skipLocalRoot bool, out *[]Unit) error {
+	modulesDir := filepath.Join(bundleDir, bundleModulesDir)
+	if fi, err := os.Stat(filepath.Join(modulesDir, entrypointName)); err == nil && !fi.IsDir() {
+		return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
+	}
+	return walkDir(root, modulesDir, name+nameSep, skipLocalRoot, out)
+}
+
+// IsBundle reports whether dir is a folder unit with a modules/ subdirectory.
+func IsBundle(dir string) bool {
+	if fi, err := os.Stat(filepath.Join(dir, entrypointName)); err != nil || fi.IsDir() {
+		return false
+	}
+	fi, err := os.Stat(filepath.Join(dir, bundleModulesDir))
+	return err == nil && fi.IsDir()
+}
+
+// Parent is the qualified name of a submodule's bundle, "" for a top-level name.
+func Parent(name string) string {
+	i := strings.LastIndex(name, nameSep)
+	if i < 0 {
+		return ""
+	}
+	return name[:i]
+}
+
+// Top is the outermost bundle of a qualified name, or the name itself.
+func Top(name string) string {
+	top, _, _ := strings.Cut(name, nameSep)
+	return top
 }
 
 func Find(us []Unit, name string) (Unit, bool) {
@@ -210,13 +274,22 @@ func Resolve(units []Unit, name string) (string, bool) {
 	return "", false
 }
 
-// NameFromPath derives a unit's name from an import path, per §3 "Name
-// from an import path": strip a trailing "/default.nix", else a trailing
-// ".nix", then take the basename.
+// NameFromPath derives a unit's name from an import path: strip a trailing
+// "/default.nix", else a trailing ".nix", then take the basename. Every
+// "modules" segment (not the first or last) makes the segment before it a
+// bundle, and the name is qualified by those bundles ("eduardo/git").
 func NameFromPath(path string) string {
-	if trimmed := strings.TrimSuffix(path, "/"+entrypointName); trimmed != path {
-		return filepath.Base(trimmed)
-	}
 	trimmed := strings.TrimSuffix(path, ".nix")
-	return filepath.Base(trimmed)
+	if t := strings.TrimSuffix(path, nameSep+entrypointName); t != path {
+		trimmed = t
+	}
+	segs := strings.Split(strings.TrimRight(trimmed, nameSep), nameSep)
+	last := len(segs) - 1
+	var parts []string
+	for i := 1; i < last; i++ {
+		if segs[i] == bundleModulesDir {
+			parts = append(parts, segs[i-1])
+		}
+	}
+	return strings.Join(append(parts, segs[last]), nameSep)
 }
