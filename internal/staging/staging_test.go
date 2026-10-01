@@ -1108,6 +1108,17 @@ func TestUnitChanged(t *testing.T) {
 	write(staged, "d/gone.nix", "g")
 	check("dir removed file", mods, staged, dir, true)
 
+	bundle := units.Unit{Name: "b", Path: "b"}
+	write(mods, "b/default.nix", "x")
+	write(mods, "b/modules/sub.nix", "s1")
+	write(staged, "b/default.nix", "x")
+	write(staged, "b/modules/sub.nix", "s1")
+	check("bundle equal", mods, staged, bundle, false)
+	write(mods, "b/modules/sub.nix", "s2")
+	check("bundle ignores submodule change", mods, staged, bundle, false)
+	write(mods, "b/default.nix", "y")
+	check("bundle plumbing change", mods, staged, bundle, true)
+
 	shadow := units.Unit{Name: "s", Path: "local/s.nix", Shadows: "cat2/s.nix"}
 	write(mods, "local/s.nix", "s")
 	write(staged, "cat2/s.nix", "s")

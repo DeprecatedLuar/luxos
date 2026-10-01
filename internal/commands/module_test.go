@@ -416,7 +416,7 @@ func TestModuleFillInputs(t *testing.T) {
 	write("none.nix", "{ ... }: { }\n")
 
 	us := []units.Unit{{Name: "file", Path: "file.nix"}, {Name: "folder", Path: "folder"}, {Name: "none", Path: "none.nix"}}
-	rows := []moduleRow{{name: "file"}, {name: "folder"}, {name: "none"}}
+	rows := []moduleRow{{name: "file", unit: "file"}, {name: "folder", unit: "folder"}, {name: "none", unit: "none"}}
 	if err := moduleFillInputs(rows, us, dir); err != nil {
 		t.Fatal(err)
 	}
@@ -725,5 +725,101 @@ func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	want := "users/luar2,users/luar2/modules/demo.nix"
 	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != want {
 		t.Errorf("imports = %v, want %s", got, want)
+	}
+}
+
+func bundleUnits() []units.Unit {
+	return []units.Unit{
+		{Name: "eduardo", Path: "users/eduardo"},
+		{Name: "eduardo/git", Path: "users/eduardo/modules/git.nix"},
+		{Name: "eduardo/zsh", Path: "users/eduardo/modules/cli/zsh.nix"},
+		{Name: "hyprland", Path: "desktop/hyprland.nix"},
+	}
+}
+
+func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
+	enabled := map[string]bool{"eduardo": true, "eduardo/git": true}
+	rows := moduleBuildRows(bundleUnits(), enabled, nil, nil, nil, "")
+	byUnit := map[string]moduleRow{}
+	for _, r := range rows {
+		byUnit[r.unit] = r
+	}
+	b := byUnit["eduardo"]
+	if !b.bundle || b.subEnabled != 1 || b.subTotal != 2 {
+		t.Errorf("bundle row = %+v", b)
+	}
+	g := byUnit["eduardo/git"]
+	if g.name != "git" || g.bundle || strings.Join(g.category, "/") != "users/eduardo/modules" {
+		t.Errorf("submodule row = %+v", g)
+	}
+	if byUnit["hyprland"].bundle {
+		t.Error("plain unit marked as bundle")
+	}
+}
+
+func TestModuleBuildRows_BundleTargetIsRelativeToItsModules(t *testing.T) {
+	rows := moduleBuildRows(bundleUnits(), nil, nil, nil, nil, "users/eduardo/modules")
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	for _, r := range rows {
+		want := map[string]string{"git": "", "zsh": "cli"}[r.name]
+		if strings.Join(r.category, "/") != want {
+			t.Errorf("%s category = %v, want %q", r.name, r.category, want)
+		}
+	}
+}
+
+func TestCollapseBundles(t *testing.T) {
+	enabled := map[string]bool{"eduardo": true, "eduardo/git": true}
+	rows := moduleBuildRows(bundleUnits(), enabled, nil, nil, nil, "")
+
+	top := collapseBundles(rows, "")
+	var b strings.Builder
+	moduleRenderTTY(&b, top, "modules/", treePalette{})
+	out := b.String()
+	if !strings.Contains(out, "eduardo+ 1/2") || strings.Contains(out, "git") {
+		t.Errorf("collapsed tree:\n%s", out)
+	}
+
+	inside := collapseBundles(rows, "eduardo")
+	if len(inside) != 2 {
+		t.Errorf("bundle view rows = %+v", inside)
+	}
+}
+
+func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
+	us := []units.Unit{
+		{Name: "eduardo", Path: "users/eduardo"},
+		{Name: "eduardo/nvim", Path: "users/eduardo/modules/nvim"},
+		{Name: "eduardo/nvim/lsp", Path: "users/eduardo/modules/nvim/modules/lsp.nix"},
+	}
+	rows := moduleBuildRows(us, nil, nil, nil, nil, "users/eduardo/modules")
+	view := collapseBundles(rows, "eduardo")
+	if len(view) != 1 || view[0].name != "nvim" || !view[0].bundle || view[0].subTotal != 1 {
+		t.Errorf("view = %+v", view)
+	}
+}
+
+func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
+	rows := moduleBuildRows(bundleUnits(), nil, nil, nil, nil, "")
+	var b strings.Builder
+	moduleRenderPlain(&b, rows)
+	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\n") {
+		t.Errorf("plain output:\n%s", b.String())
+	}
+	var j strings.Builder
+	if err := moduleRenderJSON(&j, rows); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(j.String(), "users/eduardo/modules/cli/zsh") {
+		t.Errorf("json output:\n%s", j.String())
+	}
+}
+
+func TestModuleRemovedRows_SubmoduleNameIsBase(t *testing.T) {
+	rows := moduleRemovedRows([]string{"./users/eduardo/modules/old.nix"}, nil, "")
+	if len(rows) != 1 || rows[0].name != "old" || rows[0].unit != "eduardo/old" {
+		t.Errorf("rows = %+v", rows)
 	}
 }

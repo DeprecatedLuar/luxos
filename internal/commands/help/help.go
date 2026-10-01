@@ -82,7 +82,7 @@ func modulePage() *gohelp.Page {
 	return gohelp.NewPage("module", moduleDescription).
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
-			gohelp.Item("list|ls [category-path] [--json]", "List modules (grouped by category); --json prints JSON"),
+			gohelp.Item("list|ls [category-path|bundle] [--json]", "List modules (grouped by category), or the submodules of a bundle; --json prints JSON"),
 			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("enable|1 <name>...", "Enable one or more modules on this host; a submodule also enables its bundle"),
@@ -91,7 +91,7 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		).
-		Text("A bundle is a folder module with a modules/ folder inside: everything outside modules/ is the bundle itself, imported whenever it is selected, and each module under modules/ is a submodule that a host selects separately. A submodule is addressed as <bundle>/<name> (eduardo/git) wherever a module name is accepted; modules reach other modules through luxos.modules by global name only, never a submodule. Renaming a submodule keeps it in its bundle. A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off) and the declared inputs, tab-separated. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
+		Text("A bundle is a folder module with a modules/ folder inside: everything outside modules/ is the bundle itself, imported whenever it is selected, and each module under modules/ is a submodule that a host selects separately. A submodule is addressed as <bundle>/<name> (eduardo/git) wherever a module name is accepted; modules reach other modules through luxos.modules by global name only, never a submodule. Renaming a submodule keeps it in its bundle. A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A bundle is listed as one row, its name followed by + and how many of its submodules are enabled (eduardo+ 1/2); list <bundle> shows its submodules. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off) and the declared inputs, tab-separated, with every submodule on its own row. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
 }
 
 func userPage() *gohelp.Page {

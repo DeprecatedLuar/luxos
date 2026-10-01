@@ -76,6 +76,12 @@ const (
 
 const flakeMark = "❄"
 
+// bundleMark follows a collapsed bundle's name, before its enabled count.
+const bundleMark = "+"
+
+// bundleModulesDir is the folder of a bundle's submodules.
+const bundleModulesDir = "modules"
+
 // nameSep separates a submodule's name from its bundle's.
 const nameSep = "/"
 
@@ -214,6 +220,7 @@ func markerWord(marker string) string {
 type moduleRow struct {
 	category []string
 	name     string
+	unit     string // qualified unit name; name is its last segment
 	marker   string
 	rank     int
 	pulledBy []string
@@ -224,6 +231,10 @@ type moduleRow struct {
 	status   string
 	modified bool // files changed since the running build
 	removed  bool // imported by the running generation, no longer a unit in the config
+
+	bundle     bool // has submodules; shown collapsed with its enabled count
+	subEnabled int  // direct submodules enabled
+	subTotal   int  // direct submodules
 }
 
 // moduleSortRows sorts rows by rank then name (byte order), stable.
@@ -267,6 +278,17 @@ func nameSet(file string) (map[string]bool, error) {
 // path segments relative to categoryPath, so the filtered subtree renders
 // rooted at itself rather than repeating the filter as a nested category.
 func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
+	subTotal := map[string]int{}
+	subEnabled := map[string]int{}
+	for _, u := range us {
+		if parent := units.Parent(u.Name); parent != "" {
+			subTotal[parent]++
+			if enabled[u.Name] {
+				subEnabled[parent]++
+			}
+		}
+	}
+
 	var rows []moduleRow
 	for _, u := range us {
 		// A shadow sits where the unit it hides sits, not under local/.
@@ -291,13 +313,17 @@ func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled m
 			}
 		}
 		rows = append(rows, moduleRow{
-			category: segs,
-			name:     u.Name,
-			marker:   marker,
-			rank:     moduleMarkerRank(marker),
-			pulledBy: pulledBy,
-			shadow:   u.Shadows != "",
-			modified: modified,
+			category:   segs,
+			name:       baseName(u.Name),
+			unit:       u.Name,
+			marker:     marker,
+			rank:       moduleMarkerRank(marker),
+			pulledBy:   pulledBy,
+			shadow:     u.Shadows != "",
+			modified:   modified,
+			bundle:     subTotal[u.Name] > 0,
+			subEnabled: subEnabled[u.Name],
+			subTotal:   subTotal[u.Name],
 		})
 	}
 	return rows
@@ -345,13 +371,32 @@ func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath stri
 		}
 		rows = append(rows, moduleRow{
 			category: segs,
-			name:     name,
+			name:     baseName(name),
+			unit:     name,
 			marker:   markerRunningOnly,
 			rank:     moduleMarkerRank(markerRunningOnly),
 			removed:  true,
 		})
 	}
 	return rows
+}
+
+// baseName is the last segment of a qualified unit name.
+func baseName(unit string) string {
+	return unit[strings.LastIndex(unit, nameSep)+1:]
+}
+
+// collapseBundles keeps only the rows directly inside the bundle called
+// target ("" for the top level): a bundle shows as one row, its submodules
+// only when it is the target.
+func collapseBundles(rows []moduleRow, target string) []moduleRow {
+	var out []moduleRow
+	for _, r := range rows {
+		if units.Parent(r.unit) == target {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // nameText is a row's name as rendered on a terminal: underlined when shadow,
@@ -361,11 +406,14 @@ func nameText(r moduleRow, pal treePalette) string {
 	if len(r.inputs) > 0 {
 		name += flakeMark
 	}
-	if r.removed {
-		return pal.strike + name + pal.reset
+	switch {
+	case r.removed:
+		name = pal.strike + name + pal.reset
+	case r.shadow:
+		name = pal.underline + name + pal.reset
 	}
-	if r.shadow {
-		return pal.underline + name + pal.reset
+	if r.bundle {
+		name += fmt.Sprintf("%s%s %d/%d%s", bundleMark, pal.line, r.subEnabled, r.subTotal, pal.reset)
 	}
 	return name
 }
@@ -593,7 +641,7 @@ func moduleFillInputs(rows []moduleRow, us []units.Unit, modulesDir string) erro
 		pathOf[u.Name] = u.Path
 	}
 	for i := range rows {
-		unitPath, ok := pathOf[rows[i].name]
+		unitPath, ok := pathOf[rows[i].unit]
 		if !ok {
 			continue
 		}
@@ -663,7 +711,21 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	categoryPath = strings.TrimSuffix(categoryPath, "/")
 
-	if categoryPath != "" {
+	us, err := units.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
+	if err != nil {
+		return err
+	}
+
+	// A bundle target lists its submodules, with categories relative to its modules/.
+	var bundleView string
+	if u, ok := units.Find(us, categoryPath); ok && categoryPath != "" && units.IsBundle(filepath.Join(p.Modules, u.Path)) {
+		bundleView = u.Name
+		shown := u.Path
+		if u.Shadows != "" {
+			shown = u.Shadows
+		}
+		categoryPath = shown + "/" + bundleModulesDir
+	} else if categoryPath != "" {
 		catDir := filepath.Join(p.Modules, categoryPath)
 		info, err := os.Stat(catDir)
 		if err != nil || !info.IsDir() {
@@ -680,11 +742,6 @@ func moduleList(p paths.Paths, args []string) error {
 
 	if _, err := os.Stat(p.RunningModules); err != nil {
 		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
-	}
-
-	us, err := units.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
-	if err != nil {
-		return err
 	}
 
 	enabled, err := nameSet(entrypoint)
@@ -729,7 +786,10 @@ func moduleList(p paths.Paths, args []string) error {
 	rows = append(rows, moduleRemovedRows(runningPaths, us, categoryPath)...)
 
 	rootLabel := "modules/"
-	if categoryPath != "" {
+	switch {
+	case bundleView != "":
+		rootLabel = bundleView + "/"
+	case categoryPath != "":
 		rootLabel = categoryPath + "/"
 	}
 
@@ -747,9 +807,9 @@ func moduleList(p paths.Paths, args []string) error {
 	case raw:
 		moduleRenderPlain(&out, rows)
 	case flat:
-		moduleRenderFlat(&out, rows, pal)
+		moduleRenderFlat(&out, collapseBundles(rows, bundleView), pal)
 	case tty:
-		moduleRenderTTY(&out, rows, rootLabel, pal)
+		moduleRenderTTY(&out, collapseBundles(rows, bundleView), rootLabel, pal)
 	default:
 		moduleRenderPlain(&out, rows)
 	}

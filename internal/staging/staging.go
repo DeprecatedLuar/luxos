@@ -47,6 +47,9 @@ const (
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
+
+	// bundleModulesDir is the folder of a bundle's submodules.
+	bundleModulesDir = "modules"
 )
 
 // Materialize regenerates the luxos-owned entries of stagingDir (pruning
@@ -142,13 +145,18 @@ func StagedPath(u units.Unit) string {
 
 // UnitChanged reports whether u's files under modulesDir (symlinks
 // dereferenced, as Materialize copies them) differ from its copy under
-// stagedModulesDir. A unit missing on the staged side is changed.
+// stagedModulesDir. A unit missing on the staged side is changed. A bundle's
+// modules/ folder is not part of it: a submodule's change marks the submodule.
 func UnitChanged(modulesDir, stagedModulesDir string, u units.Unit) (bool, error) {
-	src, err := readUnitFiles(filepath.Join(modulesDir, u.Path))
+	skip := ""
+	if units.IsBundle(filepath.Join(modulesDir, u.Path)) {
+		skip = bundleModulesDir
+	}
+	src, err := readUnitFiles(filepath.Join(modulesDir, u.Path), skip)
 	if err != nil {
 		return false, err
 	}
-	dst, err := readUnitFiles(filepath.Join(stagedModulesDir, StagedPath(u)))
+	dst, err := readUnitFiles(filepath.Join(stagedModulesDir, StagedPath(u)), skip)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
 	}
@@ -168,8 +176,9 @@ func UnitChanged(modulesDir, stagedModulesDir string, u units.Unit) (bool, error
 }
 
 // readUnitFiles returns the contents of root keyed by path relative to root;
-// a single file is keyed ".". Symlinks are followed.
-func readUnitFiles(root string) (map[string][]byte, error) {
+// a single file is keyed ".". Symlinks are followed. skipTop, when non-empty,
+// names a top-level entry of root left out.
+func readUnitFiles(root, skipTop string) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	var walk func(path, rel string) error
 	walk = func(path, rel string) error {
@@ -190,6 +199,9 @@ func readUnitFiles(root string) (map[string][]byte, error) {
 			return err
 		}
 		for _, e := range entries {
+			if path == root && skipTop != "" && e.Name() == skipTop {
+				continue
+			}
 			if err := walk(filepath.Join(path, e.Name()), filepath.Join(rel, e.Name())); err != nil {
 				return err
 			}
