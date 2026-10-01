@@ -16,9 +16,10 @@ const busIDTypePattern = `([[:print:]]+:[0-9]{1,3}(@[0-9]{1,10})?:[0-9]{1,2}:[0-
 var busIDTypeRegex = regexp.MustCompile(`^` + busIDTypePattern + `$`)
 
 // device writes a fake sysfs PCI device directory <sysDir>/bus/pci/devices/<addr>
-// with the given class/vendor hex strings (e.g. "0x030000", "0x8086") and an
-// optional boot_vga content ("" to omit the file, "1" or "0" to write it).
-func device(t *testing.T, sysDir, addr, class, vendor, bootVga string) {
+// with the given class/vendor/device hex strings (e.g. "0x030000", "0x8086",
+// "0x9a49") and an optional boot_vga content ("" to omit the file, "1" or "0"
+// to write it).
+func device(t *testing.T, sysDir, addr, class, vendor, deviceID, bootVga string) {
 	t.Helper()
 	dir := filepath.Join(sysDir, "bus", "pci", "devices", addr)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -30,7 +31,7 @@ func device(t *testing.T, sysDir, addr, class, vendor, bootVga string) {
 	if err := os.WriteFile(filepath.Join(dir, "vendor"), []byte(vendor+"\n"), 0644); err != nil {
 		t.Fatalf("write vendor: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "device"), []byte("0x1234\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "device"), []byte(deviceID+"\n"), 0644); err != nil {
 		t.Fatalf("write device: %v", err)
 	}
 	if bootVga != "" {
@@ -64,8 +65,8 @@ func checkBusIDsMatchRegex(t *testing.T, gpus []GPU) {
 
 func TestDetectGPUs_ParaloidLayout(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "1")
-	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "")
+	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "0x9a49", "1")
+	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "0x1F97", "")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -84,6 +85,9 @@ func TestDetectGPUs_ParaloidLayout(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing intel PCI:0@0:2:0 in %+v", gpus)
 	}
+	if intel.DeviceID != "0x9a49" {
+		t.Errorf("intel DeviceID = %q, want 0x9a49", intel.DeviceID)
+	}
 	if intel.Vendor != "intel" || intel.Class != "vga" || !intel.BootVGA {
 		t.Errorf("intel gpu wrong: %+v", intel)
 	}
@@ -92,18 +96,22 @@ func TestDetectGPUs_ParaloidLayout(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing nvidia PCI:1@0:0:0 in %+v", gpus)
 	}
+	if nvidia.DeviceID != "0x1f97" {
+		t.Errorf("nvidia DeviceID = %q, want lowercase 0x1f97", nvidia.DeviceID)
+	}
 	if nvidia.Vendor != "nvidia" || nvidia.Class != "3d" || nvidia.BootVGA {
 		t.Errorf("nvidia gpu wrong: %+v", nvidia)
 	}
 
 	checkBusIDsMatchRegex(t, gpus)
-	mustRenderContains(t, gpus, `busId = "PCI:0@0:2:0"`, `busId = "PCI:1@0:0:0"`)
+	mustRenderContains(t, gpus, `busId = "PCI:0@0:2:0"`, `busId = "PCI:1@0:0:0"`,
+		`vendorId = "0x8086"; deviceId = "0x9a49";`, `vendorId = "0x10de"; deviceId = "0x1f97";`)
 }
 
 func TestDetectGPUs_AMDApuPlusNvidiaDGPU(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "0000:00:01.0", "0x030000", "0x1002", "1")
-	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "")
+	device(t, sysDir, "0000:00:01.0", "0x030000", "0x1002", "0x1234", "1")
+	device(t, sysDir, "0000:01:00.0", "0x030200", "0x10de", "0x1234", "")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -131,7 +139,7 @@ func TestDetectGPUs_AMDApuPlusNvidiaDGPU(t *testing.T) {
 
 func TestDetectGPUs_NvidiaOnly(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "1")
+	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "0x1234", "1")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -145,7 +153,7 @@ func TestDetectGPUs_NvidiaOnly(t *testing.T) {
 
 func TestDetectGPUs_IntelOnly(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "1")
+	device(t, sysDir, "0000:00:02.0", "0x030000", "0x8086", "0x1234", "1")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -171,8 +179,8 @@ func TestDetectGPUs_NoDevicesDir(t *testing.T) {
 
 func TestDetectGPUs_TwoNvidiaGPUsBothKept(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "1")
-	device(t, sysDir, "0000:02:00.0", "0x030000", "0x10de", "0")
+	device(t, sysDir, "0000:01:00.0", "0x030000", "0x10de", "0x1234", "1")
+	device(t, sysDir, "0000:02:00.0", "0x030000", "0x10de", "0x1234", "0")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -186,7 +194,7 @@ func TestDetectGPUs_TwoNvidiaGPUsBothKept(t *testing.T) {
 
 func TestDetectGPUs_NonzeroDomain(t *testing.T) {
 	sysDir := t.TempDir()
-	device(t, sysDir, "00010000:01:00.0", "0x030000", "0x10de", "1")
+	device(t, sysDir, "00010000:01:00.0", "0x030000", "0x10de", "0x1234", "1")
 
 	gpus, err := DetectGPUs(sysDir)
 	if err != nil {
@@ -242,6 +250,34 @@ func TestDetectGPUs_MalformedVendorIsHardError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), dir) {
 		t.Errorf("error %q does not name device directory %q", err, dir)
+	}
+}
+
+func TestDetectGPUs_MissingOrMalformedDeviceIsHardError(t *testing.T) {
+	for name, content := range map[string]string{"missing": "", "malformed": "garbage\n"} {
+		sysDir := t.TempDir()
+		dir := filepath.Join(sysDir, "bus", "pci", "devices", "0000:01:00.0")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		for file, body := range map[string]string{"class": "0x030000\n", "vendor": "0x10de\n"} {
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0644); err != nil {
+				t.Fatalf("write %s: %v", file, err)
+			}
+		}
+		if content != "" {
+			if err := os.WriteFile(filepath.Join(dir, "device"), []byte(content), 0644); err != nil {
+				t.Fatalf("write device: %v", err)
+			}
+		}
+
+		_, err := DetectGPUs(sysDir)
+		if err == nil {
+			t.Fatalf("%s device file: want error, got nil", name)
+		}
+		if !strings.Contains(err.Error(), dir) {
+			t.Errorf("%s: error %q does not name device directory %q", name, err, dir)
+		}
 	}
 }
 

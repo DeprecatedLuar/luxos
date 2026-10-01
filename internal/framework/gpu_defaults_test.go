@@ -18,13 +18,14 @@ type gpuFixture struct {
 	BusID    string
 	Vendor   string
 	VendorID string
+	DeviceID string
 	Class    string
 	BootVGA  bool
 }
 
 func (g gpuFixture) nixLiteral() string {
-	return fmt.Sprintf("{ busId = %q; vendor = %q; vendorId = %q; class = %q; bootVga = %t; }",
-		g.BusID, g.Vendor, g.VendorID, g.Class, g.BootVGA)
+	return fmt.Sprintf("{ busId = %q; vendor = %q; vendorId = %q; deviceId = %q; class = %q; bootVga = %t; }",
+		g.BusID, g.Vendor, g.VendorID, g.DeviceID, g.Class, g.BootVGA)
 }
 
 func gpuListLiteral(gpus []gpuFixture) string {
@@ -53,11 +54,11 @@ type primeResult struct {
 
 func nothingSet() primeResult { return primeResult{} }
 
-// paraloidPair is the laptop layout from implementation-plan.md 6b: one
-// integrated Intel GPU (boot_vga) and one NVIDIA GPU.
+// paraloidPair is a hybrid laptop layout: one integrated Intel GPU
+// (boot_vga) and one NVIDIA GPU.
 var paraloidPair = []gpuFixture{
-	{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", Class: "vga", BootVGA: true},
-	{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+	{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", DeviceID: "0x9a49", Class: "vga", BootVGA: true},
+	{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1f97", Class: "3d", BootVGA: false},
 }
 
 func TestGPUDefaults(t *testing.T) {
@@ -114,24 +115,24 @@ func TestGPUDefaults(t *testing.T) {
 		{
 			name: "nvidia only",
 			gpus: []gpuFixture{
-				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1f97", Class: "3d", BootVGA: false},
 			},
 			want: nothingSet(),
 		},
 		{
 			name: "two nvidia",
 			gpus: []gpuFixture{
-				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
-				{BusID: "PCI:2@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1f97", Class: "3d", BootVGA: false},
+				{BusID: "PCI:2@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1f97", Class: "3d", BootVGA: false},
 			},
 			want: nothingSet(),
 		},
 		{
 			name: "intel+amd integrated ambiguous, neither boot_vga",
 			gpus: []gpuFixture{
-				{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", Class: "vga", BootVGA: false},
-				{BusID: "PCI:0@0:3:0", Vendor: "amd", VendorID: "0x1002", Class: "vga", BootVGA: false},
-				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+				{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", DeviceID: "0x9a49", Class: "vga", BootVGA: false},
+				{BusID: "PCI:0@0:3:0", Vendor: "amd", VendorID: "0x1002", DeviceID: "0x1638", Class: "vga", BootVGA: false},
+				{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1f97", Class: "3d", BootVGA: false},
 			},
 			want: nothingSet(),
 		},

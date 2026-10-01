@@ -7,6 +7,7 @@
         busId = lib.mkOption { type = lib.types.str; };
         vendor = lib.mkOption { type = lib.types.str; };
         vendorId = lib.mkOption { type = lib.types.str; };
+        deviceId = lib.mkOption { type = lib.types.str; };
         class = lib.mkOption { type = lib.types.enum [ "vga" "3d" ]; };
         bootVga = lib.mkOption { type = lib.types.bool; };
       };

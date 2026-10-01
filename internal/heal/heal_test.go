@@ -374,7 +374,7 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 	got := mustReadFile(t, gpuFile)
 
 	want, err := computer.RenderGPUs([]computer.GPU{
-		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
+		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1234", Class: "3d", BootVGA: false},
 	})
 	if err != nil {
 		t.Fatal(err)

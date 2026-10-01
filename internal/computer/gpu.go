@@ -51,7 +51,7 @@ type GPU struct {
 	BusID    string // "PCI:<bus>@<domain>:<dev>:<fn>", decimal.
 	Vendor   string // "intel", "amd", "nvidia", or "unknown".
 	VendorID string // e.g. "0x8086".
-	DeviceID string // Not rendered yet, kept for future use.
+	DeviceID string // e.g. "0x1f97", lowercase.
 	Class    string // "vga" or "3d".
 	BootVGA  bool
 }
@@ -161,10 +161,11 @@ func DetectGPUs(sysDir string) ([]GPU, error) {
 			vendorName = unknownVendor
 		}
 
-		deviceRaw, err := readTrimmed(filepath.Join(devDir, deviceFile))
+		deviceRaw, err := readHexFile(filepath.Join(devDir, deviceFile))
 		if err != nil {
 			return nil, fmt.Errorf("device %s: read device: %w", devDir, err)
 		}
+		deviceID := fmt.Sprintf("0x%04x", deviceRaw)
 
 		bootVgaRaw, err := readTrimmed(filepath.Join(devDir, bootVgaFile))
 		if err != nil {
@@ -180,7 +181,7 @@ func DetectGPUs(sysDir string) ([]GPU, error) {
 			BusID:    id,
 			Vendor:   vendorName,
 			VendorID: vendorID,
-			DeviceID: deviceRaw,
+			DeviceID: deviceID,
 			Class:    className,
 			BootVGA:  bootVgaRaw == "1",
 		})
@@ -202,8 +203,8 @@ func RenderGPUs(gpus []GPU) ([]byte, error) {
 	} else {
 		b.WriteString("  luxos.hardware.gpus = [\n")
 		for _, g := range sorted {
-			fmt.Fprintf(&b, "    { busId = %q; vendor = %q; vendorId = %q; class = %q; bootVga = %t; }\n",
-				g.BusID, g.Vendor, g.VendorID, g.Class, g.BootVGA)
+			fmt.Fprintf(&b, "    { busId = %q; vendor = %q; vendorId = %q; deviceId = %q; class = %q; bootVga = %t; }\n",
+				g.BusID, g.Vendor, g.VendorID, g.DeviceID, g.Class, g.BootVGA)
 		}
 		b.WriteString("  ];\n")
 	}
