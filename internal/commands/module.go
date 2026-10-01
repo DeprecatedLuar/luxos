@@ -78,8 +78,6 @@ const bundleModulesDir = "modules"
 // nameSep separates a submodule's name from its bundle's.
 const nameSep = "/"
 
-const stagedModulesRel = "config/modules"
-
 const plainColumnSep = "\t"
 const plainInputsSep = " "
 
@@ -152,11 +150,11 @@ func Module(args []string) error {
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		path, found, err := resolveUnitPath(p.Modules, verb)
+		h, err := loadActive(p)
 		if err != nil {
 			return err
 		}
-		if found && modules.IsBundle(filepath.Join(p.Modules, path)) {
+		if m, found := h.Find(verb); found && modules.IsBundle(m.Abs) {
 			return moduleList(p, args)
 		}
 		return fmt.Errorf("unknown module command: %s (list|add|edit|enable|1|disable|0|remove|rename, or a bundle name)", verb)
@@ -164,19 +162,6 @@ func Module(args []string) error {
 }
 
 //──[state markers]───────────────────────────────────────────────────────
-
-func moduleMarker(enabled, running bool) string {
-	switch {
-	case enabled && running:
-		return markerEnabledBoth
-	case enabled && !running:
-		return markerEnabledOnly
-	case !enabled && running:
-		return markerRunningOnly
-	default:
-		return markerNeither
-	}
-}
 
 // moduleMarkerRank returns the sort rank for a marker: ⊕, ◉, ⊘, ◍, ○.
 // Pulled sorts after the three enabled states and before plain off.
@@ -242,81 +227,66 @@ func moduleSortRows(rows []moduleRow) {
 
 //──[list]─────────────────────────────────────────────────────────────────
 
-// nameSet reads file's active import paths (or an empty set if file doesn't
-// exist) and returns the set of unit names they name.
-func nameSet(file string) (map[string]bool, error) {
-	set := map[string]bool{}
-	if _, err := os.Stat(file); err != nil {
-		if os.IsNotExist(err) {
-			return set, nil
-		}
-		return nil, err
+// markerOf is the marker a module state is drawn with.
+func markerOf(state modules.State) string {
+	switch state {
+	case modules.Active:
+		return markerEnabledBoth
+	case modules.Staged, modules.Modified:
+		return markerEnabledOnly
+	case modules.Leftover, modules.Removed:
+		return markerRunningOnly
+	case modules.Pulled:
+		return markerPulled
+	default:
+		return markerNeither
 	}
-
-	itemPaths, err := modules.ReadSelection(file)
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range itemPaths {
-		set[modules.NameFromPath(p)] = true
-	}
-	return set, nil
 }
 
-// moduleBuildRows builds one moduleRow per unit in us whose Path lies under
-// categoryPath (or every unit, when categoryPath is ""), using enabled/
-// running name sets. A unit that isn't enabled but is a key in pulled gets
-// the pulled marker and its puller list instead of the plain off marker —
-// pulled never overrides an enabled unit's own state. category is stored as
+// moduleRows builds one moduleRow per status whose path lies under
+// categoryPath (every status when categoryPath is ""). category is stored as
 // path segments relative to categoryPath, so the filtered subtree renders
 // rooted at itself rather than repeating the filter as a nested category.
-func moduleBuildRows(us []modules.Module, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
+func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 	subTotal := map[string]int{}
 	subEnabled := map[string]int{}
-	for _, u := range us {
-		if parent := modules.Parent(u.Name); parent != "" {
+	for _, st := range sts {
+		if parent := modules.Parent(st.Module.Name); parent != "" {
 			subTotal[parent]++
-			if enabled[u.Name] {
+			switch st.State {
+			case modules.Active, modules.Staged, modules.Modified:
 				subEnabled[parent]++
 			}
 		}
 	}
 
 	var rows []moduleRow
-	for _, u := range us {
+	for _, st := range sts {
+		m := st.Module
 		// A shadow sits where the unit it hides sits, not under local/.
-		shown := u.Path
-		if u.Shadows != "" {
-			shown = u.Shadows
+		shown := m.Path
+		if m.Shadows != "" {
+			shown = m.Shadows
 		}
 		segs, ok := categorySegments(shown, categoryPath)
 		if !ok {
 			continue
 		}
-
-		marker := moduleMarker(enabled[u.Name], running[u.Name])
-		modified := marker == markerEnabledBoth && changed[u.Name]
-		if modified {
-			marker = markerEnabledOnly
-		}
-		var pulledBy []string
-		if !enabled[u.Name] {
-			if by, ok := pulled[u.Name]; ok {
-				marker, pulledBy = markerPulled, by
-			}
-		}
+		marker := markerOf(st.State)
 		rows = append(rows, moduleRow{
 			category:   segs,
-			name:       baseName(u.Name),
-			unit:       u.Name,
+			name:       baseName(m.Name),
+			unit:       m.Name,
 			marker:     marker,
 			rank:       moduleMarkerRank(marker),
-			pulledBy:   pulledBy,
-			shadow:     u.Shadows != "",
-			modified:   modified,
-			bundle:     subTotal[u.Name] > 0,
-			subEnabled: subEnabled[u.Name],
-			subTotal:   subTotal[u.Name],
+			pulledBy:   st.PulledBy,
+			shadow:     m.Shadows != "",
+			modified:   st.State == modules.Modified,
+			removed:    st.State == modules.Removed,
+			inputs:     st.Inputs,
+			bundle:     subTotal[m.Name] > 0,
+			subEnabled: subEnabled[m.Name],
+			subTotal:   subTotal[m.Name],
 		})
 	}
 	return rows
@@ -338,40 +308,6 @@ func categorySegments(shown, categoryPath string) ([]string, bool) {
 		segs = strings.Split(cat, "/")[len(stripSegs):]
 	}
 	return segs, true
-}
-
-// moduleRemovedRows builds one row per module the running generation imports
-// that names no unit in us, filtered and stripped by categoryPath like
-// moduleBuildRows. Duplicate names give one row.
-func moduleRemovedRows(runningPaths []string, us []modules.Module, categoryPath string) []moduleRow {
-	exists := make(map[string]bool, len(us))
-	for _, u := range us {
-		exists[u.Name] = true
-	}
-	seen := map[string]bool{}
-	var rows []moduleRow
-	for _, rp := range runningPaths {
-		name := modules.NameFromPath(rp)
-		if exists[name] || seen[name] {
-			continue
-		}
-		seen[name] = true
-		shown := strings.TrimPrefix(rp, "./")
-		shown = strings.TrimSuffix(shown, "/default.nix")
-		segs, ok := categorySegments(shown, categoryPath)
-		if !ok {
-			continue
-		}
-		rows = append(rows, moduleRow{
-			category: segs,
-			name:     baseName(name),
-			unit:     name,
-			marker:   markerRunningOnly,
-			rank:     moduleMarkerRank(markerRunningOnly),
-			removed:  true,
-		})
-	}
-	return rows
 }
 
 // baseName is the last segment of a qualified unit name.
@@ -628,42 +564,6 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 }
 
-func moduleFillInputs(rows []moduleRow, us []modules.Module) error {
-	for i := range rows {
-		m, ok := modules.Find(us, rows[i].unit)
-		if !ok {
-			continue
-		}
-		inputs, err := unitInputs(m)
-		if err != nil {
-			return err
-		}
-		rows[i].inputs = inputs
-	}
-	return nil
-}
-
-func unitInputs(m modules.Module) ([]string, error) {
-	files, err := m.Files()
-	if err != nil {
-		return nil, err
-	}
-	decls, err := nix.InputDecls(files...)
-	if err != nil {
-		return nil, err
-	}
-	set := map[string]bool{}
-	for _, d := range decls {
-		set[d.Name] = true
-	}
-	var names []string
-	for name := range set {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
 func stdoutIsTTY() bool {
 	fi, err := os.Stdout.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
@@ -700,14 +600,14 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	categoryPath = strings.TrimSuffix(categoryPath, "/")
 
-	us, err := modules.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
 
 	// A bundle target lists its submodules, with categories relative to its modules/.
 	var bundleView string
-	if u, ok := modules.Find(us, categoryPath); ok && categoryPath != "" && modules.IsBundle(filepath.Join(p.Modules, u.Path)) {
+	if u, ok := h.Find(categoryPath); ok && categoryPath != "" && modules.IsBundle(u.Abs) {
 		bundleView = u.Name
 		shown := u.Path
 		if u.Shadows != "" {
@@ -725,18 +625,12 @@ func moduleList(p paths.Paths, args []string) error {
 		}
 	}
 
-	entrypoint := filepath.Join(p.Modules, entrypointName)
-
 	tty := stdoutIsTTY()
 
 	if _, err := os.Stat(p.RunningModules); err != nil {
 		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
 	}
 
-	enabled, err := nameSet(entrypoint)
-	if err != nil {
-		return err
-	}
 	var runningPaths []string
 	if _, err := os.Stat(p.RunningModules); err == nil {
 		runningPaths, err = modules.ReadSelection(p.RunningModules)
@@ -746,33 +640,16 @@ func moduleList(p paths.Paths, args []string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	running := map[string]bool{}
-	for _, rp := range runningPaths {
-		running[modules.NameFromPath(rp)] = true
-	}
 
-	var selection []string
-	if _, err := os.Stat(entrypoint); err == nil {
-		selection, err = modules.ReadSelection(entrypoint)
-		if err != nil {
-			return err
-		}
-	}
-	pulled, err := (&modules.Host{ModulesDir: p.Modules, Modules: us, Selection: selection}).Closure()
+	baseline, err := staging.Baseline(p.Staging, p.PreviousStage)
 	if err != nil {
 		return err
 	}
-
-	changed, err := moduleChangedUnits(p, us, enabled, running)
+	sts, err := modules.StatusOf(h, runningPaths, baseline)
 	if err != nil {
 		return err
 	}
-
-	rows := moduleBuildRows(us, enabled, running, pulled, changed, categoryPath)
-	if err := moduleFillInputs(rows, us); err != nil {
-		return err
-	}
-	rows = append(rows, moduleRemovedRows(runningPaths, us, categoryPath)...)
+	rows := moduleRows(sts, categoryPath)
 
 	rootLabel := "modules/"
 	switch {
@@ -804,37 +681,6 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	fmt.Print(out.String())
 	return nil
-}
-
-// moduleChangedUnits returns the names of enabled, running units whose files
-// differ from the baseline tree: the saved previous stage when present, else
-// the staging directory.
-func moduleChangedUnits(p paths.Paths, us []modules.Module, enabled, running map[string]bool) (map[string]bool, error) {
-	changed := map[string]bool{}
-	baseline := filepath.Join(p.PreviousStage, stagedModulesRel)
-	if _, err := os.Stat(p.PreviousStage); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
-		}
-		baseline = filepath.Join(p.Staging, stagedModulesRel)
-	}
-	if _, err := os.Stat(baseline); err != nil {
-		if os.IsNotExist(err) {
-			return changed, nil
-		}
-		return nil, err
-	}
-	for _, u := range us {
-		if !enabled[u.Name] || !running[u.Name] {
-			continue
-		}
-		c, err := staging.UnitChanged(p.Modules, baseline, u)
-		if err != nil {
-			return nil, err
-		}
-		changed[u.Name] = c
-	}
-	return changed, nil
 }
 
 //──[editing]──────────────────────────────────────────────────────────────
@@ -942,16 +788,16 @@ func moduleAdd(p paths.Paths, args []string) error {
 
 	name := filepath.Base(target)
 
-	existingPath, found, err := resolveUnitPath(p.Modules, name)
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
 	shadowedPath := ""
-	if found {
-		if !shadowsShared(target, existingPath) {
-			return fmt.Errorf("module name '%s' already exists at modules/%s", name, existingPath)
+	if existing, found := h.Find(name); found {
+		if !shadowsShared(target, existing.Path) {
+			return fmt.Errorf("module name '%s' already exists at modules/%s", name, existing.Path)
 		}
-		shadowedPath = existingPath
+		shadowedPath = existing.Path
 	}
 
 	if _, err := os.Stat(filepath.Join(p.Modules, target)); err == nil {
@@ -1000,7 +846,11 @@ func moduleEdit(p paths.Paths, args []string) error {
 		return fmt.Errorf("usage: luxos module edit <name>")
 	}
 
-	file, err := moduleEditTarget(p.Modules, name)
+	h, err := loadActive(p)
+	if err != nil {
+		return err
+	}
+	file, err := moduleEditTarget(h, name)
 	if err != nil {
 		return err
 	}
@@ -1010,16 +860,13 @@ func moduleEdit(p paths.Paths, args []string) error {
 // moduleEditTarget resolves the file `edit` should open for name: the file
 // itself for a single-file unit; account.nix for a directory unit that has
 // one; entrypointName otherwise.
-func moduleEditTarget(modulesRoot, name string) (string, error) {
-	path, found, err := resolveUnitPath(modulesRoot, name)
-	if err != nil {
-		return "", err
-	}
+func moduleEditTarget(h *modules.Host, name string) (string, error) {
+	m, found := h.Find(name)
 	if !found {
 		return "", fmt.Errorf("unknown module '%s'", name)
 	}
 
-	target := filepath.Join(modulesRoot, path)
+	target := m.Abs
 	fi, err := os.Stat(target)
 	if err != nil {
 		return "", err
@@ -1041,124 +888,90 @@ func fileExists(path string) bool {
 
 //──[enable/disable]─────────────────────────────────────────────────────────
 
-// enabledPathForName returns the bare import path (as actually written,
-// possibly stale) for name in file, or ("", false, nil) if it isn't
-// enabled there (or file doesn't exist).
-func enabledPathForName(file, name string) (string, bool, error) {
-	if _, err := os.Stat(file); err != nil {
-		if os.IsNotExist(err) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	itemPaths, err := modules.ReadSelection(file)
+// loadActive loads the active host's modules and selection.
+func loadActive(p paths.Paths) (*modules.Host, error) {
+	host, err := config.ActiveHost(p.Modules)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	for _, path := range itemPaths {
-		if modules.NameFromPath(path) == name {
-			return path, true, nil
-		}
-	}
-	return "", false, nil
+	return modules.Load(p.Modules, filepath.Join(p.Machines, host))
 }
 
 // toggleModule is the shared body for enable/disable: acts only on the
-// active host's entrypoint (CONFIG_DIR/modules/default.nix, #18).
+// active host's selection.
 func toggleModule(p paths.Paths, name string, enable bool) error {
-	resolvedPath, found, err := resolveUnitPath(p.Modules, name)
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
+	m, found := h.Find(name)
 	if !found {
 		return fmt.Errorf("unknown module '%s'", name)
 	}
 
-	entrypoint := filepath.Join(p.Modules, entrypointName)
-	if _, err := os.Stat(entrypoint); err != nil {
-		return fmt.Errorf("no active host entrypoint at %s — run setup or nixos-rebuild first", entrypoint)
-	}
-
 	if enable {
-		if err := enableBundles(p, entrypoint, name); err != nil {
+		if err := enableBundles(h, name); err != nil {
 			return err
 		}
-	}
-
-	existingPath, isEnabled, err := enabledPathForName(entrypoint, name)
-	if err != nil {
-		return err
-	}
-
-	if enable {
-		if isEnabled {
-			fmt.Printf("'%s' is already enabled\n", name)
-			return nil
+		changed, err := modules.Enable(h, name)
+		if err != nil {
+			return err
 		}
-		return nix.AddImport(entrypoint, resolvedPath)
-	}
-
-	subs, err := disableSubmodules(p, entrypoint, name, resolvedPath)
-	if err != nil {
-		return err
-	}
-	if !isEnabled {
-		if !subs {
-			fmt.Printf("'%s' is already disabled\n", name)
+		if !changed {
+			fmt.Printf("'%s' is already enabled\n", name)
 		}
 		return nil
 	}
-	return nix.RemoveImport(entrypoint, existingPath)
+
+	subs, err := disableSubmodules(h, m)
+	if err != nil {
+		return err
+	}
+	changed, err := modules.Disable(h, name)
+	if err != nil {
+		return err
+	}
+	if !changed && !subs {
+		fmt.Printf("'%s' is already disabled\n", name)
+	}
+	return nil
 }
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
 // outermost first.
-func enableBundles(p paths.Paths, entrypoint, name string) error {
+func enableBundles(h *modules.Host, name string) error {
 	var chain []string
 	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
 		chain = append([]string{b}, chain...)
 	}
 	for _, bundle := range chain {
-		path, found, err := resolveUnitPath(p.Modules, bundle)
+		changed, err := modules.Enable(h, bundle)
 		if err != nil {
 			return err
 		}
-		if !found {
-			return fmt.Errorf("unknown module '%s'", bundle)
+		if changed {
+			fmt.Printf("enabled '%s' (bundle of '%s')\n", bundle, name)
 		}
-		if _, on, err := enabledPathForName(entrypoint, bundle); err != nil {
-			return err
-		} else if on {
-			continue
-		}
-		if err := nix.AddImport(entrypoint, path); err != nil {
-			return err
-		}
-		fmt.Printf("enabled '%s' (bundle of '%s')\n", bundle, name)
 	}
 	return nil
 }
 
-// disableSubmodules removes every enabled line for a submodule of name when
-// name is a bundle, reporting whether any was removed.
-func disableSubmodules(p paths.Paths, entrypoint, name, path string) (bool, error) {
-	if !modules.IsBundle(filepath.Join(p.Modules, path)) {
+// disableSubmodules removes every enabled line for a submodule of m when m is
+// a bundle, reporting whether any was removed.
+func disableSubmodules(h *modules.Host, m modules.Module) (bool, error) {
+	if !modules.IsBundle(m.Abs) {
 		return false, nil
 	}
-	enabledPaths, err := modules.ReadSelection(entrypoint)
-	if err != nil {
-		return false, err
-	}
 	removed := false
-	for _, ip := range enabledPaths {
-		sub := modules.NameFromPath(ip)
-		if !strings.HasPrefix(sub, name+nameSep) {
+	for _, sel := range append([]string(nil), h.Selection...) {
+		sub := modules.NameFromPath(sel)
+		if !strings.HasPrefix(sub, m.Name+nameSep) {
 			continue
 		}
-		if err := nix.RemoveImport(entrypoint, ip); err != nil {
+		if _, err := modules.Disable(h, sub); err != nil {
 			return removed, err
 		}
-		fmt.Printf("disabled '%s' (submodule of '%s')\n", sub, name)
+		fmt.Printf("disabled '%s' (submodule of '%s')\n", sub, m.Name)
 		removed = true
 	}
 	return removed, nil
@@ -1185,20 +998,16 @@ var errHardwareDisableAborted = errors.New("aborted: nothing changed\n  confirm 
 // disablesEnabledHardware reports whether any name in names is the
 // hardware unit and currently enabled on the active host.
 func disablesEnabledHardware(p paths.Paths, names []string) (bool, error) {
-	entrypoint := filepath.Join(p.Modules, entrypointName)
+	h, err := loadActive(p)
+	if err != nil {
+		return false, err
+	}
 	for _, name := range names {
-		resolved, found, err := resolveUnitPath(p.Modules, name)
-		if err != nil {
-			return false, err
-		}
-		if !found || resolved != config.HardwareUnitPath {
+		m, found := h.Find(name)
+		if !found || m.Path != config.HardwareUnitPath {
 			continue
 		}
-		_, enabled, err := enabledPathForName(entrypoint, name)
-		if err != nil {
-			return false, err
-		}
-		if enabled {
+		if _, enabled := h.Selected(name); enabled {
 			return true, nil
 		}
 	}
@@ -1244,83 +1053,12 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 //──[scoping]──────────────────────────────────────────────────────────────
 
-// activeHost resolves the active host's name from the modules/local link.
-func activeHost(p paths.Paths) (string, error) {
-	return config.ActiveHost(p.Modules)
-}
-
-// moduleScope picks the host/localDirs scope remove/rename operate under,
-// from the unit's own path (L7/L13): a "local/..." unit is scoped to the
-// active host alone; anything else is scoped to every host.
-func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []string, err error) {
-	if strings.HasPrefix(unitPath, modules.LocalPrefix) {
-		host, err = activeHost(p)
-		if err != nil {
-			return "", nil, err
-		}
-		return host, []string{filepath.Join(p.Machines, host, "modules")}, nil
-	}
-
-	matches, err := filepath.Glob(filepath.Join(p.Machines, "*", "modules"))
-	if err != nil {
-		return "", nil, err
-	}
-	sort.Strings(matches)
-	return "", matches, nil
-}
-
 // shadowsShared reports whether creating or renaming to a unit at newPath
 // (a "local/..." path or add target) that collides with the unit at
 // existingPath is a shadow: the new unit is local and the existing one is
 // shared.
 func shadowsShared(newPath, existingPath string) bool {
 	return strings.HasPrefix(newPath, modules.LocalPrefix) && !strings.HasPrefix(existingPath, modules.LocalPrefix)
-}
-
-// shadowingHosts returns, sorted, every host whose local modules shadow the
-// shared unit called name.
-func shadowingHosts(p paths.Paths, name string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(p.Machines, "*", "modules"))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(matches)
-	var hosts []string
-	for _, dir := range matches {
-		us, err := modules.Walk(p.Modules, dir)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", filepath.Base(filepath.Dir(dir)), err)
-		}
-		if u, ok := modules.Find(us, modules.Top(name)); ok && u.Shadows != "" {
-			hosts = append(hosts, filepath.Base(filepath.Dir(dir)))
-		}
-	}
-	return hosts, nil
-}
-
-// moduleScopeSkippingShadows is moduleScope for a unit that may be shared:
-// the hosts shadowing it (skipHosts) keep their selection and their local
-// modules' references, so their local dirs are left out of localDirs.
-func moduleScopeSkippingShadows(p paths.Paths, name, unitPath string) (host string, localDirs, skipHosts []string, err error) {
-	host, localDirs, err = moduleScope(p, unitPath)
-	if err != nil || host != "" {
-		return host, localDirs, nil, err
-	}
-	skipHosts, err = shadowingHosts(p, name)
-	if err != nil || len(skipHosts) == 0 {
-		return host, localDirs, nil, err
-	}
-	skip := make(map[string]bool, len(skipHosts))
-	for _, h := range skipHosts {
-		skip[h] = true
-	}
-	var kept []string
-	for _, dir := range localDirs {
-		if !skip[filepath.Base(filepath.Dir(dir))] {
-			kept = append(kept, dir)
-		}
-	}
-	return host, kept, skipHosts, nil
 }
 
 // printShadowedHosts tells which hosts keep meaning their own local module.
@@ -1376,13 +1114,15 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return fmt.Errorf("usage: luxos module remove <name> [-y]")
 	}
 
-	path, found, err := resolveUnitPath(p.Modules, name)
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
+	m, found := h.Find(name)
 	if !found {
 		return fmt.Errorf("unknown module '%s'", name)
 	}
+	path := m.Path
 	if isFrameworkPath(path) {
 		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, path)
 	}
@@ -1390,10 +1130,11 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return errHardwareUnit
 	}
 
-	host, localDirs, skipHosts, err := moduleScopeSkippingShadows(p, name, path)
+	scope, err := modules.ScopeOf(p.Machines, p.Modules, h.Name, m)
 	if err != nil {
 		return err
 	}
+	host, localDirs, skipHosts := scope.Host, scope.LocalDirs, scope.SkipHosts
 
 	importers, err := modules.Importers(p.Machines, name, host)
 	if err != nil {
@@ -1469,13 +1210,15 @@ func moduleRename(p paths.Paths, args []string) error {
 		return fmt.Errorf("usage: luxos module rename <old> <new> [-y]")
 	}
 
-	oldPath, found, err := resolveUnitPath(p.Modules, oldName)
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
+	old, found := h.Find(oldName)
 	if !found {
 		return fmt.Errorf("unknown module '%s'", oldName)
 	}
+	oldPath := old.Path
 	if isFrameworkPath(oldPath) {
 		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", oldName, oldPath)
 	}
@@ -1492,19 +1235,18 @@ func moduleRename(p paths.Paths, args []string) error {
 	}
 
 	shadowedPath := ""
-	if existingPath, found, err := resolveUnitPath(p.Modules, newQualified); err != nil {
-		return err
-	} else if found {
-		if !shadowsShared(oldPath, existingPath) {
-			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existingPath)
+	if existing, found := h.Find(newQualified); found {
+		if !shadowsShared(oldPath, existing.Path) {
+			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existing.Path)
 		}
-		shadowedPath = existingPath
+		shadowedPath = existing.Path
 	}
 
-	host, localDirs, skipHosts, err := moduleScopeSkippingShadows(p, oldName, oldPath)
+	scope, err := modules.ScopeOf(p.Machines, p.Modules, h.Name, old)
 	if err != nil {
 		return err
 	}
+	host, localDirs, skipHosts := scope.Host, scope.LocalDirs, scope.SkipHosts
 
 	dependents, err := modules.Dependents(p.Modules, localDirs, oldName)
 	if err != nil {
@@ -1570,16 +1312,6 @@ func moduleRename(p paths.Paths, args []string) error {
 }
 
 //──[shared helpers]──────────────────────────────────────────────────────
-
-// resolveUnitPath walks modulesDir and resolves name to its path.
-func resolveUnitPath(modulesDir, name string) (string, bool, error) {
-	us, err := modules.Walk(modulesDir, filepath.Join(modulesDir, localLinkName))
-	if err != nil {
-		return "", false, err
-	}
-	m, ok := modules.Find(us, name)
-	return m.Path, ok, nil
-}
 
 // isFrameworkPath reports whether a modules-relative path lies under the
 // reserved framework category (modules/system), which add/remove/rename

@@ -6,7 +6,6 @@
 package staging
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,9 +45,6 @@ const (
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
-
-	// bundleModulesDir is the folder of a bundle's submodules.
-	bundleModulesDir = "modules"
 )
 
 // Materialize regenerates the luxos-owned entries of stagingDir (pruning
@@ -138,84 +134,6 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lo
 	return nil
 }
 
-func StagedPath(u modules.Module) string {
-	if u.Shadows == "" {
-		return u.Path
-	}
-	return filepath.Join(filepath.Dir(u.Shadows), filepath.Base(u.Path))
-}
-
-// UnitChanged reports whether u's files under modulesDir (symlinks
-// dereferenced, as Materialize copies them) differ from its copy under
-// stagedModulesDir. A unit missing on the staged side is changed. A bundle's
-// modules/ folder is not part of it: a submodule's change marks the submodule.
-func UnitChanged(modulesDir, stagedModulesDir string, u modules.Module) (bool, error) {
-	skip := ""
-	if modules.IsBundle(filepath.Join(modulesDir, u.Path)) {
-		skip = bundleModulesDir
-	}
-	src, err := readUnitFiles(filepath.Join(modulesDir, u.Path), skip)
-	if err != nil {
-		return false, err
-	}
-	dst, err := readUnitFiles(filepath.Join(stagedModulesDir, StagedPath(u)), skip)
-	if errors.Is(err, fs.ErrNotExist) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if len(src) != len(dst) {
-		return true, nil
-	}
-	for rel, data := range src {
-		other, ok := dst[rel]
-		if !ok || !bytes.Equal(data, other) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// readUnitFiles returns the contents of root keyed by path relative to root;
-// a single file is keyed ".". Symlinks are followed. skipTop, when non-empty,
-// names a top-level entry of root left out.
-func readUnitFiles(root, skipTop string) (map[string][]byte, error) {
-	files := map[string][]byte{}
-	var walk func(path, rel string) error
-	walk = func(path, rel string) error {
-		info, err := os.Stat(path)
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			files[rel] = data
-			return nil
-		}
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return err
-		}
-		for _, e := range entries {
-			if path == root && skipTop != "" && e.Name() == skipTop {
-				continue
-			}
-			if err := walk(filepath.Join(path, e.Name()), filepath.Join(rel, e.Name())); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := walk(root, "."); err != nil {
-		return nil, err
-	}
-	return files, nil
-}
-
 func stageModules(modulesDir, dst string, us []modules.Module) error {
 	skip := make(map[string]bool)
 	var shadows []modules.Module
@@ -232,7 +150,7 @@ func stageModules(modulesDir, dst string, us []modules.Module) error {
 	}
 
 	for _, u := range shadows {
-		staged := StagedPath(u)
+		staged := u.StagedPath()
 		src := filepath.Join(modulesDir, u.Path)
 		info, err := os.Stat(src)
 		if err != nil {
@@ -556,4 +474,23 @@ func RestorePrevious(stagingDir, prevDir string) error {
 
 func DropPrevious(prevDir string) error {
 	return os.RemoveAll(prevDir)
+}
+
+// Baseline returns the tree running modules are compared against: the saved
+// previous stage's modules when it exists, else the staging directory's, else
+// "" when neither holds one.
+func Baseline(stagingDir, prevDir string) (string, error) {
+	base := filepath.Join(stagingDir, configDir, stagedModulesDir)
+	if _, err := os.Stat(prevDir); err == nil {
+		base = filepath.Join(prevDir, configDir, stagedModulesDir)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if _, err := os.Stat(base); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return base, nil
 }

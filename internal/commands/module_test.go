@@ -1,10 +1,10 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,23 +12,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
-
-func TestModuleMarker(t *testing.T) {
-	cases := []struct {
-		enabled, running bool
-		want             string
-	}{
-		{true, true, markerEnabledBoth},
-		{true, false, markerEnabledOnly},
-		{false, true, markerRunningOnly},
-		{false, false, markerNeither},
-	}
-	for _, c := range cases {
-		if got := moduleMarker(c.enabled, c.running); got != c.want {
-			t.Errorf("moduleMarker(%v, %v) = %q, want %q", c.enabled, c.running, got, c.want)
-		}
-	}
-}
 
 func TestModuleMarkerRank(t *testing.T) {
 	cases := []struct {
@@ -345,12 +328,12 @@ func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
 		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
 		{Name: "other", Path: "local/other.nix"},
 	}
-	rows := moduleBuildRows(us, nil, nil, nil, nil, "desktop")
+	rows := moduleRows(statusesFor(us, nil, nil), "desktop")
 	if len(rows) != 1 || !rows[0].shadow || strings.Join(rows[0].category, "/") != "shells" {
 		t.Fatalf("rows = %+v", rows)
 	}
 
-	all := moduleBuildRows(us, nil, nil, nil, nil, "")
+	all := moduleRows(statusesFor(us, nil, nil), "")
 	var b strings.Builder
 	moduleRenderTTY(&b, all, "modules/", colorTreePalette)
 	if !strings.Contains(b.String(), colorUnderline+"ambxst"+colorReset) {
@@ -385,52 +368,6 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 	moduleRenderTTY(&tty, rows, "modules/", treePalette{})
 	if !strings.Contains(tty.String(), "ambxst"+flakeMark+"\n") {
 		t.Errorf("flake mark missing:\n%s", tty.String())
-	}
-}
-
-func TestModuleFillInputs(t *testing.T) {
-	skipIfNoNix(t)
-	dir := t.TempDir()
-	decl := func(names ...string) string {
-		var b strings.Builder
-		b.WriteString("{ ... }: {\n")
-		for _, name := range names {
-			fmt.Fprintf(&b, "  flake-file.inputs.%s.url = \"github:o/%s\";\n", name, name)
-		}
-		b.WriteString("}\n")
-		return b.String()
-	}
-	write := func(rel, content string) {
-		full := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("file.nix", decl("zed", "abc"))
-	write("folder/default.nix", "{ ... }: { }\n")
-	write("folder/sub/inner.nix", decl("deep"))
-	write("none.nix", "{ ... }: { }\n")
-
-	us := []modules.Module{
-		{Name: "file", Path: "file.nix", Abs: filepath.Join(dir, "file.nix")},
-		{Name: "folder", Path: "folder", Abs: filepath.Join(dir, "folder")},
-		{Name: "none", Path: "none.nix", Abs: filepath.Join(dir, "none.nix")},
-	}
-	rows := []moduleRow{{name: "file", unit: "file"}, {name: "folder", unit: "folder"}, {name: "none", unit: "none"}}
-	if err := moduleFillInputs(rows, us); err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(rows[0].inputs, ","); got != "abc,zed" {
-		t.Errorf("file inputs = %q", got)
-	}
-	if got := strings.Join(rows[1].inputs, ","); got != "deep" {
-		t.Errorf("folder inputs = %q", got)
-	}
-	if len(rows[2].inputs) != 0 {
-		t.Errorf("none inputs = %v", rows[2].inputs)
 	}
 }
 
@@ -473,24 +410,6 @@ func TestModuleListJSONConflicts(t *testing.T) {
 	}
 }
 
-func TestModuleBuildRowsModified(t *testing.T) {
-	us := []modules.Module{{Name: "a", Path: "a.nix"}, {Name: "b", Path: "b.nix"}, {Name: "c", Path: "c.nix"}}
-	enabled := map[string]bool{"a": true, "b": true}
-	running := map[string]bool{"a": true, "c": true}
-	changed := map[string]bool{"a": true, "b": true, "c": true}
-	rows := moduleBuildRows(us, enabled, running, nil, changed, "")
-	got := map[string]moduleRow{}
-	for _, r := range rows {
-		got[r.name] = r
-	}
-	if r := got["a"]; !r.modified || r.marker != markerEnabledOnly || r.rank != 0 {
-		t.Errorf("a = %+v, want modified staged marker rank 0", r)
-	}
-	if got["b"].modified || got["c"].modified {
-		t.Errorf("only enabled+running rows may be modified: b=%+v c=%+v", got["b"], got["c"])
-	}
-}
-
 func TestModuleRenderModified(t *testing.T) {
 	rows := []moduleRow{{name: "a", marker: markerEnabledOnly, modified: true}}
 	var tty strings.Builder
@@ -505,49 +424,8 @@ func TestModuleRenderModified(t *testing.T) {
 	}
 }
 
-func TestModuleRemovedRows(t *testing.T) {
-	us := []modules.Module{{Name: "alive", Path: "alive.nix"}}
-	run := []string{
-		"./local/debug.nix", "./desktop/shells/ambxst", "./gone.nix", "./alive.nix",
-		"./x/dup.nix", "./y/dup.nix", "./desktop/apps/foo/default.nix",
-	}
-	rows := moduleRemovedRows(run, us, "")
-	got := map[string]moduleRow{}
-	for _, r := range rows {
-		got[r.name] = r
-	}
-	if len(rows) != 5 {
-		t.Fatalf("rows = %+v, want 5 (alive skipped, dup once)", rows)
-	}
-	for name, cat := range map[string]string{"debug": "local", "ambxst": "desktop/shells", "gone": "", "foo": "desktop/apps"} {
-		r, ok := got[name]
-		if !ok || !r.removed || r.marker != markerRunningOnly || r.rank != moduleMarkerRank(markerRunningOnly) {
-			t.Errorf("%s = %+v", name, r)
-		}
-		if strings.Join(r.category, "/") != cat {
-			t.Errorf("%s category = %v, want %q", name, r.category, cat)
-		}
-	}
-	if _, ok := got["alive"]; ok {
-		t.Error("existing unit got a removed row")
-	}
-
-	filtered := moduleRemovedRows(run, us, "desktop")
-	if len(filtered) != 2 {
-		t.Fatalf("filtered = %+v, want ambxst and foo", filtered)
-	}
-	for _, r := range filtered {
-		if r.name == "ambxst" && strings.Join(r.category, "/") != "shells" {
-			t.Errorf("ambxst category = %v, want [shells]", r.category)
-		}
-	}
-	if rows := moduleRemovedRows(run, us, "local"); len(rows) != 1 || len(rows[0].category) != 0 {
-		t.Errorf("local filter = %+v", rows)
-	}
-}
-
 func TestModuleRenderRemoved(t *testing.T) {
-	rows := moduleRemovedRows([]string{"./local/debug.nix"}, nil, "")
+	rows := moduleRows(removedStatuses("local/debug.nix"), "")
 	var tty strings.Builder
 	moduleRenderTTY(&tty, rows, "modules/", colorTreePalette)
 	if !strings.Contains(tty.String(), colorStrike+"debug") || !strings.Contains(tty.String(), colorRed+markerRunningOnly) {
@@ -742,7 +620,7 @@ func bundleUnits() []modules.Module {
 
 func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
 	enabled := map[string]bool{"eduardo": true, "eduardo/git": true}
-	rows := moduleBuildRows(bundleUnits(), enabled, nil, nil, nil, "")
+	rows := moduleRows(statusesFor(bundleUnits(), enabled, nil), "")
 	byUnit := map[string]moduleRow{}
 	for _, r := range rows {
 		byUnit[r.unit] = r
@@ -761,7 +639,7 @@ func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
 }
 
 func TestModuleBuildRows_BundleTargetIsRelativeToItsModules(t *testing.T) {
-	rows := moduleBuildRows(bundleUnits(), nil, nil, nil, nil, "users/eduardo/modules")
+	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "users/eduardo/modules")
 	if len(rows) != 2 {
 		t.Fatalf("rows = %+v", rows)
 	}
@@ -775,7 +653,7 @@ func TestModuleBuildRows_BundleTargetIsRelativeToItsModules(t *testing.T) {
 
 func TestCollapseBundles(t *testing.T) {
 	enabled := map[string]bool{"eduardo": true, "eduardo/git": true}
-	rows := moduleBuildRows(bundleUnits(), enabled, nil, nil, nil, "")
+	rows := moduleRows(statusesFor(bundleUnits(), enabled, nil), "")
 
 	top := collapseBundles(rows, "")
 	var b strings.Builder
@@ -797,7 +675,7 @@ func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
 		{Name: "eduardo/nvim", Path: "users/eduardo/modules/nvim"},
 		{Name: "eduardo/nvim/lsp", Path: "users/eduardo/modules/nvim/modules/lsp.nix"},
 	}
-	rows := moduleBuildRows(us, nil, nil, nil, nil, "users/eduardo/modules")
+	rows := moduleRows(statusesFor(us, nil, nil), "users/eduardo/modules")
 	view := collapseBundles(rows, "eduardo")
 	if len(view) != 1 || view[0].name != "nvim" || !view[0].bundle || view[0].subTotal != 1 {
 		t.Errorf("view = %+v", view)
@@ -805,7 +683,7 @@ func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
 }
 
 func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
-	rows := moduleBuildRows(bundleUnits(), nil, nil, nil, nil, "")
+	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "")
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
 	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\n") {
@@ -821,8 +699,93 @@ func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
 }
 
 func TestModuleRemovedRows_SubmoduleNameIsBase(t *testing.T) {
-	rows := moduleRemovedRows([]string{"./users/eduardo/modules/old.nix"}, nil, "")
+	rows := moduleRows(removedStatuses("users/eduardo/modules/old.nix"), "")
 	if len(rows) != 1 || rows[0].name != "old" || rows[0].unit != "eduardo/old" {
 		t.Errorf("rows = %+v", rows)
+	}
+}
+
+// statusesFor derives the statuses moduleRows maps from selection and
+// running name sets.
+func statusesFor(us []modules.Module, enabled, running map[string]bool) []modules.Status {
+	var out []modules.Status
+	for _, u := range us {
+		state := modules.Off
+		switch {
+		case enabled[u.Name] && running[u.Name]:
+			state = modules.Active
+		case enabled[u.Name]:
+			state = modules.Staged
+		case running[u.Name]:
+			state = modules.Leftover
+		}
+		out = append(out, modules.Status{Module: u, State: state})
+	}
+	return out
+}
+
+// removedStatuses is the status of each running import that names no module.
+func removedStatuses(paths ...string) []modules.Status {
+	var out []modules.Status
+	for _, p := range paths {
+		out = append(out, modules.Status{
+			Module: modules.Module{Name: modules.NameFromPath(p), Path: strings.TrimSuffix(p, "/default.nix")},
+			State:  modules.Removed,
+		})
+	}
+	return out
+}
+
+func TestModuleRowsStateMapping(t *testing.T) {
+	cases := []struct {
+		state    modules.State
+		marker   string
+		rank     int
+		modified bool
+		removed  bool
+	}{
+		{modules.Active, markerEnabledBoth, 1, false, false},
+		{modules.Staged, markerEnabledOnly, 0, false, false},
+		{modules.Modified, markerEnabledOnly, 0, true, false},
+		{modules.Leftover, markerRunningOnly, 2, false, false},
+		{modules.Removed, markerRunningOnly, 2, false, true},
+		{modules.Pulled, markerPulled, 3, false, false},
+		{modules.Off, markerNeither, 4, false, false},
+	}
+	for _, c := range cases {
+		rows := moduleRows([]modules.Status{{Module: modules.Module{Name: "a", Path: "a.nix"}, State: c.state}}, "")
+		if len(rows) != 1 {
+			t.Fatalf("%s: rows = %+v", c.state, rows)
+		}
+		r := rows[0]
+		if r.marker != c.marker || r.rank != c.rank || r.modified != c.modified || r.removed != c.removed {
+			t.Errorf("%s: row = %+v", c.state, r)
+		}
+	}
+}
+
+func TestModuleRowsRemovedCategories(t *testing.T) {
+	sts := removedStatuses("local/debug.nix", "desktop/shells/ambxst", "gone.nix", "desktop/apps/foo/default.nix")
+	rows := moduleRows(sts, "")
+	got := map[string]string{}
+	for _, r := range rows {
+		got[r.name] = strings.Join(r.category, "/")
+	}
+	want := map[string]string{"debug": "local", "ambxst": "desktop/shells", "gone": "", "foo": "desktop/apps"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("categories = %v, want %v", got, want)
+	}
+
+	filtered := moduleRows(sts, "desktop")
+	if len(filtered) != 2 {
+		t.Fatalf("filtered = %+v, want ambxst and foo", filtered)
+	}
+	for _, r := range filtered {
+		if r.name == "ambxst" && strings.Join(r.category, "/") != "shells" {
+			t.Errorf("ambxst category = %v, want [shells]", r.category)
+		}
+	}
+	if rows := moduleRows(sts, "local"); len(rows) != 1 || len(rows[0].category) != 0 {
+		t.Errorf("local filter = %+v", rows)
 	}
 }

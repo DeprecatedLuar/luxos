@@ -568,3 +568,37 @@ func TestHosts(t *testing.T) {
 		t.Errorf("Hosts = %v, %v", got, err)
 	}
 }
+
+func TestScopeOf(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	machines := filepath.Join(root, ".local", "machines")
+	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(modulesDir, "apps", "vim.nix"), emptyModule)
+	for _, h := range []string{"a", "b", "c"} {
+		mustWriteFile(t, filepath.Join(machines, h, "modules.nix"), selectionOf())
+	}
+	mustWriteFile(t, filepath.Join(machines, "b", "modules", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(machines, "stray", "modules", "x.nix"), emptyModule)
+
+	got, err := ScopeOf(machines, modulesDir, "a", Module{Name: "git", Path: "apps/git.nix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Scope{
+		LocalDirs: []string{filepath.Join(machines, "a", "modules"), filepath.Join(machines, "c", "modules")},
+		SkipHosts: []string{"b"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("shared scope = %+v, want %+v", got, want)
+	}
+
+	got, err = ScopeOf(machines, modulesDir, "a", Module{Name: "priv", Path: "local/priv.nix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = Scope{Host: "a", LocalDirs: []string{filepath.Join(machines, "a", "modules")}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("local scope = %+v, want %+v", got, want)
+	}
+}

@@ -505,3 +505,37 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 		t.Errorf("host1 = %v, host2 = %v", got1, got2)
 	}
 }
+
+func TestEnableDisable(t *testing.T) {
+	skipIfNoNix(t)
+	h := statusFixture(t, []string{"a.nix"}, "a.nix", "b.nix")
+	sel := filepath.Join(h.HostDir, SelectionFile)
+
+	if _, err := Enable(h, "missing"); err == nil {
+		t.Error("Enable of an unknown module did not fail")
+	}
+	if changed, err := Enable(h, "a"); err != nil || changed {
+		t.Errorf("Enable(a) = %v, %v; want false (already selected)", changed, err)
+	}
+	if changed, err := Enable(h, "b"); err != nil || !changed {
+		t.Fatalf("Enable(b) = %v, %v; want true", changed, err)
+	}
+	got, err := ReadSelection(sel)
+	if err != nil || !reflect.DeepEqual(got, []string{"a.nix", "b.nix"}) {
+		t.Errorf("selection = %v, %v", got, err)
+	}
+	if !reflect.DeepEqual(h.Selection, got) {
+		t.Errorf("h.Selection = %v, want %v", h.Selection, got)
+	}
+
+	if changed, err := Disable(h, "a"); err != nil || !changed {
+		t.Fatalf("Disable(a) = %v, %v; want true", changed, err)
+	}
+	if changed, err := Disable(h, "a"); err != nil || changed {
+		t.Errorf("second Disable(a) = %v, %v; want false", changed, err)
+	}
+	got, err = ReadSelection(sel)
+	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection, got) {
+		t.Errorf("selection = %v (h: %v), %v", got, h.Selection, err)
+	}
+}

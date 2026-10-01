@@ -334,3 +334,40 @@ func entrypointsFor(machinesDir, host string) ([]string, error) {
 func shapeError(file string) error {
 	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
 }
+
+// Enable adds the selection line of the module called name to h's selection
+// file and to h.Selection. It reports false when name is already selected.
+func Enable(h *Host, name string) (bool, error) {
+	m, ok := h.Find(name)
+	if !ok {
+		return false, fmt.Errorf("unknown module '%s'", name)
+	}
+	if _, on := h.Selected(name); on {
+		return false, nil
+	}
+	if err := nix.AddImport(filepath.Join(h.HostDir, SelectionFile), m.Path); err != nil {
+		return false, err
+	}
+	h.Selection = append(h.Selection, m.Path)
+	return true, nil
+}
+
+// Disable removes the selection line naming name from h's selection file and
+// from h.Selection. It reports false when name is not selected.
+func Disable(h *Host, name string) (bool, error) {
+	path, on := h.Selected(name)
+	if !on {
+		return false, nil
+	}
+	if err := nix.RemoveImport(filepath.Join(h.HostDir, SelectionFile), path); err != nil {
+		return false, err
+	}
+	kept := h.Selection[:0]
+	for _, sel := range h.Selection {
+		if sel != path {
+			kept = append(kept, sel)
+		}
+	}
+	h.Selection = kept
+	return true, nil
+}
