@@ -83,11 +83,11 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 	if err != nil {
 		return err
 	}
-	inputs, err := selectedInputs(h)
+	hwDir, err := config.HardwareDir(p.Sys, p.HardwareRoot)
 	if err != nil {
 		return err
 	}
-	hwDir, err := config.HardwareDir(p.Sys, p.HardwareRoot)
+	inputs, err := selectedInputs(h, hwDir)
 	if err != nil {
 		return err
 	}
@@ -127,8 +127,9 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 // selectedInputs returns the flake-file.inputs declarations of the host's
 // machine.nix and of every module it builds. They become the bootstrap flake's
 // inputs, so a module that imports from its own input (a nixos-hardware
-// module, say) already has that input when write-flake evaluates it.
-func selectedInputs(h *modules.Host) ([]nix.InputDecl, error) {
+// module, say) already has that input when write-flake evaluates it. hwDir
+// stands in for the hardware-support module on a host without its link.
+func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 	built, err := h.Built()
 	if err != nil {
 		return nil, err
@@ -140,6 +141,18 @@ func selectedInputs(h *modules.Host) ([]nix.InputDecl, error) {
 			return nil, err
 		}
 		files = append(files, mf...)
+	}
+	// A host that is not the active one has no hardware-support link, so its
+	// selected hardware folder is not among the built modules.
+	if _, selected := h.Selected(config.HardwareUnitName); selected {
+		if _, linked := h.Find(config.HardwareUnitName); !linked {
+			hw := modules.Module{Name: config.HardwareUnitName, Path: config.HardwareUnitPath, Abs: hwDir}
+			hf, err := hw.Files()
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, hf...)
+		}
 	}
 	return nix.InputDecls(files...)
 }

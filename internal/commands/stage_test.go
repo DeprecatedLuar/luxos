@@ -6,12 +6,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
@@ -685,4 +687,32 @@ func diffKeys(a, b map[string]string) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, "\n")
+}
+
+func TestSelectedInputsIncludeHardwareOfHostWithoutLink(t *testing.T) {
+	skipIfNoNix(t)
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	hostDir := filepath.Join(root, "machines", "other")
+	hwDir := filepath.Join(root, "hardware")
+	write(t, filepath.Join(modulesDir, "a.nix"), "{ ... }: { }\n")
+	write(t, filepath.Join(hostDir, "machine.nix"), "{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
+	write(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n")
+	write(t, filepath.Join(hwDir, "default.nix"), "{ ... }: {\n  flake-file.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
+
+	h, err := modules.Load(modulesDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := selectedInputs(h, hwDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, d := range inputs {
+		names = append(names, d.Name)
+	}
+	if !slices.Contains(names, "nixos-hardware") {
+		t.Errorf("inputs = %v, want nixos-hardware from the hardware folder", names)
+	}
 }
