@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
@@ -259,7 +259,7 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	// .gitignore contains every required line.
 	gitignoreContent := mustReadFile(t, filepath.Join(p.Config, ".gitignore"))
-	for _, line := range gitignoreLines {
+	for _, line := range []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/machines/*/modules/hardware-support"} {
 		if !strings.Contains(gitignoreContent, line) {
 			t.Errorf(".gitignore missing line %q, got:\n%s", line, gitignoreContent)
 		}
@@ -582,143 +582,6 @@ func TestRun_NoBackupDirNamesFlag(t *testing.T) {
 	}
 }
 
-func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
-	hostDir := t.TempDir()
-	var out bytes.Buffer
-	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
-		t.Fatal(err)
-	}
-	want, err := templates.File(machineTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(hostDir, "machine.nix")
-	if got := mustReadFile(t, path); got != string(want) {
-		t.Errorf("machine.nix differs from template:\n%s", got)
-	}
-	if !strings.Contains(out.String(), path) {
-		t.Errorf("output %q does not name %s", out.String(), path)
-	}
-}
-
-func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
-	hostDir := t.TempDir()
-	path := filepath.Join(hostDir, "machine.nix")
-	const own = "{ ... }: { }\n"
-	write(t, path, own)
-	var out bytes.Buffer
-	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
-		t.Fatal(err)
-	}
-	if got := mustReadFile(t, path); got != own {
-		t.Errorf("machine.nix changed: %q", got)
-	}
-	if out.Len() != 0 {
-		t.Errorf("unexpected output %q", out.String())
-	}
-}
-
-func TestMachineTemplate_Parses(t *testing.T) {
-	skipIfNoNix(t)
-	tmpl, err := templates.File(machineTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "machine.nix")
-	write(t, path, string(tmpl))
-	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
-		t.Fatalf("template does not parse: %v\n%s", err, out)
-	}
-}
-
-func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
-	sys, err := templates.File("framework/system.nix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(sys), "nix.gc") {
-		t.Error("system.nix must not define nix.gc")
-	}
-	for _, want := range []string{
-		"nix.optimise.automatic = lib.mkDefault true;",
-		"nix.settings.auto-optimise-store = lib.mkDefault true;",
-	} {
-		if !strings.Contains(string(sys), want) {
-			t.Errorf("system.nix missing %q", want)
-		}
-	}
-}
-
-func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
-	sys, err := templates.File("framework/system.nix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(sys), "config/local/hardware-support") {
-		t.Error("system.nix must not import hardware files")
-	}
-	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
-		t.Error("system.nix must not set RuntimeWatchdogSec")
-	}
-}
-
-func TestMachineTemplate_NoGC(t *testing.T) {
-	tmpl, err := templates.File(machineTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(tmpl), "nix.gc") {
-		t.Error("machine template must not define nix.gc")
-	}
-}
-
-func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
-	skipIfNoNix(t)
-	p, _ := fixture(t)
-	fakeNix(t)
-	var out bytes.Buffer
-	hw, err := ensureHardware(&progress{w: &out}, p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	def := filepath.Join(hw, config_.DefaultFile)
-	tmpl, err := templates.File(hardwareDefaultTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := mustReadFile(t, def); got != string(tmpl) {
-		t.Errorf("default.nix differs from the template:\n%s", got)
-	}
-	if !strings.Contains(out.String(), "created: "+def) {
-		t.Errorf("output does not report creating %s:\n%s", def, out.String())
-	}
-
-	write(t, def, "{ }\n")
-	out.Reset()
-	if _, err := ensureHardware(&progress{w: &out}, p); err != nil {
-		t.Fatal(err)
-	}
-	if got := mustReadFile(t, def); got != "{ }\n" {
-		t.Errorf("edited default.nix was rewritten: %q", got)
-	}
-	if strings.Contains(out.String(), "created: "+def) {
-		t.Errorf("second run reported creating default.nix:\n%s", out.String())
-	}
-}
-
-func TestHardwareTemplate_Parses(t *testing.T) {
-	skipIfNoNix(t)
-	tmpl, err := templates.File(hardwareDefaultTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "default.nix")
-	write(t, path, string(tmpl))
-	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
-		t.Fatalf("template does not parse: %v\n%s", err, out)
-	}
-}
-
 func TestRun_MissingProductUUIDFails(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
@@ -729,37 +592,6 @@ func TestRun_MissingProductUUIDFails(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "product_uuid") {
 		t.Fatalf("err = %v, want the product_uuid error", err)
-	}
-}
-
-func TestCheckMachineFile(t *testing.T) {
-	skipIfNoNix(t)
-	tmpl, err := templates.File(machineTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cases := []struct {
-		name    string
-		content string
-		wantErr bool
-	}{
-		{"assignments only", "{ time.timeZone = \"UTC\"; }\n", false},
-		{"embedded template", string(tmpl), false},
-		{"static import", "{ imports = [ ./extra.nix ]; }\n", true},
-		{"dynamic path", "{ imports = [ (./. + \"/x.nix\") ]; }\n", true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "machine.nix")
-			write(t, path, c.content)
-			err := checkMachineFile(path)
-			if (err != nil) != c.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
-			}
-			if err != nil && !strings.Contains(err.Error(), path) {
-				t.Errorf("error %q does not name the file", err)
-			}
-		})
 	}
 }
 

@@ -1,4 +1,4 @@
-package framework
+package config
 
 import (
 	"bytes"
@@ -13,16 +13,14 @@ import (
 const (
 	modulesSrcDir = "modules"
 
-	dirMode      = 0755
-	writableMode = 0644
-	lockedMode   = 0444
+	lockedMode = 0444
 
 	ActionCreated  = "created"
 	ActionRestored = "restored"
 	ActionRemoved  = "removed"
 )
 
-type Change struct {
+type SyncChange struct {
 	Path   string // relative to dst
 	Action string // ActionCreated | ActionRestored | ActionRemoved
 }
@@ -31,7 +29,7 @@ type Change struct {
 // file or directory under dst that is not part of the embedded set is
 // removed. If dst is itself a symlink, the symlink is removed (not
 // followed) and replaced with a real directory.
-func Sync(dst string) ([]Change, error) {
+func Sync(dst string) ([]SyncChange, error) {
 	modulesFS, err := templates.Dir(modulesSrcDir)
 	if err != nil {
 		return nil, err
@@ -53,7 +51,7 @@ func Sync(dst string) ([]Change, error) {
 		return nil, err
 	}
 
-	var changes []Change
+	var changes []SyncChange
 
 	for relPath, srcPath := range srcFiles {
 		dstPath := filepath.Join(dst, relPath)
@@ -71,7 +69,7 @@ func Sync(dst string) ([]Change, error) {
 			return nil, err
 		}
 		if action != "" {
-			changes = append(changes, Change{Path: relPath, Action: action})
+			changes = append(changes, SyncChange{Path: relPath, Action: action})
 		}
 	}
 
@@ -122,7 +120,7 @@ func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	haveData, err := os.ReadFile(dstPath)
 	switch {
 	case os.IsNotExist(err):
-		if err := os.WriteFile(dstPath, wantData, writableMode); err != nil {
+		if err := os.WriteFile(dstPath, wantData, fileMode); err != nil {
 			return "", err
 		}
 		if err := os.Chmod(dstPath, lockedMode); err != nil {
@@ -134,10 +132,10 @@ func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	case bytes.Equal(haveData, wantData):
 		return "", nil
 	default:
-		if err := os.Chmod(dstPath, writableMode); err != nil {
+		if err := os.Chmod(dstPath, fileMode); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(dstPath, wantData, writableMode); err != nil {
+		if err := os.WriteFile(dstPath, wantData, fileMode); err != nil {
 			return "", err
 		}
 		if err := os.Chmod(dstPath, lockedMode); err != nil {
@@ -147,8 +145,8 @@ func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	}
 }
 
-func removeExtras(dst string, srcFiles map[string]string, dirSet map[string]bool) ([]Change, error) {
-	var changes []Change
+func removeExtras(dst string, srcFiles map[string]string, dirSet map[string]bool) ([]SyncChange, error) {
+	var changes []SyncChange
 
 	entries, err := os.ReadDir(dst)
 	if err != nil {
@@ -165,14 +163,14 @@ func removeExtras(dst string, srcFiles map[string]string, dirSet map[string]bool
 	return changes, nil
 }
 
-func removeExtrasWalk(dst, rel string, srcFiles map[string]string, dirSet map[string]bool, changes *[]Change) error {
+func removeExtrasWalk(dst, rel string, srcFiles map[string]string, dirSet map[string]bool, changes *[]SyncChange) error {
 	fullPath := filepath.Join(dst, rel)
 
 	if !dirIsKnown(rel, dirSet) && !fileIsKnown(rel, srcFiles) {
 		if err := os.RemoveAll(fullPath); err != nil {
 			return err
 		}
-		*changes = append(*changes, Change{Path: rel, Action: ActionRemoved})
+		*changes = append(*changes, SyncChange{Path: rel, Action: ActionRemoved})
 		return nil
 	}
 

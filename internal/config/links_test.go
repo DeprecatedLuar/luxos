@@ -1,4 +1,4 @@
-package links
+package config
 
 import (
 	"os"
@@ -94,7 +94,7 @@ func TestEnsureLocalLink_Create(t *testing.T) {
 	mustMkdirAll(t, configDir)
 	mustMkdirAll(t, filepath.Join(machinesDir, "host1"))
 
-	if err := EnsureLocalLink(configDir, machinesDir, "host1"); err != nil {
+	if err := ensureLocalLink(configDir, machinesDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalLink: %v", err)
 	}
 
@@ -117,10 +117,10 @@ func TestEnsureLocalLink_Repoint(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(machinesDir, "host1"))
 	mustMkdirAll(t, filepath.Join(machinesDir, "host2"))
 
-	if err := EnsureLocalLink(configDir, machinesDir, "host1"); err != nil {
+	if err := ensureLocalLink(configDir, machinesDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalLink host1: %v", err)
 	}
-	if err := EnsureLocalLink(configDir, machinesDir, "host2"); err != nil {
+	if err := ensureLocalLink(configDir, machinesDir, "host2"); err != nil {
 		t.Fatalf("EnsureLocalLink host2: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestEnsureLocalLink_RefusesRealFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureLocalLink(configDir, machinesDir, "host1"); err == nil {
+	if err := ensureLocalLink(configDir, machinesDir, "host1"); err == nil {
 		t.Fatalf("expected error for real file at local link target")
 	}
 }
@@ -242,7 +242,7 @@ func TestEnsureHardwareLink(t *testing.T) {
 		}
 	}
 
-	if err := EnsureHardwareLink(machines, hardware, "a", "k1"); err != nil {
+	if err := ensureHardwareLink(machines, hardware, "a", "k1"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.Readlink(filepath.Join(machines, "a", "modules", "hardware-support")); got != "../../../hardware/k1" {
@@ -254,7 +254,7 @@ func TestEnsureHardwareLink(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(machines, "c", "modules")); !os.IsNotExist(err) {
 		t.Errorf("skipped machine gained a modules dir: %v", err)
 	}
-	if err := EnsureHardwareLink(machines, hardware, "a", "k1"); err != nil {
+	if err := ensureHardwareLink(machines, hardware, "a", "k1"); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 }
@@ -268,8 +268,29 @@ func TestEnsureHardwareLink_RefusesRealDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(machines, "b", "modules", "hardware-support"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	err := EnsureHardwareLink(machines, filepath.Join(root, "hardware"), "a", "k1")
+	err := ensureHardwareLink(machines, filepath.Join(root, "hardware"), "a", "k1")
 	if err == nil || !strings.Contains(err.Error(), "real file/dir") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestEnsureMirrorCreatesHostModulesDir(t *testing.T) {
+	root := t.TempDir()
+	machines := filepath.Join(root, ".local", "machines")
+	modules := filepath.Join(root, "modules")
+	for _, d := range []string{filepath.Join(machines, "box"), modules} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(machines, "box", "modules.nix"), []byte("{ imports = [ ]; }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureMirror(machines, modules, "box"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(machines, "box", "modules"))
+	if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0755 {
+		t.Fatalf("modules dir: %v %v", fi, err)
 	}
 }

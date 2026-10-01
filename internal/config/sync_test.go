@@ -1,4 +1,4 @@
-package framework
+package config
 
 import (
 	"os"
@@ -87,10 +87,10 @@ func TestSync_ModifiedFileRestored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.Chmod(targetPath, writableMode); err != nil {
+	if err := os.Chmod(targetPath, fileMode); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(targetPath, []byte("tampered"), writableMode); err != nil {
+	if err := os.WriteFile(targetPath, []byte("tampered"), fileMode); err != nil {
 		t.Fatal(err)
 	}
 

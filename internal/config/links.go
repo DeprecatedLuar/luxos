@@ -1,33 +1,23 @@
 // Every directory is a parameter; nothing here resolves paths or prints.
-package links
+package config
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/DeprecatedLuar/luxos/internal/config"
 )
 
-const (
-	dirMode = 0755
-
-	mirrorEntrypoint = "default.nix"
-	selectionFile    = "modules.nix"
-	modulesRel       = "modules"
-	localLinkName    = "local"
-)
-
-const localModulesLinkName = "local"
+// localLinkName names the link at CONFIG_DIR and at the root of modules/ to the active host.
+const localLinkName = "local"
 
 // Errors if a real file already occupies that path.
 func EnsureMirror(machinesDir, modulesDir, host string) error {
 	hostDir := filepath.Join(machinesDir, host)
-	if err := os.MkdirAll(filepath.Join(hostDir, modulesRel), dirMode); err != nil {
+	if err := MkdirAll(filepath.Join(hostDir, localModulesDir)); err != nil {
 		return err
 	}
 
-	sharedDefault := filepath.Join(modulesDir, mirrorEntrypoint)
+	sharedDefault := filepath.Join(modulesDir, DefaultFile)
 	target := filepath.Join(hostDir, selectionFile)
 
 	if err := refuseRealFile(sharedDefault, "reserved for the generated mirror link to "+target); err != nil {
@@ -43,7 +33,7 @@ func EnsureMirror(machinesDir, modulesDir, host string) error {
 }
 
 // Errors if a real file/dir already occupies that name.
-func EnsureLocalLink(configDir, machinesDir, host string) error {
+func ensureLocalLink(configDir, machinesDir, host string) error {
 	link := filepath.Join(configDir, localLinkName)
 	target := filepath.Join(machinesDir, host)
 
@@ -57,12 +47,12 @@ func EnsureLocalLink(configDir, machinesDir, host string) error {
 // Errors if a real file or directory already occupies that name — nothing
 // else may claim it.
 func EnsureLocalModules(machinesDir, modulesDir, host string) error {
-	target := filepath.Join(machinesDir, host, modulesRel)
-	if err := os.MkdirAll(target, dirMode); err != nil {
+	target := filepath.Join(machinesDir, host, localModulesDir)
+	if err := MkdirAll(target); err != nil {
 		return err
 	}
 
-	link := filepath.Join(modulesDir, localModulesLinkName)
+	link := filepath.Join(modulesDir, localLinkName)
 	if err := refuseRealFile(link, "reserved for the link to the active host's local modules; nothing else may claim it"); err != nil {
 		return err
 	}
@@ -76,7 +66,7 @@ func EnsureLocalModules(machinesDir, modulesDir, host string) error {
 }
 
 // A real file or directory named hardware in any machine's modules/ is an error.
-func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
+func ensureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 	entries, err := os.ReadDir(machinesDir)
 	if err != nil {
 		return err
@@ -85,7 +75,7 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 		if !e.IsDir() {
 			continue
 		}
-		link := filepath.Join(machinesDir, e.Name(), modulesRel, config.HardwareUnitName)
+		link := filepath.Join(machinesDir, e.Name(), localModulesDir, HardwareUnitName)
 		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
 			return err
 		}
@@ -96,15 +86,15 @@ func EnsureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 			return err
 		}
 	}
-	linkDir := filepath.Join(machinesDir, host, modulesRel)
-	if err := os.MkdirAll(linkDir, dirMode); err != nil {
+	linkDir := filepath.Join(machinesDir, host, localModulesDir)
+	if err := MkdirAll(linkDir); err != nil {
 		return err
 	}
 	rel, err := filepath.Rel(linkDir, filepath.Join(hardwareRoot, key))
 	if err != nil {
 		return err
 	}
-	return relink(filepath.Join(linkDir, config.HardwareUnitName), rel)
+	return relink(filepath.Join(linkDir, HardwareUnitName), rel)
 }
 
 func refuseRealFile(path, reason string) error {

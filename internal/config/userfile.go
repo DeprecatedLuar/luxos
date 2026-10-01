@@ -1,6 +1,4 @@
-// Package userfile writes files into a user-owned tree while running as root:
-// every file gets its parent directory's owner.
-package userfile
+package config
 
 import (
 	"fmt"
@@ -10,10 +8,14 @@ import (
 	"syscall"
 )
 
-const fileMode = 0644
+// Files written into the user-owned tree while running as root get their parent directory's owner.
+const (
+	fileMode = 0644
+	dirMode  = 0755
+)
 
-// Truncates in place, never renaming. Sets mode to 0644 and gives it the uid/gid of its parent directory.
-func Write(path string, data []byte) error {
+// WriteFile truncates in place, never renaming. Sets mode to 0644 and gives it the uid/gid of its parent directory.
+func WriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -33,7 +35,7 @@ func Write(path string, data []byte) error {
 }
 
 // Checked with Lstat, so a symlink or directory counts as existing.
-func Create(path string, data []byte) (created bool, err error) {
+func CreateFile(path string, data []byte) (created bool, err error) {
 	_, err = os.Lstat(path)
 	if err == nil {
 		return false, nil
@@ -41,11 +43,9 @@ func Create(path string, data []byte) (created bool, err error) {
 	if !os.IsNotExist(err) {
 		return false, err
 	}
-	err = Write(path, data)
+	err = WriteFile(path, data)
 	return err == nil, err
 }
-
-const dirMode = 0755
 
 // Creates the single directory path (0755) and gives it the uid/gid of
 // its parent. An existing path is an error, never a silent merge.

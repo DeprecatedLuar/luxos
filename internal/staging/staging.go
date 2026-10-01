@@ -18,7 +18,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/units"
-	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 const (
@@ -271,33 +270,6 @@ func Install(stagingDir, rel string, content []byte) error {
 		return err
 	}
 	return os.Chmod(dest, fileMode)
-}
-
-// LockChanged reports whether the staged flake.lock differs from hostLock.
-// A missing hostLock counts as changed.
-func LockChanged(stagingDir, hostLock string) (bool, error) {
-	staged, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
-	if err != nil {
-		return false, err
-	}
-	host, err := os.ReadFile(hostLock)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return true, nil
-		}
-		return false, err
-	}
-	return !bytes.Equal(staged, host), nil
-}
-
-// CopyLockBack copies the staged flake.lock to hostLock via userfile.Write,
-// so it is owned by whoever owns hostLock's directory.
-func CopyLockBack(stagingDir, hostLock string) error {
-	data, err := os.ReadFile(filepath.Join(stagingDir, lockFileName))
-	if err != nil {
-		return err
-	}
-	return userfile.Write(hostLock, data)
 }
 
 type LockInput struct {

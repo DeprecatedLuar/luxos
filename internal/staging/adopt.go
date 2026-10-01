@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DeprecatedLuar/luxos/internal/userfile"
+	"github.com/DeprecatedLuar/luxos/internal/config"
 )
 
 // owned lists every entry in the staging root luxos generates and may
@@ -95,11 +95,11 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 		return nil, ErrNoBackupDir
 	}
 
-	if err := userfile.MkdirAll(backupDir); err != nil {
+	if err := config.MkdirAll(backupDir); err != nil {
 		return nil, err
 	}
 	leaf := filepath.Join(backupDir, time.Now().UTC().Format(backupTimeFormat))
-	if err := userfile.Mkdir(leaf); err != nil {
+	if err := config.Mkdir(leaf); err != nil {
 		return nil, err
 	}
 	for _, name := range strangers {
@@ -108,7 +108,7 @@ func Adopt(stagingDir, backupDir string) ([]Change, error) {
 		if err := move(src, dst); err != nil {
 			return nil, fmt.Errorf("move %s to %s: %w", src, dst, err)
 		}
-		if err := userfile.ChownTree(dst); err != nil {
+		if err := config.ChownTree(dst); err != nil {
 			return nil, fmt.Errorf("chown %s: %w", dst, err)
 		}
 		changes = append(changes, Change{Kind: ChangeMoved, Path: src, Dest: dst})

@@ -1,10 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 // plsDontTouchFile, MachineFile and selectionFile are required regular files
@@ -20,6 +25,8 @@ const (
 	localModulesDir  = "modules"
 
 	plsDontTouchMode = 0444
+
+	machineTemplate = "starters/machine.nix"
 )
 
 // A host is a directory there holding modules.nix.
@@ -108,4 +115,62 @@ func ProtectHost(hostDir string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// ensureMachineFile writes the host's machine.nix from the starter when it is missing.
+func ensureMachineFile(out *progress, hostDir string) error {
+	tmpl, err := templates.File(machineTemplate)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(hostDir, MachineFile)
+	created, err := CreateFile(path, tmpl)
+	if err != nil {
+		return err
+	}
+	if created {
+		out.printf("  created: %s\n", path)
+	}
+	return nil
+}
+
+func readBaseChannel(path string) (string, error) {
+	url, _, err := nix.BaseChannel(path)
+	if errors.Is(err, nix.ErrNoBaseChannel) {
+		return "", fmt.Errorf("%s: %w\n  add: %s", path, err, baseChannelHint())
+	}
+	return url, err
+}
+
+func baseChannelHint() string {
+	tmpl, err := templates.File(machineTemplate)
+	if err == nil {
+		for _, line := range strings.Split(string(tmpl), "\n") {
+			if strings.Contains(line, nix.BaseChannelInput+".url") {
+				return strings.TrimSpace(line)
+			}
+		}
+	}
+	return "flake-file.inputs.nixpkgs.url = \"<flake url>\";"
+}
+
+// checkMachineFile fails when the machine.nix at path holds any static or
+// dynamic path literal.
+func checkMachineFile(path string) error {
+	static, err := nix.Paths(path)
+	if err != nil {
+		return err
+	}
+	dynamic, err := nix.DynamicPaths(path)
+	if err != nil {
+		return err
+	}
+	offenders := append(static, dynamic...)
+	if len(offenders) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s holds path literals or imports: %s\n"+
+		"paths in machine.nix resolve against the staged copy at /etc/nixos/config/, not the host folder, "+
+		"and module selection belongs in modules.nix; add a module with:\n  luxos module enable <name>",
+		path, strings.Join(offenders, ", "))
 }

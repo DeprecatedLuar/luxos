@@ -1254,15 +1254,9 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 //──[scoping]──────────────────────────────────────────────────────────────
 
-// activeHost resolves the active host's name from modules/local (L5),
-// the symlink links.EnsureLocalModules maintains to
-// <p.Machines>/<host>/modules — its parent directory's base name.
+// activeHost resolves the active host's name from the modules/local link.
 func activeHost(p paths.Paths) (string, error) {
-	real, err := filepath.EvalSymlinks(filepath.Join(p.Modules, localLinkName))
-	if err != nil {
-		return "", fmt.Errorf("no active host: modules/local is missing, run luxos rebuild first")
-	}
-	return filepath.Base(filepath.Dir(real)), nil
+	return config.ActiveHost(p.Modules)
 }
 
 // moduleScope picks the host/localDirs scope remove/rename operate under,

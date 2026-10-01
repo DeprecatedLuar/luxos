@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
-	"github.com/DeprecatedLuar/luxos/internal/links"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
@@ -178,7 +178,7 @@ func twoHostScopeFixture(t *testing.T) paths.Paths {
 	modules := filepath.Join(config, "modules")
 	mustMkdirAll(t, modules)
 
-	if err := links.EnsureLocalModules(local, modules, "host1"); err != nil {
+	if err := config_.EnsureLocalModules(local, modules, "host1"); err != nil {
 		t.Fatalf("EnsureLocalModules: %v", err)
 	}
 	// host2 has no active symlink, but still needs its own local dir.
@@ -576,7 +576,7 @@ func bundleFixture(t *testing.T) paths.Paths {
 	for _, h := range []string{"host1", "host2"} {
 		write(t, filepath.Join(p.Machines, h, hostEntrypoint), emptyImports)
 	}
-	if err := links.EnsureMirror(p.Machines, p.Modules, "host1"); err != nil {
+	if err := config_.EnsureMirror(p.Machines, p.Modules, "host1"); err != nil {
 		t.Fatalf("EnsureMirror: %v", err)
 	}
 	return p

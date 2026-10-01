@@ -403,61 +403,6 @@ func mustJoin(t *testing.T, base string, elem ...string) string {
 	return full
 }
 
-func TestLockChanged(t *testing.T) {
-	stagingDir := t.TempDir()
-	hostLock := filepath.Join(t.TempDir(), "flake.lock")
-	if err := os.WriteFile(filepath.Join(stagingDir, "flake.lock"), []byte("a"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if changed, err := LockChanged(stagingDir, hostLock); err != nil || !changed {
-		t.Errorf("missing host lock: changed=%v err=%v, want true", changed, err)
-	}
-
-	if err := os.WriteFile(hostLock, []byte("a"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := LockChanged(stagingDir, hostLock); err != nil || changed {
-		t.Errorf("same content: changed=%v err=%v, want false", changed, err)
-	}
-
-	if err := os.WriteFile(hostLock, []byte("b"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := LockChanged(stagingDir, hostLock); err != nil || !changed {
-		t.Errorf("different content: changed=%v err=%v, want true", changed, err)
-	}
-}
-
-func TestLockChanged_MissingStagedLockErrors(t *testing.T) {
-	if _, err := LockChanged(t.TempDir(), filepath.Join(t.TempDir(), "flake.lock")); err == nil {
-		t.Fatal("want error when the staged lock is missing")
-	}
-}
-
-func TestCopyLockBack(t *testing.T) {
-	stagingDir := t.TempDir()
-	hostLock := filepath.Join(t.TempDir(), "flake.lock")
-	if err := os.WriteFile(filepath.Join(stagingDir, "flake.lock"), []byte("locked"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := CopyLockBack(stagingDir, hostLock); err != nil {
-		t.Fatalf("CopyLockBack: %v", err)
-	}
-	data, err := os.ReadFile(hostLock)
-	if err != nil || string(data) != "locked" {
-		t.Errorf("host lock = %q, err=%v, want %q", data, err, "locked")
-	}
-	info, err := os.Stat(hostLock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != fileMode {
-		t.Errorf("host lock mode = %v, want %v", info.Mode().Perm(), fileMode)
-	}
-}
-
 const luxosLockFixture = `{"nodes":{"luxos":{"locked":{"lastModified":1790088510,"narHash":"sha256-7Qp0Ew+0CZeNZjnKSuWI4GTdNllVrPPYzAcTcSGAybw=","owner":"DeprecatedLuar","repo":"luxos","rev":"769dcdb00b27f4aea190db70d1a9d65d858c788d","type":"github"},"original":{"owner":"DeprecatedLuar","ref":"main","repo":"luxos","type":"github"}},"root":{"inputs":{"luxos":"luxos"}}},"root":"root","version":7}`
 
 func writeLock(t *testing.T, content string) string {

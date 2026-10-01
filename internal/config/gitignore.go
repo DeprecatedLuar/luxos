@@ -1,18 +1,16 @@
-package gitignore
+package config
 
 import (
 	"bufio"
 	"errors"
 	"os"
 	"strings"
-
-	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
-// Exact match, ignoring a trailing '\r' and trailing whitespace. Preserves
+// ensureGitignore adds each missing line to the file at path. A line matches exactly, ignoring a trailing '\r' and trailing whitespace. Preserves
 // existing content and order. Creates the file if it does not exist; a created
 // file gets its parent directory's owner. Returns the lines that were actually added, in the order given.
-func Ensure(path string, lines []string) (added []string, err error) {
+func ensureGitignore(path string, lines []string) (added []string, err error) {
 	existing, err := readLines(path)
 	if err != nil {
 		return nil, err
@@ -53,7 +51,7 @@ func Ensure(path string, lines []string) (added []string, err error) {
 	}
 
 	if missing {
-		if err := userfile.Write(path, []byte(b.String())); err != nil {
+		if err := WriteFile(path, []byte(b.String())); err != nil {
 			return nil, err
 		}
 		return toAdd, nil

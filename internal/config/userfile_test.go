@@ -1,4 +1,4 @@
-package userfile
+package config
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 func TestWriteCreates(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f")
-	if err := Write(p, []byte("hi")); err != nil {
+	if err := WriteFile(p, []byte("hi")); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(p)
@@ -34,7 +34,7 @@ func TestWriteKeepsInode(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.Stat(p)
-	if err := Write(p, []byte("new")); err != nil {
+	if err := WriteFile(p, []byte("new")); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.Stat(p)
@@ -48,14 +48,14 @@ func TestWriteKeepsInode(t *testing.T) {
 }
 
 func TestWriteMissingParent(t *testing.T) {
-	if err := Write(filepath.Join(t.TempDir(), "no", "f"), []byte("x")); err == nil {
+	if err := WriteFile(filepath.Join(t.TempDir(), "no", "f"), []byte("x")); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestCreateMissing(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "f")
-	created, err := Create(p, []byte("x"))
+	created, err := CreateFile(p, []byte("x"))
 	if err != nil || !created {
 		t.Fatalf("created=%v err=%v", created, err)
 	}
@@ -70,7 +70,7 @@ func TestCreateExistingFile(t *testing.T) {
 	if err := os.WriteFile(p, nil, 0644); err != nil {
 		t.Fatal(err)
 	}
-	created, err := Create(p, []byte("x"))
+	created, err := CreateFile(p, []byte("x"))
 	if err != nil || created {
 		t.Fatalf("created=%v err=%v", created, err)
 	}
@@ -81,7 +81,7 @@ func TestCreateExistingFile(t *testing.T) {
 }
 
 func TestCreateExistingDir(t *testing.T) {
-	created, err := Create(t.TempDir(), []byte("x"))
+	created, err := CreateFile(t.TempDir(), []byte("x"))
 	if err != nil || created {
 		t.Fatalf("created=%v err=%v", created, err)
 	}

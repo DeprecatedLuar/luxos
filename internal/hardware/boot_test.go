@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -292,95 +291,5 @@ func TestRenderBoot_ParsesAsNix(t *testing.T) {
 	}
 	if _, err := nix.Parse(biosFile); err != nil {
 		t.Errorf("nix-instantiate --parse bios.nix: %v", err)
-	}
-}
-
-func TestEnsureBoot_ExistingFileUntouched(t *testing.T) {
-	dir := t.TempDir()
-	bootFile := filepath.Join(dir, "boot.nix")
-	original := []byte("{ ... }: { }\n")
-	if err := os.WriteFile(bootFile, original, 0600); err != nil {
-		t.Fatalf("write existing boot.nix: %v", err)
-	}
-
-	created, err := EnsureBoot(bootFile, filepath.Join(dir, "sys"), filepath.Join(dir, "mounts"))
-	if err != nil {
-		t.Fatalf("EnsureBoot: %v", err)
-	}
-	if created {
-		t.Errorf("EnsureBoot: created = true, want false")
-	}
-
-	got, err := os.ReadFile(bootFile)
-	if err != nil {
-		t.Fatalf("read boot.nix: %v", err)
-	}
-	if string(got) != string(original) {
-		t.Errorf("EnsureBoot changed content: got %q, want %q", got, original)
-	}
-	info, err := os.Stat(bootFile)
-	if err != nil {
-		t.Fatalf("stat boot.nix: %v", err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Errorf("EnsureBoot changed mode: got %v, want 0600", info.Mode().Perm())
-	}
-}
-
-func TestEnsureBoot_MissingFileWritesDetected(t *testing.T) {
-	dir := t.TempDir()
-	sysDir := filepath.Join(dir, "sys")
-	efiSys(t, sysDir)
-	mountsFile := writeMounts(t, dir, "/dev/sda1 /boot vfat rw 0 0")
-	bootFile := filepath.Join(dir, "boot.nix")
-
-	created, err := EnsureBoot(bootFile, sysDir, mountsFile)
-	if err != nil {
-		t.Fatalf("EnsureBoot: %v", err)
-	}
-	if !created {
-		t.Errorf("EnsureBoot: created = false, want true")
-	}
-
-	want, err := RenderBoot(Loader{EFI: true, Target: "/boot"})
-	if err != nil {
-		t.Fatalf("RenderBoot: %v", err)
-	}
-	got, err := os.ReadFile(bootFile)
-	if err != nil {
-		t.Fatalf("read boot.nix: %v", err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("EnsureBoot content mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
-	}
-
-	info, err := os.Stat(bootFile)
-	if err != nil {
-		t.Fatalf("stat boot.nix: %v", err)
-	}
-	if info.Mode().Perm() != 0644 {
-		t.Errorf("EnsureBoot mode = %v, want %v", info.Mode().Perm(), 0644)
-	}
-}
-
-func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
-	dir := t.TempDir()
-	sysDir := filepath.Join(dir, "sys")
-	// No EFI firmware and no mounts at all: BIOS detection also fails.
-	mountsFile := writeMounts(t, dir)
-	bootFile := filepath.Join(dir, "boot.nix")
-
-	created, err := EnsureBoot(bootFile, sysDir, mountsFile)
-	if err == nil {
-		t.Fatalf("EnsureBoot: want error, got nil")
-	}
-	if created {
-		t.Errorf("EnsureBoot: created = true, want false")
-	}
-	if !strings.Contains(err.Error(), bootFile) {
-		t.Errorf("EnsureBoot error %q does not mention %q", err.Error(), bootFile)
-	}
-	if _, statErr := os.Lstat(bootFile); !os.IsNotExist(statErr) {
-		t.Errorf("EnsureBoot: boot.nix was written despite the error")
 	}
 }

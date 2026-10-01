@@ -119,7 +119,7 @@ func flakeUpdate(args []string) (err error) {
 	}
 
 	hostLock := filepath.Join(hostDir, flakeLockName)
-	if err := staging.CopyLockBack(p.Staging, hostLock); err != nil {
+	if _, err := config.CopyLockBack(filepath.Join(p.Staging, flakeLockName), hostLock); err != nil {
 		return err
 	}
 

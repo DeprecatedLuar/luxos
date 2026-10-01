@@ -33,3 +33,34 @@ func TestRender(t *testing.T) {
 		t.Errorf("host not rendered:\n%s", out)
 	}
 }
+
+func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sys), "nix.gc") {
+		t.Error("system.nix must not define nix.gc")
+	}
+	for _, want := range []string{
+		"nix.optimise.automatic = lib.mkDefault true;",
+		"nix.settings.auto-optimise-store = lib.mkDefault true;",
+	} {
+		if !strings.Contains(string(sys), want) {
+			t.Errorf("system.nix missing %q", want)
+		}
+	}
+}
+
+func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sys), "config/local/hardware-support") {
+		t.Error("system.nix must not import hardware files")
+	}
+	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
+		t.Error("system.nix must not set RuntimeWatchdogSec")
+	}
+}

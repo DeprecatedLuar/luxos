@@ -1,4 +1,4 @@
-package gitignore
+package config
 
 import (
 	"os"
@@ -19,7 +19,7 @@ func TestEnsure_MissingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 
-	added, err := Ensure(path, []string{"a", "b"})
+	added, err := ensureGitignore(path, []string{"a", "b"})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestEnsure_AllPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	added, err := Ensure(path, []string{"a", "b"})
+	added, err := ensureGitignore(path, []string{"a", "b"})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestEnsure_SomeMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	added, err := Ensure(path, []string{"a", "b", "c"})
+	added, err := ensureGitignore(path, []string{"a", "b", "c"})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestEnsure_NoTrailingNewline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	added, err := Ensure(path, []string{"b"})
+	added, err := ensureGitignore(path, []string{"b"})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestEnsure_DuplicateRequestedLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 
-	added, err := Ensure(path, []string{"a", "a", "b", "a"})
+	added, err := ensureGitignore(path, []string{"a", "a", "b", "a"})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}

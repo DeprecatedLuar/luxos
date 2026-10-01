@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
 const efivarsRel = "firmware/efi/efivars"
@@ -136,30 +135,4 @@ func RenderBoot(l Loader) ([]byte, error) {
 		return nil, fmt.Errorf("hardware.RenderBoot: %w", err)
 	}
 	return out, nil
-}
-
-// An existing entry of any kind is left alone. A detection
-// failure is a hard error naming bootFile.
-func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
-	if _, err := os.Lstat(bootFile); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("hardware.EnsureBoot: stat %s: %w", bootFile, err)
-	}
-
-	loader, err := DetectBoot(sysDir, mountsFile)
-	if err != nil {
-		return false, fmt.Errorf("cannot detect the boot loader: %s\nwrite %s by hand to configure the boot loader", err, bootFile)
-	}
-
-	content, err := RenderBoot(loader)
-	if err != nil {
-		return false, err
-	}
-
-	if err := userfile.Write(bootFile, content); err != nil {
-		return false, fmt.Errorf("hardware.EnsureBoot: write %s: %w", bootFile, err)
-	}
-
-	return true, nil
 }
