@@ -26,13 +26,13 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
-			gohelp.Item("module|modules list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
-			gohelp.Item("module|modules add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
-			gohelp.Item("module|modules edit|e <name>", "Open a module in $EDITOR; top-level 'edit' is a shortcut for this"),
-			gohelp.Item("module|modules enable <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
-			gohelp.Item("module|modules disable <name>... [-y]", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
-			gohelp.Item("module|modules remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
-			gohelp.Item("module|modules rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
+			gohelp.Item("module|modules|m list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
+			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
+			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit' is a shortcut for this"),
+			gohelp.Item("module|modules|m enable|1 <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
+			gohelp.Item("module|modules|m disable|0 <name>... [-y]", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
+			gohelp.Item("module|modules|m remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
+			gohelp.Item("module|modules|m rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
@@ -85,12 +85,13 @@ func modulePage() *gohelp.Page {
 			gohelp.Item("list|ls [category-path] [--json]", "List modules (grouped by category); --json prints JSON"),
 			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
-			gohelp.Item("enable <name>...", "Enable one or more modules on this host"),
-			gohelp.Item("disable <name>... [-y]", "Disable one or more modules on this host"),
+			gohelp.Item("enable|1 <name>...", "Enable one or more modules on this host; a submodule also enables its bundle"),
+			gohelp.Item("disable|0 <name>... [-y]", "Disable one or more modules on this host; a bundle also disables its submodules"),
+			gohelp.Item("<bundle>", "List a bundle (shorthand for list <bundle>); a verb always wins over a bundle of the same name"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		).
-		Text("A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off) and the declared inputs, tab-separated. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
+		Text("A bundle is a folder module with a modules/ folder inside: everything outside modules/ is the bundle itself, imported whenever it is selected, and each module under modules/ is a submodule that a host selects separately. A submodule is addressed as <bundle>/<name> (eduardo/git) wherever a module name is accepted; modules reach other modules through luxos.modules by global name only, never a submodule. Renaming a submodule keeps it in its bundle. A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A name followed by ❄ declares flake inputs. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off) and the declared inputs, tab-separated. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
 }
 
 func userPage() *gohelp.Page {
@@ -100,8 +101,8 @@ func userPage() *gohelp.Page {
 			gohelp.Item("add|a <name> [--enable]", "Scaffold modules/users/<name>"),
 			gohelp.Item("list|ls [subpath] [--json]", "List users (or a users/ subcategory); --json prints them as JSON, fields as in the plain output"),
 			gohelp.Item("edit|e <name>", "Open a user module in $EDITOR"),
-			gohelp.Item("enable <name>...", "Enable one or more users on this host"),
-			gohelp.Item("disable <name>... [-y]", "Disable one or more users on this host"),
+			gohelp.Item("enable|1 <name>...", "Enable one or more users on this host"),
+			gohelp.Item("disable|0 <name>... [-y]", "Disable one or more users on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
 		).

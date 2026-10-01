@@ -48,7 +48,7 @@ func run(args []string) error {
 		return commands.Flake(withDefaultVerb(rest, "list"))
 	case "module":
 		return commands.Module(rest)
-	case "modules":
+	case "modules", "m":
 		return commands.Module(withDefaultVerb(rest, "list"))
 	case "list", "ls":
 		return commands.Module(append([]string{"list"}, rest...))

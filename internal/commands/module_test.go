@@ -556,3 +556,174 @@ func TestModuleRenderRemoved(t *testing.T) {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }
+
+const (
+	bundleName     = "luar"
+	bundlePath     = "users/luar"
+	subName        = "luar/demo"
+	subPath        = "users/luar/modules/demo.nix"
+	emptyImports   = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
+	hostEntrypoint = "modules.nix"
+)
+
+// bundleFixture is twoHostScopeFixture plus a shared bundle with one
+// submodule, the active host's mirror link, and empty selections.
+func bundleFixture(t *testing.T) paths.Paths {
+	t.Helper()
+	p := twoHostScopeFixture(t)
+	write(t, filepath.Join(p.Modules, bundlePath, "default.nix"), "{ }\n")
+	write(t, filepath.Join(p.Modules, subPath), "{ }\n")
+	for _, h := range []string{"host1", "host2"} {
+		write(t, filepath.Join(p.Machines, h, hostEntrypoint), emptyImports)
+	}
+	if err := links.EnsureMirror(p.Machines, p.Modules, "host1"); err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	return p
+}
+
+func hostImports(t *testing.T, p paths.Paths, host string) []string {
+	t.Helper()
+	got, err := imports.List(filepath.Join(p.Machines, host, hostEntrypoint))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+
+	if err := toggleModule(p, subName, true); err != nil {
+		t.Fatalf("toggleModule: %v", err)
+	}
+	got := hostImports(t, p, "host1")
+	if want := []string{bundlePath, subPath}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("imports = %v, want %v", got, want)
+	}
+}
+
+func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	if err := toggleModule(p, subName, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := toggleModule(p, bundleName, false); err != nil {
+		t.Fatalf("toggleModule: %v", err)
+	}
+	if got := hostImports(t, p, "host1"); len(got) != 0 {
+		t.Errorf("imports = %v, want none", got)
+	}
+}
+
+func TestToggleModule_DisableSubmoduleKeepsBundle(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	if err := toggleModule(p, subName, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := toggleModule(p, subName, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath {
+		t.Errorf("imports = %v, want only the bundle", got)
+	}
+}
+
+func TestModuleRemove_BundleRemovesSubmoduleLinesEverywhere(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	for _, h := range []string{"host1", "host2"} {
+		write(t, filepath.Join(p.Machines, h, hostEntrypoint),
+			"{ ... }:\n{\n  imports = [\n    ./"+bundlePath+"\n    ./"+subPath+"\n  ];\n}\n")
+	}
+
+	if err := moduleRemove(p, []string{bundleName, "-y"}); err != nil {
+		t.Fatalf("moduleRemove: %v", err)
+	}
+	for _, h := range []string{"host1", "host2"} {
+		if got := hostImports(t, p, h); len(got) != 0 {
+			t.Errorf("%s imports = %v, want none", h, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, bundlePath)); !os.IsNotExist(err) {
+		t.Errorf("bundle still on disk: %v", err)
+	}
+}
+
+func TestModuleRemove_BundleShadowedHostKeepsSubmoduleLines(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	write(t, filepath.Join(p.Machines, "host2", "modules", bundleName, "default.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host2", "modules", bundleName, "modules", "demo.nix"), "{ }\n")
+	write(t, filepath.Join(p.Machines, "host2", hostEntrypoint),
+		"{ ... }:\n{\n  imports = [\n    ./local/"+bundleName+"\n    ./local/"+bundleName+"/modules/demo.nix\n  ];\n}\n")
+	write(t, filepath.Join(p.Machines, "host1", hostEntrypoint),
+		"{ ... }:\n{\n  imports = [\n    ./"+bundlePath+"\n    ./"+subPath+"\n  ];\n}\n")
+
+	if err := moduleRemove(p, []string{bundleName, "-y"}); err != nil {
+		t.Fatalf("moduleRemove: %v", err)
+	}
+	if got := hostImports(t, p, "host2"); len(got) != 2 {
+		t.Errorf("host2 imports = %v, want both lines kept", got)
+	}
+}
+
+func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	if err := toggleModule(p, subName, true); err != nil {
+		t.Fatal(err)
+	}
+
+	err := moduleRename(p, []string{subName, "luar/other", "-y"})
+	if err == nil || !strings.Contains(err.Error(), "rename keeps a submodule in its bundle: give only the new name") {
+		t.Fatalf("err = %v", err)
+	}
+
+	if err := moduleRename(p, []string{subName, "demo2", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "users/luar/modules/demo2.nix")); err != nil {
+		t.Errorf("renamed file missing: %v", err)
+	}
+	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath+",users/luar/modules/demo2.nix" {
+		t.Errorf("imports = %v", got)
+	}
+}
+
+func TestModuleRename_SubmoduleCollisionIsQualified(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	write(t, filepath.Join(p.Modules, "users/luar/modules/taken.nix"), "{ }\n")
+	// the same bare name in another bundle is not a collision
+	write(t, filepath.Join(p.Modules, "users/bob/default.nix"), "{ }\n")
+	write(t, filepath.Join(p.Modules, "users/bob/modules/demo2.nix"), "{ }\n")
+
+	err := moduleRename(p, []string{subName, "taken", "-y"})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v", err)
+	}
+	if err := moduleRename(p, []string{subName, "demo2", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+}
+
+func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	if err := toggleModule(p, subName, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := moduleRename(p, []string{bundleName, "luar2", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+	want := "users/luar2,users/luar2/modules/demo.nix"
+	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != want {
+		t.Errorf("imports = %v, want %s", got, want)
+	}
+}

@@ -31,6 +31,10 @@ const localPrefix = "local/"
 
 const localModulesSubdir = "modules"
 
+// bundleModulesInfix separates a bundle's path from its submodules' in an
+// import path.
+const bundleModulesInfix = "/modules/"
+
 // New == "" means the line was removed.
 type Change struct {
 	File, Old, New string
@@ -103,19 +107,9 @@ func Retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Ch
 }
 
 func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, []string, error) {
-	all, err := entrypointsFor(machinesDir, host)
+	files, err := scopedEntrypoints(machinesDir, host, skipHosts)
 	if err != nil {
 		return nil, nil, err
-	}
-	skip := make(map[string]bool, len(skipHosts))
-	for _, h := range skipHosts {
-		skip[h] = true
-	}
-	var files []string
-	for _, f := range all {
-		if !skip[filepath.Base(filepath.Dir(f))] {
-			files = append(files, f)
-		}
 	}
 
 	match := func(p string) bool { return units.NameFromPath(p) == name }
@@ -139,6 +133,48 @@ func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Ch
 	}
 
 	return changes, warnings, nil
+}
+
+// RetargetPrefix rewrites every import line that selects a submodule of the
+// bundle at oldPrefix (a path starting with oldPrefix + "/modules/") so the
+// bundle prefix becomes newPrefix, or deletes the line when newPrefix is "".
+// Host scope and skipHosts are those of Retarget; a host whose file isn't
+// recognizable is left untouched.
+func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []string) ([]Change, error) {
+	files, err := scopedEntrypoints(machinesDir, host, skipHosts)
+	if err != nil {
+		return nil, err
+	}
+
+	var changes []Change
+	for _, file := range files {
+		paths, ok, err := nixsrc.ListImports(file)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		done := make(map[string]bool)
+		for _, path := range paths {
+			if !strings.HasPrefix(path, oldPrefix+bundleModulesInfix) || done[path] {
+				continue
+			}
+			done[path] = true
+			newPath := ""
+			if newPrefix != "" {
+				newPath = newPrefix + strings.TrimPrefix(path, oldPrefix)
+			}
+			old, _, err := nixsrc.RetargetImports(file, func(p string) bool { return p == path }, newPath)
+			if err != nil {
+				return nil, err
+			}
+			for _, o := range old {
+				changes = append(changes, Change{File: file, Old: o, New: newPath})
+			}
+		}
+	}
+	return changes, nil
 }
 
 // Heal rewrites every broken import line in every host's entrypoint,
@@ -281,6 +317,25 @@ func hostEntrypoints(machinesDir string) ([]string, error) {
 		}
 	}
 	sort.Strings(files)
+	return files, nil
+}
+
+// scopedEntrypoints is entrypointsFor without the entrypoints of skipHosts.
+func scopedEntrypoints(machinesDir, host string, skipHosts []string) ([]string, error) {
+	all, err := entrypointsFor(machinesDir, host)
+	if err != nil {
+		return nil, err
+	}
+	skip := make(map[string]bool, len(skipHosts))
+	for _, h := range skipHosts {
+		skip[h] = true
+	}
+	var files []string
+	for _, f := range all {
+		if !skip[filepath.Base(filepath.Dir(f))] {
+			files = append(files, f)
+		}
+	}
 	return files, nil
 }
 

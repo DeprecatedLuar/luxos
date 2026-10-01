@@ -35,9 +35,9 @@ func User(args []string) error {
 		return userList(p, rest)
 	case "edit", "e":
 		return moduleEdit(p, rest)
-	case "enable":
+	case "enable", "1":
 		return moduleEnable(p, rest)
-	case "disable":
+	case "disable", "0":
 		return moduleDisable(p, rest)
 	case "remove", "rm":
 		return moduleRemove(p, rest)

@@ -447,3 +447,77 @@ func TestRetarget_SkipHosts(t *testing.T) {
 		t.Errorf("skipped host was rewritten: %v", got1)
 	}
 }
+
+func bundleHosts(t *testing.T) (machinesDir, host1, host2 string) {
+	t.Helper()
+	machinesDir = t.TempDir()
+	host1 = filepath.Join(machinesDir, "host1", "modules.nix")
+	host2 = filepath.Join(machinesDir, "host2", "modules.nix")
+	body := "{ ... }:\n{\n  imports = [\n    ./users/luar\n    ./users/luar/modules/git.nix\n    ./users/luar/modules/cli/zsh.nix\n    ./users/luarx/modules/git.nix\n  ];\n}\n"
+	mustWriteFile(t, host1, body)
+	mustWriteFile(t, host2, body)
+	return
+}
+
+func TestRetargetPrefix_Rename(t *testing.T) {
+	skipIfNoNix(t)
+	machinesDir, host1, host2 := bundleHosts(t)
+
+	changes, err := RetargetPrefix(machinesDir, "users/luar", "users/lua", "", nil)
+	if err != nil {
+		t.Fatalf("RetargetPrefix: %v", err)
+	}
+	if len(changes) != 4 {
+		t.Fatalf("changes = %v, want 4 (two lines in each host)", changes)
+	}
+	want := []string{"users/luar", "users/lua/modules/git.nix", "users/lua/modules/cli/zsh.nix", "users/luarx/modules/git.nix"}
+	for _, f := range []string{host1, host2} {
+		got, err := List(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("List(%s) = %v, want %v", f, got, want)
+		}
+	}
+}
+
+func TestRetargetPrefix_Remove(t *testing.T) {
+	skipIfNoNix(t)
+	machinesDir, host1, _ := bundleHosts(t)
+
+	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "", nil); err != nil {
+		t.Fatalf("RetargetPrefix: %v", err)
+	}
+	got, err := List(host1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"users/luar", "users/luarx/modules/git.nix"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("List = %v, want %v", got, want)
+	}
+}
+
+func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
+	skipIfNoNix(t)
+	machinesDir, host1, host2 := bundleHosts(t)
+
+	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "host1", nil); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := List(host2)
+	if len(got2) != 4 {
+		t.Errorf("host2 touched by host-scoped call: %v", got2)
+	}
+
+	machinesDir, host1, host2 = bundleHosts(t)
+	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "", []string{"host2"}); err != nil {
+		t.Fatal(err)
+	}
+	got1, _ := List(host1)
+	got2, _ = List(host2)
+	if len(got1) != 2 || len(got2) != 4 {
+		t.Errorf("host1 = %v, host2 = %v", got1, got2)
+	}
+}

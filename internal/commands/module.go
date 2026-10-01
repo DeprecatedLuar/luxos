@@ -76,6 +76,9 @@ const (
 
 const flakeMark = "❄"
 
+// nameSep separates a submodule's name from its bundle's.
+const nameSep = "/"
+
 const stagedModulesRel = "config/modules"
 
 const plainColumnSep = "\t"
@@ -141,16 +144,23 @@ func Module(args []string) error {
 		return moduleAdd(p, rest)
 	case "edit", "e":
 		return moduleEdit(p, rest)
-	case "enable":
+	case "enable", "1":
 		return moduleEnable(p, rest)
-	case "disable":
+	case "disable", "0":
 		return moduleDisable(p, rest)
 	case "remove", "rm":
 		return moduleRemove(p, rest)
 	case "rename", "rn":
 		return moduleRename(p, rest)
 	default:
-		return fmt.Errorf("unknown module command: %s", verb)
+		path, found, err := resolveUnitPath(p.Modules, verb)
+		if err != nil {
+			return err
+		}
+		if found && units.IsBundle(filepath.Join(p.Modules, path)) {
+			return moduleList(p, args)
+		}
+		return fmt.Errorf("unknown module command: %s (list|add|edit|enable|1|disable|0|remove|rename, or a bundle name)", verb)
 	}
 }
 
@@ -1024,6 +1034,12 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 		return fmt.Errorf("no active host entrypoint at %s — run setup or nixos-rebuild first", entrypoint)
 	}
 
+	if enable {
+		if err := enableBundles(p, entrypoint, name); err != nil {
+			return err
+		}
+	}
+
 	existingPath, isEnabled, err := enabledPathForName(entrypoint, name)
 	if err != nil {
 		return err
@@ -1037,11 +1053,70 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 		return imports.Add(entrypoint, resolvedPath)
 	}
 
+	subs, err := disableSubmodules(p, entrypoint, name, resolvedPath)
+	if err != nil {
+		return err
+	}
 	if !isEnabled {
-		fmt.Printf("'%s' is already disabled\n", name)
+		if !subs {
+			fmt.Printf("'%s' is already disabled\n", name)
+		}
 		return nil
 	}
 	return imports.Remove(entrypoint, existingPath)
+}
+
+// enableBundles enables every not-yet-enabled bundle that name is inside,
+// outermost first.
+func enableBundles(p paths.Paths, entrypoint, name string) error {
+	var chain []string
+	for b := units.Parent(name); b != ""; b = units.Parent(b) {
+		chain = append([]string{b}, chain...)
+	}
+	for _, bundle := range chain {
+		path, found, err := resolveUnitPath(p.Modules, bundle)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("unknown module '%s'", bundle)
+		}
+		if _, on, err := enabledPathForName(entrypoint, bundle); err != nil {
+			return err
+		} else if on {
+			continue
+		}
+		if err := imports.Add(entrypoint, path); err != nil {
+			return err
+		}
+		fmt.Printf("enabled '%s' (bundle of '%s')\n", bundle, name)
+	}
+	return nil
+}
+
+// disableSubmodules removes every enabled line for a submodule of name when
+// name is a bundle, reporting whether any was removed.
+func disableSubmodules(p paths.Paths, entrypoint, name, path string) (bool, error) {
+	if !units.IsBundle(filepath.Join(p.Modules, path)) {
+		return false, nil
+	}
+	enabledPaths, err := imports.List(entrypoint)
+	if err != nil {
+		return false, err
+	}
+	removed := false
+	for _, ip := range enabledPaths {
+		sub := units.NameFromPath(ip)
+		if !strings.HasPrefix(sub, name+nameSep) {
+			continue
+		}
+		if err := imports.Remove(entrypoint, ip); err != nil {
+			return removed, err
+		}
+		fmt.Printf("disabled '%s' (submodule of '%s')\n", sub, name)
+		removed = true
+	}
+	return removed, nil
 }
 
 func moduleEnable(p paths.Paths, args []string) error {
@@ -1177,7 +1252,7 @@ func shadowingHosts(p paths.Paths, name string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(filepath.Dir(dir)), err)
 		}
-		if u, ok := units.Find(us, name); ok && u.Shadows != "" {
+		if u, ok := units.Find(us, units.Top(name)); ok && u.Shadows != "" {
 			hosts = append(hosts, filepath.Base(filepath.Dir(dir)))
 		}
 	}
@@ -1314,6 +1389,11 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if _, err := imports.Retarget(p.Machines, name, "", host, skipHosts); err != nil {
 		return err
 	}
+	if units.IsBundle(filepath.Join(p.Modules, path)) {
+		if _, err := imports.RetargetPrefix(p.Machines, path, "", host, skipHosts); err != nil {
+			return err
+		}
+	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
 		return err
 	}
@@ -1364,12 +1444,20 @@ func moduleRename(p paths.Paths, args []string) error {
 		return errHardwareUnit
 	}
 
+	newQualified := newName
+	if parent := units.Parent(oldName); parent != "" {
+		if strings.Contains(newName, nameSep) {
+			return fmt.Errorf("rename keeps a submodule in its bundle: give only the new name")
+		}
+		newQualified = parent + nameSep + newName
+	}
+
 	shadowedPath := ""
-	if existingPath, found, err := resolveUnitPath(p.Modules, newName); err != nil {
+	if existingPath, found, err := resolveUnitPath(p.Modules, newQualified); err != nil {
 		return err
 	} else if found {
 		if !shadowsShared(oldPath, existingPath) {
-			return fmt.Errorf("module name '%s' already exists at modules/%s", newName, existingPath)
+			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existingPath)
 		}
 		shadowedPath = existingPath
 	}
@@ -1415,7 +1503,8 @@ func moduleRename(p paths.Paths, args []string) error {
 	// writing anything, refusing the whole operation on a bad shape): a
 	// refusal here leaves the unit unmoved and every host entrypoint
 	// untouched.
-	if _, err := refs.Retarget(p.Modules, localDirs, oldName, newName); err != nil {
+	bundle := units.IsBundle(oldFull)
+	if _, err := refs.Retarget(p.Modules, localDirs, oldName, newQualified); err != nil {
 		return err
 	}
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
@@ -1424,8 +1513,13 @@ func moduleRename(p paths.Paths, args []string) error {
 	if _, err := imports.Retarget(p.Machines, oldName, newPath, host, skipHosts); err != nil {
 		return err
 	}
+	if bundle {
+		if _, err := imports.RetargetPrefix(p.Machines, oldPath, newPath, host, skipHosts); err != nil {
+			return err
+		}
+	}
 
-	if category == "users" || strings.HasPrefix(category, "users/") {
+	if units.Parent(oldName) == "" && (category == "users" || strings.HasPrefix(category, "users/")) {
 		fmt.Printf("Note: the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.\n", newPath, oldName)
 	}
 
