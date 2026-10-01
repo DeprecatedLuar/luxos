@@ -13,6 +13,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
@@ -454,7 +455,7 @@ func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treeP
 // noteColor returns the palette color of a row note: teal for an available
 // update, off for unknown.
 func noteColor(pal treePalette, note string) string {
-	if note == flakeNoteBehind {
+	if flake.Note(note) == flake.NoteBehind {
 		return pal.teal
 	}
 	return pal.off

@@ -9,16 +9,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
 const flakeFlagSpec = "machine:value config|C:value"
@@ -30,27 +29,12 @@ const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 const (
 	flakeInputsLabel = "inputs/"
 
-	// Rev-pinned in the embedded bootstrap, never actionable, never listed.
-	flakeFileInput = "flake-file"
-
-	flakeNoteBehind  = "↑"
-	flakeNoteUnknown = "?"
-
-	flakeStatusBehind  = "behind"
-	flakeStatusCurrent = "current"
-	flakeStatusUnknown = "unknown"
-
 	flakeViewCommitsCurrent = "0"
 
 	flakeViewListSep = " "
 )
 
 const (
-	flakeSharedDisplayDir = "modules"
-	flakeLocalDisplayDir  = "local/modules"
-
-	flakeMachinesDisplayDir = ".local/machines"
-
 	flakeSourceDefaultBranch = " (default branch)"
 	flakeDeclaredBuiltIn     = "built in"
 	flakeDeclaredPulledIn    = "pulled in by "
@@ -58,15 +42,10 @@ const (
 	flakeNotLocked           = "not locked yet (the next rebuild locks it)"
 	flakeUpToDate            = "  up to date"
 	flakeCommitsFormat       = "  +%d commits"
-	flakeShortRevLen         = 7
 	flakePullsInSep          = ", "
 	flakePathSep             = "/"
 	flakeViewSep             = "\n"
 )
-
-// Declared by the embedded bootstrap flake, so they are declared even when no
-// module says so, and always sit at the tree root.
-var flakeBuiltinInputs = []string{"luxos", "nixpkgs"}
 
 func Flake(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
@@ -177,18 +156,23 @@ func flakeList(args []string) error {
 		return err
 	}
 
-	decls, err := flakeDeclarations(p, hostDir)
+	h, err := modules.Load(p.Modules, hostDir)
 	if err != nil {
 		return err
 	}
+	sites, err := flake.Declarations(h)
+	if err != nil {
+		return err
+	}
+	decls := flake.Units(sites)
 	graph, err := nix.ReadLock(filepath.Join(hostDir, flakeLockName))
 	if err != nil {
 		return err
 	}
 
-	var notes map[string]string
+	var notes map[string]flake.Note
 	if opts["offline"] == "" {
-		notes = flakeUpstreamNotes(graph)
+		notes = flake.Notes(flake.GitHub{}, graph)
 	}
 	rows := flakeBuildRows(decls, graph, notes)
 
@@ -252,178 +236,13 @@ func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 }
 
-// Unknown when offline, not locked, or its check failed; behind or current otherwise.
-func flakeStatus(locked, online bool, note string) string {
-	switch {
-	case !locked || !online || note == flakeNoteUnknown:
-		return flakeStatusUnknown
-	case note == flakeNoteBehind:
-		return flakeStatusBehind
-	default:
-		return flakeStatusCurrent
-	}
-}
-
-// Checks the upstream tip of every locked node reachable from the root
-// (flake-file excluded), one goroutine per node. Returns node key -> note:
-// flakeNoteBehind when the tip differs from the locked rev, flakeNoteUnknown
-// on any failure, absent when equal.
-func flakeUpstreamNotes(graph nix.Lock) map[string]string {
-	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
-	keys := map[string]bool{}
-	var walk func(key string)
-	walk = func(key string) {
-		if keys[key] {
-			return
-		}
-		keys[key] = true
-		for _, target := range graph.Nodes[key].Inputs {
-			walk(target)
-		}
-	}
-	for name, key := range rootInputs {
-		if name != flakeFileInput {
-			walk(key)
-		}
-	}
-	delete(keys, nix.LockRootNode)
-
-	notes := map[string]string{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	for key := range keys {
-		node := graph.Nodes[key]
-		if node.Locked.Rev == "" {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			note := ""
-			tip, err := upstream.Tip(node.Original)
-			switch {
-			case err != nil:
-				note = flakeNoteUnknown
-			case tip != node.Locked.Rev:
-				note = flakeNoteBehind
-			}
-			if note != "" {
-				mu.Lock()
-				notes[key] = note
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-	return notes
-}
-
-type flakeDecl struct {
-	unit string
-	file string
-	line int
-	url  string
-}
-
-func flakeDeclarations(p paths.Paths, hostDir string) (map[string][]string, error) {
-	sites, err := flakeDeclSites(p, hostDir)
-	if err != nil {
-		return nil, err
-	}
-	return flakeUnitsByInput(sites), nil
-}
-
-func flakeUnitsByInput(sites map[string][]flakeDecl) map[string][]string {
-	out := make(map[string][]string, len(sites))
-	for input, decls := range sites {
-		set := map[string]bool{}
-		for _, d := range decls {
-			if d.unit != "" && !set[d.unit] {
-				set[d.unit] = true
-				out[input] = append(out[input], d.unit)
-			}
-		}
-		sort.Strings(out[input])
-	}
-	return out
-}
-
-func flakeDeclSites(p paths.Paths, hostDir string) (map[string][]flakeDecl, error) {
-	h, err := modules.Load(p.Modules, hostDir)
-	if err != nil {
-		return nil, err
-	}
-	built, err := h.Built()
-	if err != nil {
-		return nil, err
-	}
-
-	out := map[string][]flakeDecl{}
-	for _, u := range built {
-		display := flakeSharedDisplayDir
-		if strings.HasPrefix(u.Path, modules.LocalPrefix) {
-			display = flakeLocalDisplayDir
-		}
-		files, err := u.Files()
-		if err != nil {
-			return nil, err
-		}
-		fileDecls, err := nix.InputDecls(files...)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range fileDecls {
-			fileRel, err := filepath.Rel(u.Root(), d.File)
-			if err != nil {
-				return nil, err
-			}
-			out[d.Name] = append(out[d.Name], flakeDecl{
-				unit: u.Path,
-				file: filepath.ToSlash(filepath.Join(display, fileRel)),
-				line: d.Line,
-				url:  d.URL,
-			})
-		}
-	}
-	base, err := flakeBaseChannelDecl(hostDir)
-	if err != nil {
-		return nil, err
-	}
-	if base != nil {
-		out[nix.BaseChannelInput] = append(out[nix.BaseChannelInput], *base)
-	}
-	for _, decls := range out {
-		sort.Slice(decls, func(i, j int) bool {
-			if decls[i].file != decls[j].file {
-				return decls[i].file < decls[j].file
-			}
-			return decls[i].line < decls[j].line
-		})
-	}
-	return out, nil
-}
-
-// Nil when the host's machine.nix has no base channel (the rebuild preflight
-// reports that). Belongs to no unit.
-func flakeBaseChannelDecl(hostDir string) (*flakeDecl, error) {
-	url, line, err := nix.BaseChannel(filepath.Join(hostDir, config.MachineFile))
-	if errors.Is(err, nix.ErrNoBaseChannel) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	rel := filepath.Join(flakeMachinesDisplayDir, filepath.Base(hostDir), config.MachineFile)
-	return &flakeDecl{file: filepath.ToSlash(rel), line: line, url: url}, nil
-}
-
 // Builds the input tree's rows from declarations (input name -> declaring unit
 // paths) and the lock graph. notes maps a lock node key to the row note for
 // that node (nil: no notes).
-func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]string) []moduleRow {
+func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]flake.Note) []moduleRow {
 	builtin := map[string]bool{}
 	declared := map[string]bool{}
-	for _, name := range flakeBuiltinInputs {
+	for _, name := range flake.Builtin {
 		builtin[name] = true
 		declared[name] = true
 	}
@@ -443,7 +262,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 	for name := range locked {
 		names[name] = true
 	}
-	delete(names, flakeFileInput)
+	delete(names, flake.FileInput)
 
 	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
 
@@ -469,7 +288,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true}, notes)
 		}
 
-		var note string
+		var note flake.Note
 		if locked[name] {
 			note = notes[rootInputs[name]]
 		}
@@ -479,8 +298,8 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 			marker:   marker,
 			rank:     moduleMarkerRank(marker),
 			children: children,
-			note:     note,
-			status:   flakeStatus(locked[name], notes != nil, note),
+			note:     string(note),
+			status:   string(flake.StatusOf(locked[name], notes != nil, note)),
 		})
 	}
 	return rows
@@ -488,7 +307,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 
 // Recurses without depth limit. ancestors holds the node keys on the path from
 // the root input, so a cyclic lock cannot recurse forever.
-func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, notes map[string]string) []moduleRow {
+func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, notes map[string]flake.Note) []moduleRow {
 	var rows []moduleRow
 	for name, target := range graph.Nodes[key].Inputs {
 		if ancestors[target] {
@@ -500,8 +319,8 @@ func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, 
 			marker:   markerPulled,
 			rank:     moduleMarkerRank(markerPulled),
 			children: flakeTransitiveRows(graph, target, ancestors, notes),
-			note:     notes[target],
-			status:   flakeStatus(true, notes != nil, notes[target]),
+			note:     string(notes[target]),
+			status:   string(flake.StatusOf(true, notes != nil, notes[target])),
 		})
 		delete(ancestors, target)
 	}
@@ -509,18 +328,6 @@ func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, 
 }
 
 //──[show]─────────────────────────────────────────────────────────────────
-
-// Each part carries its own error so one failed request renders `?` for its
-// value only.
-type flakeUpstream struct {
-	tip        string
-	tipErr     error
-	tags       map[string]string
-	tagsErr    error
-	ahead      int
-	shas       []string // oldest first
-	compareErr error
-}
 
 type flakeLine struct {
 	label    string
@@ -565,7 +372,11 @@ func flakeShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	sites, err := flakeDeclSites(p, hostDir)
+	h, err := modules.Load(p.Modules, hostDir)
+	if err != nil {
+		return err
+	}
+	sites, err := flake.Declarations(h)
 	if err != nil {
 		return err
 	}
@@ -574,13 +385,13 @@ func flakeShow(args []string) error {
 		return err
 	}
 
-	var fetch func(nix.LockRef, string) *flakeUpstream
+	var up flake.Upstream
 	if opts["offline"] == "" {
-		fetch = flakeFetchUpstream
+		up = flake.GitHub{}
 	}
 	var views []flakeView
 	for _, name := range names {
-		found, err := flakeViewsFor(name, host, sites, graph, fetch)
+		found, err := flakeViewsFor(name, host, sites, graph, up)
 		if err != nil {
 			return err
 		}
@@ -616,17 +427,15 @@ func flakeShow(args []string) error {
 	return nil
 }
 
-func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph nix.Lock,
-	fetch func(nix.LockRef, string) *flakeUpstream) ([]flakeView, error) {
-
+func flakeViewsFor(name, host string, sites map[string][]flake.Decl, graph nix.Lock, up flake.Upstream) ([]flakeView, error) {
 	var views []flakeView
-	rootView, rootErr := flakeBuildView(name, host, sites, graph, fetch)
+	rootView, rootErr := flakeBuildView(name, host, sites, graph, up)
 	if rootErr == nil {
 		views = append(views, rootView)
 	}
 	if !strings.Contains(name, flakePathSep) {
-		for _, path := range flakeNestedPaths(graph, name) {
-			view, err := flakeBuildView(path, host, sites, graph, fetch)
+		for _, path := range flake.NestedPaths(graph, name) {
+			view, err := flakeBuildView(path, host, sites, graph, up)
 			if err != nil {
 				return nil, err
 			}
@@ -640,56 +449,18 @@ func flakeViewsFor(name, host string, sites map[string][]flakeDecl, graph nix.Lo
 	return views, nil
 }
 
-func flakeNestedPaths(graph nix.Lock, name string) []string {
-	var found []string
-	var walk func(key, prefix string, ancestors map[string]bool)
-	walk = func(key, prefix string, ancestors map[string]bool) {
-		inputs := graph.Nodes[key].Inputs
-		for _, child := range flakeSortedKeys(inputs) {
-			target := inputs[child]
-			if ancestors[target] || (prefix == "" && child == flakeFileInput) {
-				continue
-			}
-			path := child
-			if prefix != "" {
-				path = prefix + flakePathSep + child
-				if child == name {
-					found = append(found, path)
-				}
-			}
-			ancestors[target] = true
-			walk(target, path, ancestors)
-			delete(ancestors, target)
-		}
-	}
-	walk(nix.LockRootNode, "", map[string]bool{})
-	return found
-}
-
-func flakeFetchUpstream(ref nix.LockRef, locked string) *flakeUpstream {
-	up := &flakeUpstream{}
-	up.tip, up.tipErr = upstream.Tip(ref)
-	up.tags, up.tagsErr = upstream.Tags(ref)
-	if up.tipErr == nil && up.tip != locked {
-		up.ahead, up.shas, up.compareErr = upstream.Compare(ref, locked, up.tip)
-	}
-	return up
-}
-
-// fetch is nil offline.
-func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph nix.Lock,
-	fetch func(nix.LockRef, string) *flakeUpstream) (flakeView, error) {
-
+// up is nil offline.
+func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.Lock, up flake.Upstream) (flakeView, error) {
 	unknown := fmt.Errorf("no input '%s' for %s\n  list them with: luxos flakes", name, host)
 
 	segments := strings.Split(name, flakePathSep)
 	root := segments[0]
-	if root == flakeFileInput {
+	if root == flake.FileInput {
 		return flakeView{}, unknown
 	}
 
 	builtin := false
-	for _, b := range flakeBuiltinInputs {
+	for _, b := range flake.Builtin {
 		builtin = builtin || b == root
 	}
 	rootKey, locked := graph.Nodes[nix.LockRootNode].Inputs[root]
@@ -730,7 +501,7 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph nix.L
 	}
 	view.lines = append(view.lines, flakeDeclaredLine(parent, sites[root], builtin, view.marker))
 
-	versionLine, note, version := flakeVersionLine(node, hasNode, fetch)
+	versionLine, note, version := flakeVersionLine(node, hasNode, up)
 	view.note = note
 	view.lines = append(view.lines, versionLine)
 
@@ -744,13 +515,13 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph nix.L
 	var declaredSites []string
 	if view.marker != markerPulled {
 		for _, d := range sites[root] {
-			declaredSites = append(declaredSites, fmt.Sprintf("%s:%d", d.file, d.line))
+			declaredSites = append(declaredSites, fmt.Sprintf("%s:%d", d.File, d.Line))
 		}
 	}
 	view.data = flakeViewData{
 		name:     name,
 		state:    markerWord(view.marker),
-		status:   flakeStatus(hasNode && version.checked, true, note),
+		status:   string(flake.StatusOf(hasNode && version.checked, true, flake.Note(note))),
 		source:   strings.TrimSuffix(source, flakeSourceDefaultBranch),
 		declared: declaredSites,
 		current:  version.current,
@@ -763,10 +534,10 @@ func flakeBuildView(name, host string, sites map[string][]flakeDecl, graph nix.L
 
 // Appends the default-branch note when it names no ref. An unlocked input falls
 // back to its first declared url; with neither it is empty.
-func flakeSourceText(orig nix.LockRef, decls []flakeDecl, hasNode bool) string {
+func flakeSourceText(orig nix.LockRef, decls []flake.Decl, hasNode bool) string {
 	if !hasNode {
 		if len(decls) > 0 {
-			return decls[0].url
+			return decls[0].URL
 		}
 		return ""
 	}
@@ -790,16 +561,16 @@ func flakeSourceText(orig nix.LockRef, decls []flakeDecl, hasNode bool) string {
 	return text
 }
 
-func flakeDeclaredLine(parent string, decls []flakeDecl, builtin bool, marker string) flakeLine {
+func flakeDeclaredLine(parent string, decls []flake.Decl, builtin bool, marker string) flakeLine {
 	line := flakeLine{label: "declared"}
 	switch {
 	case marker == markerPulled:
 		line.value = flakeDeclaredPulledIn + parent
 	case len(decls) == 1:
-		line.value = fmt.Sprintf("%s:%d", decls[0].file, decls[0].line)
+		line.value = fmt.Sprintf("%s:%d", decls[0].File, decls[0].Line)
 	case len(decls) > 1:
 		for _, d := range decls {
-			line.children = append(line.children, flakeLine{value: fmt.Sprintf("%s:%d", d.file, d.line)})
+			line.children = append(line.children, flakeLine{value: fmt.Sprintf("%s:%d", d.File, d.Line)})
 		}
 	case builtin:
 		line.value = flakeDeclaredBuiltIn
@@ -817,77 +588,50 @@ type flakeVersion struct {
 	checked bool
 }
 
-// fetch nil (offline) shows the current rev only.
-func flakeVersionLine(node nix.LockNode, hasNode bool, fetch func(nix.LockRef, string) *flakeUpstream) (flakeLine, string, flakeVersion) {
+// flakeVersionLine renders a node's version from flake.Version; a nil up
+// (offline) shows the current rev only.
+func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (flakeLine, string, flakeVersion) {
 	line := flakeLine{label: "version"}
 	if !hasNode {
 		line.children = []flakeLine{{label: "current", value: flakeNotLocked}}
 		return line, "", flakeVersion{}
 	}
 
-	rev := node.Locked.Rev
-	var up *flakeUpstream
-	if fetch != nil && rev != "" {
-		up = fetch(node.Original, rev)
-	}
-
-	current := flakeShortRev(rev)
-	if up != nil {
-		if tag, ok := up.tags[rev]; ok {
-			current = tag
-		}
-	}
-	cur := flakeLine{label: "current", value: current}
-	version := flakeVersion{current: current}
-	if up == nil {
+	info := flake.Version(up, node)
+	cur := flakeLine{label: "current", value: info.Current}
+	version := flakeVersion{current: info.Current}
+	if !info.Checked {
 		line.children = []flakeLine{cur}
 		return line, "", version
 	}
 	version.checked = true
 
+	unknown := string(flake.NoteUnknown)
 	switch {
-	case up.tipErr != nil:
-		line.children = []flakeLine{cur, {label: "latest", value: flakeNoteUnknown}}
-		version.latest = flakeStatusUnknown
-		return line, flakeNoteUnknown, version
-	case up.tip == rev:
+	case info.Note == flake.NoteUnknown:
+		line.children = []flakeLine{cur, {label: "latest", value: unknown}}
+		version.latest = string(flake.StatusUnknown)
+		return line, unknown, version
+	case info.Note == "":
 		cur.value += flakeUpToDate
 		line.children = []flakeLine{cur}
 		version.commits = flakeViewCommitsCurrent
 		return line, "", version
 	}
 
-	latest := flakeLine{label: "latest"}
-	switch {
-	case errors.Is(up.compareErr, upstream.ErrUnsupported):
-		// No range to search: an exact tag on the tip or the tip itself.
-		latest.value = flakeShortRev(up.tip)
-		if tag, ok := up.tags[up.tip]; ok {
-			latest.value = tag
-		}
-	case up.compareErr != nil || (up.tagsErr != nil && !errors.Is(up.tagsErr, upstream.ErrUnsupported)):
-		latest.value = flakeNoteUnknown
-	default:
-		latest.value = flakeShortRev(up.tip)
-		for i := len(up.shas) - 1; i >= 0; i-- {
-			if tag, ok := up.tags[up.shas[i]]; ok {
-				latest.value = tag
-				break
-			}
-		}
-		if up.ahead > 0 {
-			latest.dim = fmt.Sprintf(flakeCommitsFormat, up.ahead)
-		}
+	latest := flakeLine{label: "latest", value: info.Latest}
+	if info.HasAhead && info.Ahead > 0 && info.Latest != unknown {
+		latest.dim = fmt.Sprintf(flakeCommitsFormat, info.Ahead)
 	}
 	line.children = []flakeLine{cur, latest}
-	version.latest = latest.value
-	if latest.value == flakeNoteUnknown {
-		version.latest = flakeStatusUnknown
+	version.latest = info.Latest
+	if info.Latest == unknown {
+		version.latest = string(flake.StatusUnknown)
 	}
-	if up.compareErr == nil {
-		version.commits = strconv.Itoa(up.ahead)
+	if info.HasAhead {
+		version.commits = strconv.Itoa(info.Ahead)
 	}
-	return line, flakeNoteBehind, version
+	return line, string(flake.NoteBehind), version
 }
 
 func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
@@ -947,13 +691,6 @@ func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
 		return writeJSON(w, objs[0])
 	}
 	return writeJSON(w, objs)
-}
-
-func flakeShortRev(rev string) string {
-	if len(rev) > flakeShortRevLen {
-		return rev[:flakeShortRevLen]
-	}
-	return rev
 }
 
 func flakeSortedKeys(m map[string]string) []string {

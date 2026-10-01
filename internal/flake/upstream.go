@@ -1,7 +1,4 @@
-// Package upstream is the network adapter for asking where a locked flake
-// input's source currently points: the GitHub commit feed and REST API over
-// HTTP (tip, tags, compare) and `git ls-remote`.
-package upstream
+package flake
 
 import (
 	"encoding/json"
@@ -41,14 +38,35 @@ var githubBase = "https://github.com"
 // A variable so tests can point it at a local server.
 var githubAPIBase = "https://api.github.com"
 
-var ErrUnsupported = errors.New("upstream: unsupported input type")
+// ErrUnsupported is returned for an input type upstream cannot be asked about.
+var ErrUnsupported = errors.New("flake: unsupported input type")
 
 // Matches a 40-character commit hash in a GitHub feed.
 var feedCommitRe = regexp.MustCompile(`Commit/([0-9a-f]{40})`)
 
 var httpClient = &http.Client{Timeout: requestTimeout}
 
-func Tip(ref nix.LockRef) (string, error) {
+// Upstream answers where a locked flake input's source currently points.
+type Upstream interface {
+	// Tip is the newest commit of the input's branch.
+	Tip(ref nix.LockRef) (string, error)
+	// Tags maps each tagged commit to its tag.
+	Tags(ref nix.LockRef) (map[string]string, error)
+	// Compare reports how many commits head is ahead of base and lists them, oldest first.
+	Compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err error)
+}
+
+// GitHub asks upstream over the GitHub commit feed and REST API, and over
+// `git ls-remote` for plain git inputs.
+type GitHub struct{}
+
+func (GitHub) Tip(ref nix.LockRef) (string, error)             { return tip(ref) }
+func (GitHub) Tags(ref nix.LockRef) (map[string]string, error) { return tags(ref) }
+func (GitHub) Compare(ref nix.LockRef, base, head string) (int, []string, error) {
+	return compare(ref, base, head)
+}
+
+func tip(ref nix.LockRef) (string, error) {
 	switch ref.Type {
 	case typeGitHub:
 		return githubTip(ref)
@@ -72,7 +90,7 @@ func githubTip(ref nix.LockRef) (tip string, err error) {
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("upstream: GET %s: %s", url, resp.Status)
+		return "", fmt.Errorf("flake: GET %s: %s", url, resp.Status)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -80,7 +98,7 @@ func githubTip(ref nix.LockRef) (tip string, err error) {
 	}
 	m := feedCommitRe.FindSubmatch(body)
 	if m == nil {
-		return "", fmt.Errorf("upstream: no commit in feed %s", url)
+		return "", fmt.Errorf("flake: no commit in feed %s", url)
 	}
 	return string(m[1]), nil
 }
@@ -92,11 +110,11 @@ func gitTip(ref nix.LockRef) (string, error) {
 	}
 	out, err := shell.Output(shell.Cmd{Bin: gitBin, Args: []string{"ls-remote", ref.URL, target}})
 	if err != nil {
-		return "", fmt.Errorf("upstream: %w", err)
+		return "", fmt.Errorf("flake: %w", err)
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
-		return "", fmt.Errorf("upstream: git ls-remote %s %s: no such ref", ref.URL, target)
+		return "", fmt.Errorf("flake: git ls-remote %s %s: no such ref", ref.URL, target)
 	}
 	return fields[0], nil
 }
@@ -114,16 +132,16 @@ func apiGet(url string, out any) (err error) {
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("upstream: GET %s: %s", url, resp.Status)
+		return fmt.Errorf("flake: GET %s: %s", url, resp.Status)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("upstream: decode %s: %w", url, err)
+		return fmt.Errorf("flake: decode %s: %w", url, err)
 	}
 	return nil
 }
 
-// When several tags share a rev, the first the source lists wins.
-func Tags(ref nix.LockRef) (map[string]string, error) {
+// tags maps each commit to its tag. When several tags share a rev, the first the source lists wins.
+func tags(ref nix.LockRef) (map[string]string, error) {
 	switch ref.Type {
 	case typeGitHub:
 		return githubTags(ref)
@@ -157,7 +175,7 @@ func githubTags(ref nix.LockRef) (map[string]string, error) {
 func gitTags(ref nix.LockRef) (map[string]string, error) {
 	out, err := shell.Output(shell.Cmd{Bin: gitBin, Args: []string{"ls-remote", "--tags", ref.URL}})
 	if err != nil {
-		return nil, fmt.Errorf("upstream: %w", err)
+		return nil, fmt.Errorf("flake: %w", err)
 	}
 
 	var names []string
@@ -188,7 +206,7 @@ func gitTags(ref nix.LockRef) (map[string]string, error) {
 }
 
 // Oldest first. GitHub only; the API lists at most 250 commits, ahead is the full count.
-func Compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err error) {
+func compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err error) {
 	if ref.Type != typeGitHub {
 		return 0, nil, ErrUnsupported
 	}

@@ -426,7 +426,7 @@ func TestRetarget(t *testing.T) {
 // Suite: a name-resolving `luxos.modules` inside the real Nix module
 // system. The name map is built with Walk over a fixture laid out
 // like $STAGING_DIR. This exercises the "luxos.modules" generated function
-// shape directly with nix-instantiate/nix, independent of internal/generate.
+// shape directly with nix-instantiate/nix, independent of luxos itself.
 //============================================================================
 
 func TestModulesFunction(t *testing.T) {

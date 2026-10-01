@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/upstream"
 )
 
 func testLockGraph() nix.Lock {
@@ -142,7 +142,7 @@ func TestFlakeRenderTreeAndPlain(t *testing.T) {
 }
 
 func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
-	notes := map[string]string{"ambxst": flakeNoteBehind, "axctl": flakeNoteUnknown}
+	notes := map[string]flake.Note{"ambxst": flake.NoteBehind, "axctl": flake.NoteUnknown}
 	rows := flakeBuildRows(map[string][]string{"ambxst": {"a.nix"}}, testLockGraph(), notes)
 
 	var tty strings.Builder
@@ -161,23 +161,6 @@ func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
 	if !strings.Contains(plain.String(), "ambxst/axctl\tpulled\tunknown\n") ||
 		!strings.Contains(plain.String(), "ambxst\tactive\tbehind\n") && !strings.Contains(plain.String(), "/ambxst\tactive\tbehind\n") {
 		t.Errorf("statuses:\n%s", plain.String())
-	}
-}
-
-func TestFlakeUpstreamNotesUnsupportedIsUnknown(t *testing.T) {
-	graph := nix.Lock{
-		Nodes: map[string]nix.LockNode{
-			nix.LockRootNode: {Inputs: map[string]string{"a": "a", "flake-file": "ff"}},
-			"a":              {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Type: "path", Rev: "abc"}},
-			"ff":             {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Rev: "abc"}},
-		},
-	}
-	notes := flakeUpstreamNotes(graph)
-	if notes["a"] != flakeNoteUnknown {
-		t.Errorf("a = %q, want %q", notes["a"], flakeNoteUnknown)
-	}
-	if _, ok := notes["ff"]; ok {
-		t.Error("flake-file must not be checked")
 	}
 }
 
@@ -207,20 +190,20 @@ func showGraph() nix.Lock {
 	}
 }
 
-func showSites() map[string][]flakeDecl {
-	return map[string][]flakeDecl{
-		"ambxst": {{unit: "desktop/shells/ambxst", file: "modules/desktop/shells/ambxst/module.nix", line: 8, url: "github:Axenide/Ambxst"}},
+func showSites() map[string][]flake.Decl {
+	return map[string][]flake.Decl{
+		"ambxst": {{Unit: "desktop/shells/ambxst", File: "modules/desktop/shells/ambxst/module.nix", Line: 8, URL: "github:Axenide/Ambxst"}},
 		"unstable": {
-			{unit: "desktop/compositors/hyprland", file: "modules/desktop/compositors/hyprland.nix", line: 3},
-			{unit: "services/docker", file: "modules/services/docker.nix", line: 4},
+			{Unit: "desktop/compositors/hyprland", File: "modules/desktop/compositors/hyprland.nix", Line: 3},
+			{Unit: "services/docker", File: "modules/services/docker.nix", Line: 4},
 		},
-		"newone": {{unit: "local/x", file: "local/modules/x.nix", line: 2, url: "github:o/newone"}},
+		"newone": {{Unit: "local/x", File: "local/modules/x.nix", Line: 2, URL: "github:o/newone"}},
 	}
 }
 
-func showRender(t *testing.T, name string, fetch func(nix.LockRef, string) *flakeUpstream) string {
+func showRender(t *testing.T, name string, fetch fetchFn) string {
 	t.Helper()
-	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch.upstream())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +291,7 @@ func TestFlakeShowFailuresRenderQuestionMark(t *testing.T) {
 
 func TestFlakeShowUnsupportedCompareUsesTagOnTip(t *testing.T) {
 	fetch := func(nix.LockRef, string) *flakeUpstream {
-		return &flakeUpstream{tip: showTip, tags: map[string]string{showTip: "v2"}, compareErr: upstream.ErrUnsupported}
+		return &flakeUpstream{tip: showTip, tags: map[string]string{showTip: "v2"}, compareErr: flake.ErrUnsupported}
 	}
 	got := showRender(t, "old", fetch)
 	if !strings.Contains(got, "source    https://example.org/x.git\n") || !strings.Contains(got, "latest   v2\n") || strings.Contains(got, "commits") {
@@ -349,9 +332,9 @@ func TestFlakeShowUnknownInput(t *testing.T) {
 	}
 }
 
-func plainView(t *testing.T, name string, fetch func(nix.LockRef, string) *flakeUpstream) string {
+func plainView(t *testing.T, name string, fetch fetchFn) string {
 	t.Helper()
-	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+	v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch.upstream())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,11 +392,11 @@ func TestFlakeListJSON(t *testing.T) {
 	}
 }
 
-func showViews(t *testing.T, fetch func(nix.LockRef, string) *flakeUpstream, names ...string) []flakeView {
+func showViews(t *testing.T, fetch fetchFn, names ...string) []flakeView {
 	t.Helper()
 	var views []flakeView
 	for _, name := range names {
-		v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch)
+		v, err := flakeBuildView(name, "h", showSites(), showGraph(), fetch.upstream())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,4 +451,44 @@ func TestFlakeViewJSONSeveralAndNulls(t *testing.T) {
 	if d, ok := got[0]["declared"].([]any); !ok || len(d) != 0 {
 		t.Errorf("declared must be []:\n%s", b.String())
 	}
+}
+
+// flakeUpstream is what a fetchFn returns for any input: the answers the
+// fake upstream gives.
+type flakeUpstream struct {
+	tip        string
+	tipErr     error
+	tags       map[string]string
+	tagsErr    error
+	ahead      int
+	shas       []string
+	compareErr error
+}
+
+// fetchFn is a closure standing in for upstream; nil is offline.
+type fetchFn func(nix.LockRef, string) *flakeUpstream
+
+type fetchUpstream struct{ fetch fetchFn }
+
+func (f fetchUpstream) Tip(ref nix.LockRef) (string, error) {
+	u := f.fetch(ref, "")
+	return u.tip, u.tipErr
+}
+
+func (f fetchUpstream) Tags(ref nix.LockRef) (map[string]string, error) {
+	u := f.fetch(ref, "")
+	return u.tags, u.tagsErr
+}
+
+func (f fetchUpstream) Compare(ref nix.LockRef, _, _ string) (int, []string, error) {
+	u := f.fetch(ref, "")
+	return u.ahead, u.shas, u.compareErr
+}
+
+// upstream is nil for a nil fetchFn (offline).
+func (f fetchFn) upstream() flake.Upstream {
+	if f == nil {
+		return nil
+	}
+	return fetchUpstream{f}
 }
