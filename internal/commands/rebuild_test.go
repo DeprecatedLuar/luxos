@@ -1,6 +1,9 @@
 package commands
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestRebuildAction(t *testing.T) {
 	cases := map[string][]string{
@@ -15,5 +18,16 @@ func TestRebuildAction(t *testing.T) {
 	}
 	if got := rebuildAction(nil); got != "" {
 		t.Errorf("rebuildAction(nil) = %q", got)
+	}
+}
+
+func TestInterrupted(t *testing.T) {
+	sigs := make(chan os.Signal, 1)
+	if err := interrupted(sigs); err != nil {
+		t.Fatalf("no signal: %v", err)
+	}
+	sigs <- os.Interrupt
+	if err := interrupted(sigs); err == nil {
+		t.Fatal("signal received but not reported")
 	}
 }

@@ -387,22 +387,11 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 }
 
 func moduleList(p paths.Paths, args []string) error {
-	var flat, raw, asJSON bool
-	var positional []string
-	for _, a := range args {
-		switch a {
-		case "--flat":
-			flat = true
-			continue
-		case "--raw":
-			raw = true
-			continue
-		case "--json":
-			asJSON = true
-			continue
-		}
-		positional = append(positional, a)
+	opts, positional, err := shared.Parse(moduleListFlagSpec, args)
+	if err != nil {
+		return err
 	}
+	flat, raw, asJSON := opts["flat"] != "", opts["raw"] != "", opts["json"] != ""
 
 	switch {
 	case asJSON && raw:
@@ -802,6 +791,9 @@ func moduleEnable(p paths.Paths, args []string) error {
 	}
 	return nil
 }
+
+// moduleListFlagSpec is the flag spec of the list verbs.
+const moduleListFlagSpec = "flat:bool raw:bool json:bool"
 
 // moduleYesSpec is the flag spec for verbs whose only flag is --yes.
 const moduleYesSpec = "yes|y:bool"

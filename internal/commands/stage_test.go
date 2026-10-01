@@ -1,10 +1,12 @@
-package heal
+package commands
 
 import (
 	"bytes"
+	"io"
+	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -35,62 +37,40 @@ func hardwareDir(t *testing.T, p paths.Paths) string {
 // hardwareConfigContent is the pre-written hardware-configuration.nix.
 const hardwareConfigContent = "{ }\n"
 
-func skipIfNoNix(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("nix-instantiate"); err != nil {
-		t.Skip("nix-instantiate not on PATH")
-	}
-}
-
-// fakeNix replaces the nix invocations for the test and returns the calls
-// made, in order. The fake lock step writes a staged flake.lock when
-// staging.Materialize had none to copy, as `nix flake lock` would.
-func fakeNix(t *testing.T) *[]string {
+// fakeNix returns flake steps that need neither network nor flake-file, and
+// the calls made, in order. The fake lock step writes a staged flake.lock when
+// Materialize had none to copy, as `nix flake lock` would.
+func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 	t.Helper()
 	calls := &[]string{}
-	origWrite, origLock := writeFlake, flakeLock
-	t.Cleanup(func() { writeFlake, flakeLock = origWrite, origLock })
-
-	writeFlake = func(stagingDir string) error {
-		*calls = append(*calls, "write-flake")
-		if _, err := os.Stat(filepath.Join(stagingDir, "framework", "flake-file.nix")); err != nil {
-			t.Errorf("write-flake ran before flake-file.nix was installed: %v", err)
-		}
-		return nil
-	}
-	flakeLock = func(stagingDir string) error {
-		*calls = append(*calls, "flake-lock")
-		lock := filepath.Join(stagingDir, "flake.lock")
-		if _, err := os.Stat(lock); os.IsNotExist(err) {
-			return os.WriteFile(lock, []byte("{\"fake\":true}\n"), 0644)
-		}
-		return nil
-	}
-	return calls
+	return flakeSteps{
+		write: func(stagingDir string) error {
+			*calls = append(*calls, "write-flake")
+			if _, err := os.Stat(filepath.Join(stagingDir, "framework", "flake-file.nix")); err != nil {
+				t.Errorf("write-flake ran before flake-file.nix was installed: %v", err)
+			}
+			return nil
+		},
+		lock: func(stagingDir string) error {
+			*calls = append(*calls, "flake-lock")
+			lock := filepath.Join(stagingDir, "flake.lock")
+			if _, err := os.Stat(lock); os.IsNotExist(err) {
+				return os.WriteFile(lock, []byte("{\"fake\":true}\n"), 0644)
+			}
+			return nil
+		},
+	}, calls
 }
 
-func mustMkdirAll(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0755); err != nil {
-		t.Fatalf("mkdir %s: %v", path, err)
+// runAll is a whole rebuild's preparation: config, heal and validate, stage.
+func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
+	if err := config_.Ensure(w, p, host); err != nil {
+		return err
 	}
-}
-
-func write(t *testing.T, path, content string) {
-	t.Helper()
-	mustMkdirAll(t, filepath.Dir(path))
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+	if err := healAndValidate(w, p, host, prune); err != nil {
+		return err
 	}
-}
-
-func mustReadFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(data)
+	return stage(w, p, host, p.Staging, steps)
 }
 
 // fixture builds a config tree at root with two hosts: host1 (active),
@@ -165,10 +145,10 @@ func TestRun_EndToEnd(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	calls := fakeNix(t)
+	steps, calls := fakeNix(t)
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -279,7 +259,7 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	// A second run finds nothing left to heal.
 	var out2 bytes.Buffer
-	if err := Run(&out2, p, host, false); err != nil {
+	if err := runAll(&out2, p, host, false, steps); err != nil {
 		t.Fatalf("second Run: %v\noutput:\n%s", err, out2.String())
 	}
 	for _, marker := range []string{"-> ./", "Warning:", "scaffolded:", "added:", "created:", "removed ./"} {
@@ -293,12 +273,12 @@ func TestRun_ExistingEnvironmentUntouched(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	envPath := filepath.Join(p.Config, "environment")
 	write(t, envPath, "")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 	if got := mustReadFile(t, envPath); got != "" {
@@ -313,7 +293,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	// No pre-written boot.nix this time: fixture wrote one, so remove it and
 	// fake an EFI sysfs with vfat mounted at /boot.
@@ -327,7 +307,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 	write(t, p.Mounts, "/dev/sda1 /boot vfat rw 0 0\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -360,13 +340,13 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	// A single NVIDIA GPU in the fake sysfs.
 	writeGPUDevice(t, p.Sys, "0000:01:00.0", "0x030200", "0x10de")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -435,10 +415,10 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		RunningModules: filepath.Join(root, "run-modules.nix"),
 	}
 
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	var out bytes.Buffer
-	if err := Run(&out, p, "host1", false); err != nil {
+	if err := runAll(&out, p, "host1", false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -477,13 +457,13 @@ func TestRun_StrayHostFileFails(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	stray := filepath.Join(p.Machines, host, "hardware.nix")
 	write(t, stray, "{ }\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, false)
+	err := runAll(&out, p, host, false, steps)
 	if err == nil {
 		t.Fatal("expected an error for the stray host file, got nil")
 	}
@@ -496,13 +476,13 @@ func TestRun_UnimportedViolationIgnored(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	// Broken, but no host imports it: it is never built, so never checked.
 	write(t, filepath.Join(p.Modules, "unused.nix"), "{ imports = [ ../outside.nix ]; }\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 }
@@ -511,7 +491,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.
@@ -520,7 +500,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, false)
+	err := runAll(&out, p, host, false, steps)
 	if err == nil {
 		t.Fatal("expected an error for the boundary violation, got nil")
 	}
@@ -540,11 +520,11 @@ func TestRun_StrangerMovedToBackup(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 	if _, err := os.Lstat(filepath.Join(p.Staging, "old-config.nix")); !os.IsNotExist(err) {
@@ -559,7 +539,7 @@ func TestRun_StrangerMovedToBackup(t *testing.T) {
 	}
 
 	// The hardware folder is not in /etc/nixos, so a second run leaves it be.
-	if err := Run(&out, p, host, false); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
 	if got := mustReadFile(t, filepath.Join(hardwareDir(t, p), "hardware-configuration.nix")); got != hardwareConfigContent {
@@ -571,12 +551,12 @@ func TestRun_NoBackupDirNamesFlag(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	p.Backup = ""
 	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, false)
+	err := runAll(&out, p, host, false, steps)
 	if err == nil || !strings.Contains(err.Error(), "luxos rebuild --backup-dir <path>") {
 		t.Fatalf("err = %v, want the --backup-dir recovery line", err)
 	}
@@ -585,12 +565,12 @@ func TestRun_NoBackupDirNamesFlag(t *testing.T) {
 func TestRun_MissingProductUUIDFails(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	if err := os.Remove(filepath.Join(p.Sys, "class", "dmi", "id", "product_uuid")); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "product_uuid") {
+	if err := runAll(&out, p, host, false, steps); err == nil || !strings.Contains(err.Error(), "product_uuid") {
 		t.Fatalf("err = %v, want the product_uuid error", err)
 	}
 }
@@ -598,11 +578,11 @@ func TestRun_MissingProductUUIDFails(t *testing.T) {
 func TestRun_MissingBaseChannelStopsBeforeStaging(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Machines, host, "machine.nix"), "{ time.timeZone = \"UTC\"; }\n")
 
 	var out bytes.Buffer
-	err := Run(&out, p, host, false)
+	err := runAll(&out, p, host, false, steps)
 	if err == nil || !strings.Contains(err.Error(), "missing base channel") || !strings.Contains(err.Error(), "flake-file.inputs.nixpkgs.url") {
 		t.Fatalf("err = %v, want missing base channel error naming the line", err)
 	}
@@ -614,14 +594,95 @@ func TestRun_MissingBaseChannelStopsBeforeStaging(t *testing.T) {
 func TestRun_MachineFilePathStopsBeforeStaging(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
-	fakeNix(t)
+	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Machines, host, "machine.nix"), "{ imports = [ ./x.nix ]; }\n")
 
 	var out bytes.Buffer
-	if err := Run(&out, p, host, false); err == nil || !strings.Contains(err.Error(), "machine.nix") {
+	if err := runAll(&out, p, host, false, steps); err == nil || !strings.Contains(err.Error(), "machine.nix") {
 		t.Fatalf("err = %v, want machine.nix error", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
 		t.Errorf("nothing should be staged, err=%v", statErr)
 	}
+}
+
+func TestStageLeavesConfigUntouched(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	if err := config_.Ensure(io.Discard, p, host); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, p.Config)
+
+	out := t.TempDir()
+	if err := stage(io.Discard, p, host, out, steps); err != nil {
+		t.Fatal(err)
+	}
+
+	after := snapshotTree(t, p.Config)
+	lock := filepath.ToSlash(filepath.Join(".local", "machines", host, "flake.lock"))
+	delete(before, lock)
+	delete(after, lock)
+	if !maps.Equal(before, after) {
+		t.Errorf("stage changed CONFIG_DIR:\n%s", diffKeys(before, after))
+	}
+}
+
+// snapshotTree maps every path under root (links not followed) to its mode,
+// link target or content.
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snap := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		val := info.Mode().String()
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			val += " -> " + target
+		case info.Mode().IsRegular():
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			val += " " + string(data)
+		}
+		snap[filepath.ToSlash(rel)] = val
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+// diffKeys lists, sorted, the keys present in only one map or with different values.
+func diffKeys(a, b map[string]string) string {
+	var keys []string
+	for k, v := range a {
+		if w, ok := b[k]; !ok || w != v {
+			keys = append(keys, k)
+		}
+	}
+	for k := range b {
+		if _, ok := a[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\n")
 }

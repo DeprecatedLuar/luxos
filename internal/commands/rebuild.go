@@ -11,7 +11,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/heal"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
@@ -146,19 +145,6 @@ func Rebuild(args []string) error {
 	prune := opts["prune"] != ""
 	yes := opts["yes"] != ""
 
-	if opts["config"] != "" {
-		abs, err := filepath.Abs(opts["config"])
-		if err != nil {
-			return err
-		}
-		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-			return fmt.Errorf("config dir %s does not exist", abs)
-		}
-		if err := os.Setenv(configDirEnv, abs); err != nil {
-			return err
-		}
-	}
-
 	if opts["backup-dir"] != "" {
 		abs, err := filepath.Abs(opts["backup-dir"])
 		if err != nil {
@@ -180,20 +166,7 @@ func Rebuild(args []string) error {
 		return goodbye(opts["goodbye-luxos"], rest)
 	}
 
-	host := opts["machine"]
-	if host == "" {
-		host, err = os.Hostname()
-		if err != nil {
-			return err
-		}
-	}
-
-	p, err := paths.Resolve()
-	if err != nil {
-		return err
-	}
-
-	hostDir, err := config.ResolveHost(p.Machines, host)
+	p, host, hostDir, err := shared.ResolveHost(opts)
 	if err != nil {
 		return err
 	}
@@ -242,7 +215,7 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 
-	runErr := runStaged(p, host, prune, rest)
+	runErr := runStaged(p, host, prune, rest, sigs)
 
 	if runErr == nil && rebuildActivatingActions[rebuildAction(rest)] {
 		if err := staging.DropPrevious(p.PreviousStage); err != nil {
@@ -256,8 +229,17 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	return runErr
 }
 
-func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
-	if err := heal.Run(os.Stdout, p, host, prune); err != nil {
+func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-chan os.Signal) error {
+	if err := config.Ensure(os.Stdout, p, host); err != nil {
+		return err
+	}
+	if err := healAndValidate(os.Stdout, p, host, prune); err != nil {
+		return err
+	}
+	if err := stage(os.Stdout, p, host, p.Staging, realFlakeSteps); err != nil {
+		return err
+	}
+	if err := interrupted(sigs); err != nil {
 		return err
 	}
 
@@ -276,6 +258,16 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 		return shared.ExitCode(code)
 	}
 	return err
+}
+
+// interrupted reports a SIGINT or SIGTERM received while Go-side staging ran.
+func interrupted(sigs <-chan os.Signal) error {
+	select {
+	case s := <-sigs:
+		return fmt.Errorf("interrupted (%s) before nixos-rebuild started; the previous stage is restored", s)
+	default:
+		return nil
+	}
 }
 
 // The rebuild command line handed to the root process, with --yes appended

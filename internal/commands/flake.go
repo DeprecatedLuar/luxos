@@ -14,10 +14,8 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/flake"
-	"github.com/DeprecatedLuar/luxos/internal/heal"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -76,7 +74,7 @@ func flakeUpdate(args []string) (err error) {
 		return err
 	}
 
-	p, host, hostDir, err := resolveFlakeHost(opts)
+	p, host, hostDir, err := shared.ResolveHost(opts)
 	if err != nil {
 		return err
 	}
@@ -86,58 +84,23 @@ func flakeUpdate(args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
-	p.Staging = tmp
 
 	// Staging progress is rebuild's output; failures come back as errors.
-	if err := heal.Run(io.Discard, p, host, false); err != nil {
+	if err := stage(io.Discard, p, host, tmp, realFlakeSteps); err != nil {
 		return err
 	}
 
-	if err := nix.FlakeUpdate(p.Staging, names...); err != nil {
+	if err := nix.FlakeUpdate(tmp, names...); err != nil {
 		return err
 	}
 
 	hostLock := filepath.Join(hostDir, flakeLockName)
-	if _, err := config.CopyLockBack(filepath.Join(p.Staging, flakeLockName), hostLock); err != nil {
+	if _, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock); err != nil {
 		return err
 	}
 
 	fmt.Printf("  updated: %s\n", hostLock)
 	return nil
-}
-
-func resolveFlakeHost(opts map[string]string) (p paths.Paths, host, hostDir string, err error) {
-	if opts["config"] != "" {
-		abs, err := filepath.Abs(opts["config"])
-		if err != nil {
-			return p, "", "", err
-		}
-		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-			return p, "", "", fmt.Errorf("config dir %s does not exist", abs)
-		}
-		if err := os.Setenv(configDirEnv, abs); err != nil {
-			return p, "", "", err
-		}
-	}
-
-	host = opts["machine"]
-	if host == "" {
-		host, err = os.Hostname()
-		if err != nil {
-			return p, "", "", err
-		}
-	}
-
-	p, err = paths.Resolve()
-	if err != nil {
-		return p, "", "", err
-	}
-
-	hostDir, err = config.ResolveHost(p.Machines, host)
-	if err != nil {
-		return p, "", "", err
-	}
-	return p, host, hostDir, nil
 }
 
 //──[list]─────────────────────────────────────────────────────────────────
@@ -152,7 +115,7 @@ func flakeList(args []string) error {
 		return ui.ErrJSONConflict("--raw")
 	}
 
-	p, _, hostDir, err := resolveFlakeHost(opts)
+	p, _, hostDir, err := shared.ResolveHost(opts)
 	if err != nil {
 		return err
 	}
@@ -368,7 +331,7 @@ func flakeShow(args []string) error {
 		return ui.ErrJSONConflict("--raw")
 	}
 
-	p, host, hostDir, err := resolveFlakeHost(opts)
+	p, host, hostDir, err := shared.ResolveHost(opts)
 	if err != nil {
 		return err
 	}
