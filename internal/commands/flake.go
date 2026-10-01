@@ -18,6 +18,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const flakeFlagSpec = "machine:value config|C:value"
@@ -148,7 +149,7 @@ func flakeList(args []string) error {
 	}
 
 	if opts["json"] != "" && opts["raw"] != "" {
-		return errJSONConflict("--raw")
+		return ui.ErrJSONConflict("--raw")
 	}
 
 	p, _, hostDir, err := resolveFlakeHost(opts)
@@ -176,11 +177,8 @@ func flakeList(args []string) error {
 	}
 	rows := flakeBuildRows(decls, graph, notes)
 
-	tty := stdoutIsTTY()
-	pal := treePalette{}
-	if colorsEnabled(tty) {
-		pal = colorTreePalette
-	}
+	tty := ui.IsTerminal(os.Stdout)
+	pal := ui.PaletteFor(os.Stdout)
 
 	var out strings.Builder
 	switch {
@@ -189,7 +187,7 @@ func flakeList(args []string) error {
 			return err
 		}
 	case tty && opts["raw"] == "":
-		moduleRenderTTY(&out, rows, flakeInputsLabel, pal)
+		ui.Tree(&out, uiRows(rows), flakeInputsLabel, pal)
 	default:
 		flakeRenderPlain(&out, rows)
 	}
@@ -227,7 +225,7 @@ func flakeRenderListJSON(w *strings.Builder, rows []moduleRow) error {
 	if entries == nil {
 		entries = []flakeListJSONRow{}
 	}
-	return writeJSON(w, entries)
+	return ui.JSON(w, entries)
 }
 
 func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
@@ -327,14 +325,16 @@ func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, 
 	return rows
 }
 
-//──[show]─────────────────────────────────────────────────────────────────
-
-type flakeLine struct {
-	label    string
-	value    string
-	dim      string
-	children []flakeLine
+// flakeRenderView draws v as a headed tree; an empty palette renders the same
+// text without color.
+func flakeRenderView(w *strings.Builder, v flakeView, pal ui.Palette) {
+	ui.RenderView(w, ui.View{
+		Marker: v.marker, Color: markerColor(v.marker), Name: v.name,
+		Note: v.note, NoteColor: noteColor(v.note), Lines: v.lines,
+	}, pal)
 }
+
+//──[show]─────────────────────────────────────────────────────────────────
 
 type flakeViewData struct {
 	name     string
@@ -352,7 +352,7 @@ type flakeView struct {
 	marker string
 	name   string
 	note   string
-	lines  []flakeLine
+	lines  []ui.Line
 	data   flakeViewData
 }
 
@@ -365,7 +365,7 @@ func flakeShow(args []string) error {
 		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline] [--raw|--json]")
 	}
 	if opts["json"] != "" && opts["raw"] != "" {
-		return errJSONConflict("--raw")
+		return ui.ErrJSONConflict("--raw")
 	}
 
 	p, host, hostDir, err := resolveFlakeHost(opts)
@@ -407,11 +407,8 @@ func flakeShow(args []string) error {
 		return nil
 	}
 
-	tty := stdoutIsTTY()
-	pal := treePalette{}
-	if colorsEnabled(tty) {
-		pal = colorTreePalette
-	}
+	tty := ui.IsTerminal(os.Stdout)
+	pal := ui.PaletteFor(os.Stdout)
 	var out strings.Builder
 	for i, view := range views {
 		if i > 0 {
@@ -497,7 +494,7 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 
 	source := flakeSourceText(node.Original, sites[root], hasNode)
 	if source != "" {
-		view.lines = append(view.lines, flakeLine{label: "source", value: source})
+		view.lines = append(view.lines, ui.Line{Label: "source", Value: source})
 	}
 	view.lines = append(view.lines, flakeDeclaredLine(parent, sites[root], builtin, view.marker))
 
@@ -507,8 +504,8 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 
 	names := flakeSortedKeys(node.Inputs)
 	if len(names) > 0 {
-		view.lines = append(view.lines, flakeLine{label: "pulls in", children: []flakeLine{
-			{value: strings.Join(names, flakePullsInSep)},
+		view.lines = append(view.lines, ui.Line{Label: "pulls in", Children: []ui.Line{
+			{Value: strings.Join(names, flakePullsInSep)},
 		}})
 	}
 
@@ -561,21 +558,21 @@ func flakeSourceText(orig nix.LockRef, decls []flake.Decl, hasNode bool) string 
 	return text
 }
 
-func flakeDeclaredLine(parent string, decls []flake.Decl, builtin bool, marker string) flakeLine {
-	line := flakeLine{label: "declared"}
+func flakeDeclaredLine(parent string, decls []flake.Decl, builtin bool, marker string) ui.Line {
+	line := ui.Line{Label: "declared"}
 	switch {
 	case marker == markerPulled:
-		line.value = flakeDeclaredPulledIn + parent
+		line.Value = flakeDeclaredPulledIn + parent
 	case len(decls) == 1:
-		line.value = fmt.Sprintf("%s:%d", decls[0].File, decls[0].Line)
+		line.Value = fmt.Sprintf("%s:%d", decls[0].File, decls[0].Line)
 	case len(decls) > 1:
 		for _, d := range decls {
-			line.children = append(line.children, flakeLine{value: fmt.Sprintf("%s:%d", d.File, d.Line)})
+			line.Children = append(line.Children, ui.Line{Value: fmt.Sprintf("%s:%d", d.File, d.Line)})
 		}
 	case builtin:
-		line.value = flakeDeclaredBuiltIn
+		line.Value = flakeDeclaredBuiltIn
 	default:
-		line.value = flakeDeclaredGone
+		line.Value = flakeDeclaredGone
 	}
 	return line
 }
@@ -590,18 +587,18 @@ type flakeVersion struct {
 
 // flakeVersionLine renders a node's version from flake.Version; a nil up
 // (offline) shows the current rev only.
-func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (flakeLine, string, flakeVersion) {
-	line := flakeLine{label: "version"}
+func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (ui.Line, string, flakeVersion) {
+	line := ui.Line{Label: "version"}
 	if !hasNode {
-		line.children = []flakeLine{{label: "current", value: flakeNotLocked}}
+		line.Children = []ui.Line{{Label: "current", Value: flakeNotLocked}}
 		return line, "", flakeVersion{}
 	}
 
 	info := flake.Version(up, node)
-	cur := flakeLine{label: "current", value: info.Current}
+	cur := ui.Line{Label: "current", Value: info.Current}
 	version := flakeVersion{current: info.Current}
 	if !info.Checked {
-		line.children = []flakeLine{cur}
+		line.Children = []ui.Line{cur}
 		return line, "", version
 	}
 	version.checked = true
@@ -609,21 +606,21 @@ func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (flake
 	unknown := string(flake.NoteUnknown)
 	switch {
 	case info.Note == flake.NoteUnknown:
-		line.children = []flakeLine{cur, {label: "latest", value: unknown}}
+		line.Children = []ui.Line{cur, {Label: "latest", Value: unknown}}
 		version.latest = string(flake.StatusUnknown)
 		return line, unknown, version
 	case info.Note == "":
-		cur.value += flakeUpToDate
-		line.children = []flakeLine{cur}
+		cur.Value += flakeUpToDate
+		line.Children = []ui.Line{cur}
 		version.commits = flakeViewCommitsCurrent
 		return line, "", version
 	}
 
-	latest := flakeLine{label: "latest", value: info.Latest}
+	latest := ui.Line{Label: "latest", Value: info.Latest}
 	if info.HasAhead && info.Ahead > 0 && info.Latest != unknown {
-		latest.dim = fmt.Sprintf(flakeCommitsFormat, info.Ahead)
+		latest.Dim = fmt.Sprintf(flakeCommitsFormat, info.Ahead)
 	}
-	line.children = []flakeLine{cur, latest}
+	line.Children = []ui.Line{cur, latest}
 	version.latest = info.Latest
 	if info.Latest == unknown {
 		version.latest = string(flake.StatusUnknown)
@@ -688,9 +685,9 @@ func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
 		objs = append(objs, obj)
 	}
 	if len(objs) == 1 {
-		return writeJSON(w, objs[0])
+		return ui.JSON(w, objs[0])
 	}
-	return writeJSON(w, objs)
+	return ui.JSON(w, objs)
 }
 
 func flakeSortedKeys(m map[string]string) []string {
@@ -700,42 +697,4 @@ func flakeSortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// An empty palette renders the same text without color.
-func flakeRenderView(w *strings.Builder, v flakeView, pal treePalette) {
-	fmt.Fprintf(w, "%s%s %s%s", markerColor(pal, v.marker), v.marker, v.name, pal.reset)
-	if v.note != "" {
-		fmt.Fprintf(w, " %s%s%s", noteColor(pal, v.note), v.note, pal.reset)
-	}
-	w.WriteString("\n")
-	flakeRenderLines(w, v.lines, "", pal)
-}
-
-func flakeRenderLines(w *strings.Builder, lines []flakeLine, prefix string, pal treePalette) {
-	width := 0
-	for _, l := range lines {
-		if len(l.label) > width {
-			width = len(l.label)
-		}
-	}
-	for i, l := range lines {
-		connector, childPrefix := "├── ", prefix+"│   "
-		if i == len(lines)-1 {
-			connector, childPrefix = "└── ", prefix+"    "
-		}
-		fmt.Fprintf(w, "%s%s%s%s", pal.line, prefix, connector, pal.reset)
-		if l.label != "" {
-			fmt.Fprintf(w, "%s%s%s", pal.title, l.label, pal.reset)
-			if l.value != "" {
-				w.WriteString(strings.Repeat(" ", width-len(l.label)+2))
-			}
-		}
-		w.WriteString(l.value)
-		if l.dim != "" {
-			fmt.Fprintf(w, "%s%s%s", pal.off, l.dim, pal.reset)
-		}
-		w.WriteString("\n")
-		flakeRenderLines(w, l.children, childPrefix, pal)
-	}
 }

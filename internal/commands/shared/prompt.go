@@ -1,10 +1,10 @@
 package shared
 
 import (
-	"bufio"
-	"fmt"
 	"os"
 	"strings"
+
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const (
@@ -43,43 +43,17 @@ const (
 
 const hardwareOffPrompt = "Proceed? [y/N] "
 
-const noColorEnv = "NO_COLOR"
-
-func isCharDevice(f *os.File) bool {
-	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
-
-func readLine() string {
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	return strings.TrimSpace(line)
-}
-
-func isYes(reply string) bool {
-	return reply == "y" || reply == "Y"
-}
-
-// An empty line or EOF returns defYes.
-func Confirm(prompt string, defYes bool) (bool, error) {
-	fmt.Print(prompt)
-
-	reply := readLine()
-	if reply == "" {
-		return defYes, nil
-	}
-	return isYes(reply), nil
-}
-
 func ConfirmHardwareOff() (bool, error) {
 	art := hardwareOffArt
 	warning := warningLead + warningHighlighted + warningTail + warningAside
-	if isCharDevice(os.Stderr) && os.Getenv(noColorEnv) == "" {
+	if ui.PaletteFor(os.Stderr) != (ui.Palette{}) {
 		art = strings.Replace(art, areYouSure, ansiAreYouSure+areYouSure+ansiReset, 1)
 		warning = warningLead + ansiRed + ansiUnderline + warningHighlighted + ansiReset +
 			warningTail + warningAside
 	}
-	if _, err := fmt.Fprint(os.Stderr, warning+"\n\n"+art+"\n\n"+hardwareOffPrompt); err != nil {
+	reply, err := ui.Ask(os.Stderr, warning+"\n\n"+art+"\n\n"+hardwareOffPrompt)
+	if err != nil {
 		return false, err
 	}
-	return isYes(readLine()), nil
+	return ui.IsYes(reply), nil
 }

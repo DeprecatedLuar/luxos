@@ -11,6 +11,7 @@ import (
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 func TestModuleMarkerRank(t *testing.T) {
@@ -28,36 +29,6 @@ func TestModuleMarkerRank(t *testing.T) {
 		if got := moduleMarkerRank(c.marker); got != c.want {
 			t.Errorf("moduleMarkerRank(%q) = %d, want %d", c.marker, got, c.want)
 		}
-	}
-}
-
-func TestModuleSortRows(t *testing.T) {
-	rows := []moduleRow{
-		{name: "zeta", marker: markerNeither, rank: 4},
-		{name: "delta", marker: markerPulled, rank: 3},
-		{name: "alpha", marker: markerEnabledOnly, rank: 0},
-		{name: "beta", marker: markerEnabledOnly, rank: 0},
-		{name: "gamma", marker: markerEnabledBoth, rank: 1},
-	}
-	moduleSortRows(rows)
-
-	want := []string{"alpha", "beta", "gamma", "delta", "zeta"}
-	for i, name := range want {
-		if rows[i].name != name {
-			t.Fatalf("rows[%d].name = %q, want %q (order: %+v)", i, rows[i].name, name, rows)
-		}
-	}
-}
-
-func TestModuleSortRows_RankBeforeName(t *testing.T) {
-	// A lower-ranked "zzz" must sort before a higher-ranked "aaa".
-	rows := []moduleRow{
-		{name: "aaa", rank: 3},
-		{name: "zzz", rank: 0},
-	}
-	moduleSortRows(rows)
-	if rows[0].name != "zzz" || rows[1].name != "aaa" {
-		t.Fatalf("got order %+v, want zzz before aaa", rows)
 	}
 }
 
@@ -335,17 +306,17 @@ func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
 
 	all := moduleRows(statusesFor(us, nil, nil), "")
 	var b strings.Builder
-	moduleRenderTTY(&b, all, "modules/", colorTreePalette)
-	if !strings.Contains(b.String(), colorUnderline+"ambxst"+colorReset) {
-		t.Errorf("shadow not underlined:\n%q", b.String())
-	}
+	ui.Tree(&b, uiRows(all), "modules/", ui.Palette{})
 	if strings.Count(b.String(), "ambxst") != 1 || !strings.Contains(b.String(), "shells/") {
 		t.Errorf("shadow not listed once under shells/:\n%q", b.String())
 	}
-	b.Reset()
-	moduleRenderTTY(&b, all, "modules/", treePalette{})
-	if strings.Contains(b.String(), "\x1b") {
-		t.Errorf("plain palette emitted escapes: %q", b.String())
+	for _, r := range uiRows(all) {
+		if r.Name == "ambxst" && !r.Underline {
+			t.Errorf("shadow row not underlined: %+v", r)
+		}
+		if r.Name == "other" && r.Underline {
+			t.Errorf("plain row underlined: %+v", r)
+		}
 	}
 }
 
@@ -365,7 +336,7 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 	}
 
 	var tty strings.Builder
-	moduleRenderTTY(&tty, rows, "modules/", treePalette{})
+	ui.Tree(&tty, uiRows(rows), "modules/", ui.Palette{})
 	if !strings.Contains(tty.String(), "ambxst"+flakeMark+"\n") {
 		t.Errorf("flake mark missing:\n%s", tty.String())
 	}
@@ -412,10 +383,8 @@ func TestModuleListJSONConflicts(t *testing.T) {
 
 func TestModuleRenderModified(t *testing.T) {
 	rows := []moduleRow{{name: "a", marker: markerEnabledOnly, modified: true}}
-	var tty strings.Builder
-	moduleRenderTTY(&tty, rows, "modules/", colorTreePalette)
-	if !strings.Contains(tty.String(), colorBlue+markerEnabledOnly) {
-		t.Errorf("tty output lacks blue marker: %q", tty.String())
+	if got := uiRows(rows)[0]; got.Color != ui.ColorBlue || got.Marker != markerEnabledOnly {
+		t.Errorf("modified row = %+v, want the blue staged marker", got)
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
@@ -426,10 +395,8 @@ func TestModuleRenderModified(t *testing.T) {
 
 func TestModuleRenderRemoved(t *testing.T) {
 	rows := moduleRows(removedStatuses("local/debug.nix"), "")
-	var tty strings.Builder
-	moduleRenderTTY(&tty, rows, "modules/", colorTreePalette)
-	if !strings.Contains(tty.String(), colorStrike+"debug") || !strings.Contains(tty.String(), colorRed+markerRunningOnly) {
-		t.Errorf("tty output lacks strike/red: %q", tty.String())
+	if got := uiRows(rows)[0]; !got.Strike || got.Color != ui.ColorRed || got.Marker != markerRunningOnly {
+		t.Errorf("removed row = %+v, want a struck red leftover marker", got)
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
@@ -657,7 +624,7 @@ func TestCollapseBundles(t *testing.T) {
 
 	top := collapseBundles(rows, "")
 	var b strings.Builder
-	moduleRenderTTY(&b, top, "modules/", treePalette{})
+	ui.Tree(&b, uiRows(top), "modules/", ui.Palette{})
 	out := b.String()
 	if !strings.Contains(out, "eduardo+ 1/2") || strings.Contains(out, "git") {
 		t.Errorf("collapsed tree:\n%s", out)

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // entrypointName is the file under Paths.Modules that mirrors the active
@@ -70,9 +70,6 @@ const (
 
 const flakeMark = "❄"
 
-// bundleMark follows a collapsed bundle's name, before its enabled count.
-const bundleMark = "+"
-
 // bundleModulesDir is the folder of a bundle's submodules.
 const bundleModulesDir = "modules"
 
@@ -81,43 +78,6 @@ const nameSep = "/"
 
 const plainColumnSep = "\t"
 const plainInputsSep = " "
-
-// Tree palette (TTY only, disabled by NO_COLOR): drawn from the user's
-// Moonlight-inspired swatches, confirmed against an ANSI scratchpad preview.
-// Markers keep the state colors from the old flat view; the tree adds three
-// neutrals, ordered darkest to lightest: connectors, then category names,
-// then the off state — never white, so ○ stays visibly the quietest color
-// on screen while remaining legible.
-const (
-	colorGreen     = "\x1b[38;2;204;243;145m"        // #CCF391 — ◉ running
-	colorTeal      = "\x1b[1m\x1b[38;2;125;250;206m" // #7DFACE bold — ⊕ staged
-	colorRed       = "\x1b[38;2;237;112;122m"        // #ED707A — ⊘ leftover
-	colorPurple    = "\x1b[38;2;181;166;250m"        // #B5A6FA — ◍ pulled
-	colorBlue      = "\x1b[38;2;130;170;255m"        // #82AAFF — ⊕ modified
-	colorLine      = "\x1b[38;2;74;79;115m"          // #212436 lightened — tree connectors
-	colorTitle     = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold — category names
-	colorOff       = "\x1b[38;2;156;163;196m"        // #9CA3C4 — ○ off
-	colorReset     = "\x1b[0m"
-	colorUnderline = "\x1b[4m"
-	colorStrike    = "\x1b[9m"
-)
-
-// treePalette is the set of color codes moduleRenderTTY tints with; an
-// empty treePalette{} renders the same tree shape with no ANSI codes.
-type treePalette struct {
-	green, teal, red, purple, blue, line, title, off, underline, strike, reset string
-}
-
-var colorTreePalette = treePalette{
-	green: colorGreen, teal: colorTeal, red: colorRed, purple: colorPurple, blue: colorBlue,
-	line: colorLine, title: colorTitle, off: colorOff, underline: colorUnderline, strike: colorStrike, reset: colorReset,
-}
-
-// colorsEnabled reports whether moduleList should tint its tree: only on a
-// real TTY, and only when the user hasn't set NO_COLOR.
-func colorsEnabled(tty bool) bool {
-	return tty && os.Getenv("NO_COLOR") == ""
-}
 
 func Module(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
@@ -214,16 +174,6 @@ type moduleRow struct {
 	bundle     bool // has submodules; shown collapsed with its enabled count
 	subEnabled int  // direct submodules enabled
 	subTotal   int  // direct submodules
-}
-
-// moduleSortRows sorts rows by rank then name (byte order), stable.
-func moduleSortRows(rows []moduleRow) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].rank != rows[j].rank {
-			return rows[i].rank < rows[j].rank
-		}
-		return rows[i].name < rows[j].name
-	})
 }
 
 //──[list]─────────────────────────────────────────────────────────────────
@@ -329,54 +279,6 @@ func collapseBundles(rows []moduleRow, target string) []moduleRow {
 	return out
 }
 
-// nameText is a row's name as rendered on a terminal: underlined when shadow,
-// struck through when removed.
-func nameText(r moduleRow, pal treePalette) string {
-	name := r.name
-	if len(r.inputs) > 0 {
-		name += flakeMark
-	}
-	switch {
-	case r.removed:
-		name = pal.strike + name + pal.reset
-	case r.shadow:
-		name = pal.underline + name + pal.reset
-	}
-	if r.bundle {
-		name += fmt.Sprintf("%s%s %d/%d%s", bundleMark, pal.line, r.subEnabled, r.subTotal, pal.reset)
-	}
-	return name
-}
-
-type treeNode struct {
-	rows     []moduleRow
-	children map[string]*treeNode
-}
-
-func buildTree(rows []moduleRow) *treeNode {
-	root := &treeNode{children: map[string]*treeNode{}}
-	for _, r := range rows {
-		node := root
-		for _, seg := range r.category {
-			child, ok := node.children[seg]
-			if !ok {
-				child = &treeNode{children: map[string]*treeNode{}}
-				node.children[seg] = child
-			}
-			node = child
-		}
-		node.rows = append(node.rows, r)
-	}
-	return root
-}
-
-func rowColor(pal treePalette, r moduleRow) string {
-	if r.modified {
-		return pal.blue
-	}
-	return markerColor(pal, r.marker)
-}
-
 func rowWord(r moduleRow) string {
 	if r.removed {
 		return stateWordRemoved
@@ -387,132 +289,67 @@ func rowWord(r moduleRow) string {
 	return markerWord(r.marker)
 }
 
-// markerColor returns the palette color for a row's marker, or pal.off for
-// the plain off state.
-func markerColor(pal treePalette, marker string) string {
+// colorOf is the tint a row is drawn in: blue when modified, else its marker's.
+func colorOf(r moduleRow) ui.Color {
+	if r.modified {
+		return ui.ColorBlue
+	}
+	return markerColor(r.marker)
+}
+
+// markerColor is the tint of a state marker.
+func markerColor(marker string) ui.Color {
 	switch marker {
 	case markerEnabledOnly:
-		return pal.teal
+		return ui.ColorTeal
 	case markerEnabledBoth:
-		return pal.green
+		return ui.ColorGreen
 	case markerRunningOnly:
-		return pal.red
+		return ui.ColorRed
 	case markerPulled:
-		return pal.purple
+		return ui.ColorPurple
 	default:
-		return pal.off
+		return ui.ColorOff
 	}
 }
 
-// moduleRenderTTY writes rows to w as a tree nested under rootLabel: units
-// before subcategories at each level, each group ordered by moduleSortRows.
-// pal's color fields are empty strings to render the same shape with no
-// ANSI codes.
-func moduleRenderTTY(w *strings.Builder, rows []moduleRow, rootLabel string, pal treePalette) {
-	if len(rows) == 0 {
-		w.WriteString("(no modules)\n")
-		return
-	}
-
-	fmt.Fprintf(w, "%s%s%s\n", pal.title, rootLabel, pal.reset)
-	renderTreeNode(w, buildTree(rows), "", pal)
-	w.WriteString("\n")
-}
-
-// renderTreeNode prints node's units, then its subcategories (alphabetical),
-// each continuing with prefix.
-func renderTreeNode(w *strings.Builder, node *treeNode, prefix string, pal treePalette) {
-	moduleSortRows(node.rows)
-	cats := make([]string, 0, len(node.children))
-	for c := range node.children {
-		cats = append(cats, c)
-	}
-	sort.Strings(cats)
-
-	total := len(node.rows) + len(cats)
-	i := 0
-
-	for _, r := range node.rows {
-		i++
-		connector, childPrefix := "├── ", prefix+"│   "
-		if i == total {
-			connector, childPrefix = "└── ", prefix+"    "
-		}
-		renderRow(w, r, prefix, connector, childPrefix, pal)
-	}
-
-	for _, cat := range cats {
-		i++
-		connector, childPrefix := "├── ", prefix+"│   "
-		if i == total {
-			connector, childPrefix = "└── ", prefix+"    "
-		}
-		fmt.Fprintf(w, "%s%s%s%s%s%s/%s\n", pal.line, prefix, connector, pal.reset, pal.title, cat, pal.reset)
-		renderTreeNode(w, node.children[cat], childPrefix, pal)
-	}
-}
-
-// noteColor returns the palette color of a row note: teal for an available
-// update, off for unknown.
-func noteColor(pal treePalette, note string) string {
+// noteColor is the tint of a row note: teal for an available update, off for unknown.
+func noteColor(note string) ui.Color {
 	if flake.Note(note) == flake.NoteBehind {
-		return pal.teal
+		return ui.ColorTeal
 	}
-	return pal.off
+	return ui.ColorOff
 }
 
-func renderRow(w *strings.Builder, r moduleRow, prefix, connector, childPrefix string, pal treePalette) {
-	mc := rowColor(pal, r)
-	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, mc, r.marker, nameText(r, pal), pal.reset)
-	if r.note != "" {
-		fmt.Fprintf(w, " %s%s%s", noteColor(pal, r.note), r.note, pal.reset)
-	}
-	if len(r.pulledBy) > 0 {
-		fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(r.pulledBy, ", "), pal.reset)
-	}
-	w.WriteString("\n")
-
-	moduleSortRows(r.children)
-	for i, c := range r.children {
-		childConnector, grandPrefix := "├── ", childPrefix+"│   "
-		if i == len(r.children)-1 {
-			childConnector, grandPrefix = "└── ", childPrefix+"    "
+// uiRows maps rows, and their children, to what ui draws.
+func uiRows(rows []moduleRow) []ui.Row {
+	out := make([]ui.Row, len(rows))
+	for i, r := range rows {
+		mark := ""
+		if len(r.inputs) > 0 {
+			mark = flakeMark
 		}
-		renderRow(w, c, childPrefix, childConnector, grandPrefix, pal)
-	}
-}
-
-// moduleRenderFlat writes rows to w as a flat, colored list: one "marker name"
-// per line, sorted by full path so entries group by category. pal's color
-// fields are empty strings to render with no ANSI codes.
-func moduleRenderFlat(w *strings.Builder, rows []moduleRow, pal treePalette) {
-	if len(rows) == 0 {
-		w.WriteString("(no modules)\n")
-		return
-	}
-
-	type line struct {
-		path string
-		row  moduleRow
-	}
-	lines := make([]line, 0, len(rows))
-	for _, r := range rows {
-		path := r.name
-		if len(r.category) > 0 {
-			path = strings.Join(r.category, "/") + "/" + r.name
+		count := ""
+		if r.bundle {
+			count = fmt.Sprintf("%d/%d", r.subEnabled, r.subTotal)
 		}
-		lines = append(lines, line{path: path, row: r})
-	}
-	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
-
-	for _, l := range lines {
-		mc := rowColor(pal, l.row)
-		fmt.Fprintf(w, "%s%s %s%s", mc, l.row.marker, nameText(l.row, pal), pal.reset)
-		if len(l.row.pulledBy) > 0 {
-			fmt.Fprintf(w, "  %s← %s%s", pal.line, strings.Join(l.row.pulledBy, ", "), pal.reset)
+		out[i] = ui.Row{
+			Category:  r.category,
+			Name:      r.name,
+			Mark:      mark,
+			Count:     count,
+			Marker:    r.marker,
+			Color:     colorOf(r),
+			Rank:      r.rank,
+			Underline: r.shadow,
+			Strike:    r.removed,
+			Note:      r.note,
+			NoteColor: noteColor(r.note),
+			Trailer:   r.pulledBy,
+			Children:  uiRows(r.children),
 		}
-		w.WriteString("\n")
 	}
+	return out
 }
 
 func rowPath(r moduleRow) string {
@@ -520,22 +357,6 @@ func rowPath(r moduleRow) string {
 		return r.name
 	}
 	return strings.Join(r.category, "/") + "/" + r.name
-}
-
-const jsonIndent = "  "
-
-func errJSONConflict(other string) error {
-	return fmt.Errorf("--json cannot be combined with %s", other)
-}
-
-func writeJSON(w *strings.Builder, v any) error {
-	data, err := json.MarshalIndent(v, "", jsonIndent)
-	if err != nil {
-		return err
-	}
-	w.Write(data)
-	w.WriteString("\n")
-	return nil
 }
 
 type moduleJSONRow struct {
@@ -554,7 +375,7 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return writeJSON(w, out)
+	return ui.JSON(w, out)
 }
 
 func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
@@ -563,11 +384,6 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	for _, r := range sorted {
 		fmt.Fprintln(w, strings.Join([]string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep)}, plainColumnSep))
 	}
-}
-
-func stdoutIsTTY() bool {
-	fi, err := os.Stdout.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func moduleList(p paths.Paths, args []string) error {
@@ -590,9 +406,9 @@ func moduleList(p paths.Paths, args []string) error {
 
 	switch {
 	case asJSON && raw:
-		return errJSONConflict("--raw")
+		return ui.ErrJSONConflict("--raw")
 	case asJSON && flat:
-		return errJSONConflict("--flat")
+		return ui.ErrJSONConflict("--flat")
 	}
 
 	var categoryPath string
@@ -626,7 +442,7 @@ func moduleList(p paths.Paths, args []string) error {
 		}
 	}
 
-	tty := stdoutIsTTY()
+	tty := ui.IsTerminal(os.Stdout)
 
 	if _, err := os.Stat(p.RunningModules); err != nil {
 		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
@@ -660,10 +476,7 @@ func moduleList(p paths.Paths, args []string) error {
 		rootLabel = categoryPath + "/"
 	}
 
-	pal := treePalette{}
-	if colorsEnabled(tty) {
-		pal = colorTreePalette
-	}
+	pal := ui.PaletteFor(os.Stdout)
 
 	var out strings.Builder
 	switch {
@@ -674,9 +487,9 @@ func moduleList(p paths.Paths, args []string) error {
 	case raw:
 		moduleRenderPlain(&out, rows)
 	case flat:
-		moduleRenderFlat(&out, collapseBundles(rows, bundleView), pal)
+		ui.Flat(&out, uiRows(collapseBundles(rows, bundleView)), pal)
 	case tty:
-		moduleRenderTTY(&out, collapseBundles(rows, bundleView), rootLabel, pal)
+		ui.Tree(&out, uiRows(collapseBundles(rows, bundleView)), rootLabel, pal)
 	default:
 		moduleRenderPlain(&out, rows)
 	}
@@ -1152,7 +965,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 	printShadowedHosts(name, skipHosts)
 
 	if opts["yes"] == "" {
-		ok, err := shared.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
+		ok, err := ui.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
 		if err != nil {
 			return err
 		}
@@ -1258,7 +1071,7 @@ func moduleRename(p paths.Paths, args []string) error {
 		printShadowedHosts(oldName, skipHosts)
 
 		if opts["yes"] == "" {
-			ok, err := shared.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
+			ok, err := ui.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
 			if err != nil {
 				return err
 			}

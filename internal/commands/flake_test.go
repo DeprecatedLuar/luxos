@@ -9,6 +9,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 func testLockGraph() nix.Lock {
@@ -114,7 +115,7 @@ func TestFlakeRenderTreeAndPlain(t *testing.T) {
 	rows := flakeBuildRows(map[string][]string{"ambxst": {"desktop/shells/ambxst"}}, testLockGraph(), nil)
 
 	var tty strings.Builder
-	moduleRenderTTY(&tty, rows, flakeInputsLabel, treePalette{})
+	ui.Tree(&tty, uiRows(rows), flakeInputsLabel, ui.Palette{})
 	wantTTY := `inputs/
 ├── ⊕ nixpkgs
 ├── ◉ luxos
@@ -146,7 +147,7 @@ func TestFlakeBuildRowsNotesRenderAfterName(t *testing.T) {
 	rows := flakeBuildRows(map[string][]string{"ambxst": {"a.nix"}}, testLockGraph(), notes)
 
 	var tty strings.Builder
-	moduleRenderTTY(&tty, rows, flakeInputsLabel, treePalette{})
+	ui.Tree(&tty, uiRows(rows), flakeInputsLabel, ui.Palette{})
 	for _, want := range []string{"◉ ambxst ↑\n", "◍ axctl ?\n"} {
 		if !strings.Contains(tty.String(), want) {
 			t.Errorf("tree missing %q:\n%s", want, tty.String())
@@ -208,7 +209,7 @@ func showRender(t *testing.T, name string, fetch fetchFn) string {
 		t.Fatal(err)
 	}
 	var b strings.Builder
-	flakeRenderView(&b, v, treePalette{})
+	flakeRenderView(&b, v, ui.Palette{})
 	return b.String()
 }
 

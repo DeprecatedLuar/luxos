@@ -17,60 +17,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
-
-// Ported verbatim from bin/lib/nixos-rebuild/main.sh's REBUILD_HEADER.
-var rebuildLogoLines = []string{
-	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗",
-	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝",
-	"██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗",
-	"██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║",
-	"███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║",
-	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝",
-}
 
 // After one succeeds the staged tree is the running system.
 var rebuildActivatingActions = map[string]bool{"switch": true, "boot": true, "test": true}
-
-const rebuildFooter = "                          made by me <3 (luar)"
-
-// Plain (non-color) header for a non-TTY or NO_COLOR.
-const rebuildHeader = "\n" +
-	"██╗     ██╗   ██╗██╗  ██╗ ██████╗ ███████╗\n" +
-	"██║     ██║   ██║╚██╗██╔╝██╔═══██╗██╔════╝\n" +
-	"██║     ██║   ██║ ╚███╔╝ ██║   ██║███████╗\n" +
-	"██║     ██║   ██║ ██╔██╗ ██║   ██║╚════██║\n" +
-	"███████╗╚██████╔╝██╔╝ ██╗╚██████╔╝███████║\n" +
-	"╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n" +
-	rebuildFooter + "\n\n"
-
-// Gradient endpoints: green (#CCF391) to purple (#B5A6FA), matching module list's palette.
-var (
-	rebuildLogoFrom = [3]int{0xCC, 0xF3, 0x91}
-	rebuildLogoTo   = [3]int{0xB5, 0xA6, 0xFA}
-)
-
-// Renders rebuildLogoLines as a flat-per-row, top-to-bottom green-to-purple gradient.
-func gradientLogo() string {
-	rows := len(rebuildLogoLines)
-
-	var b strings.Builder
-	b.WriteByte('\n')
-	for y, line := range rebuildLogoLines {
-		t := y
-		span := rows - 1
-		if span <= 0 {
-			span = 1
-		}
-		r := rebuildLogoFrom[0] + (rebuildLogoTo[0]-rebuildLogoFrom[0])*t/span
-		g := rebuildLogoFrom[1] + (rebuildLogoTo[1]-rebuildLogoFrom[1])*t/span
-		bl := rebuildLogoFrom[2] + (rebuildLogoTo[2]-rebuildLogoFrom[2])*t/span
-		fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm%s", r, g, bl, line)
-		b.WriteString(colorReset + "\n")
-	}
-	b.WriteString(colorLine + rebuildFooter + colorReset + "\n\n")
-	return b.String()
-}
 
 // Ported from rebuild::run in bin/lib/nixos-rebuild/main.sh.
 const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
@@ -85,8 +36,6 @@ const yesFlag = "--yes"
 const goodbyeNixExt = ".nix"
 
 const goodbyeFarewell = "SEE YOU NIX COWBOY..."
-
-const ansiItalic = "\x1b[3m"
 
 const flakeLockName = "flake.lock"
 
@@ -108,15 +57,7 @@ const configDirEnv = "LUXOS_CONFIG_DIR"
 const backupDirEnv = "LUXOS_BACKUP_DIR"
 
 func printLogo() {
-	tty := false
-	if fi, err := os.Stdout.Stat(); err == nil {
-		tty = fi.Mode()&os.ModeCharDevice != 0
-	}
-	if colorsEnabled(tty) {
-		fmt.Print(gradientLogo())
-	} else {
-		fmt.Print(rebuildHeader)
-	}
+	fmt.Print(ui.Logo(os.Stdout))
 }
 
 // Re-executes this process as the luxos revision pinned in hostLock when the
@@ -386,7 +327,7 @@ func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 	if yes {
 		return true, false, nil
 	}
-	ok, err := shared.Confirm("Proceed? [y/N] ", false)
+	ok, err := ui.Confirm("Proceed? [y/N] ", false)
 	if err != nil {
 		return false, false, err
 	}
@@ -422,14 +363,6 @@ func goodbye(dir string, rest []string) error {
 		return err
 	}
 
-	tty := false
-	if fi, err := os.Stdout.Stat(); err == nil {
-		tty = fi.Mode()&os.ModeCharDevice != 0
-	}
-	msg := goodbyeFarewell
-	if colorsEnabled(tty) {
-		msg = ansiItalic + goodbyeFarewell + colorReset
-	}
-	fmt.Print("\n\n" + msg + "\n")
+	fmt.Print("\n\n" + ui.Italic(os.Stdout, goodbyeFarewell) + "\n")
 	return nil
 }
