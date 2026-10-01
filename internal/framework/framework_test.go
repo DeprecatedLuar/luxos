@@ -5,11 +5,17 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 func embeddedModuleNames(t *testing.T) []string {
 	t.Helper()
-	srcFiles, _, err := embeddedModulesSet()
+	modulesFS, err := templates.Dir(modulesSrcDir)
+	if err != nil {
+		t.Fatalf("templates.Dir: %v", err)
+	}
+	srcFiles, _, err := embeddedModulesSet(modulesFS)
 	if err != nil {
 		t.Fatalf("embeddedModulesSet: %v", err)
 	}
@@ -76,7 +82,7 @@ func TestSync_ModifiedFileRestored(t *testing.T) {
 	names := embeddedModuleNames(t)
 	target := names[0]
 	targetPath := filepath.Join(dst, target)
-	wantData, err := files.ReadFile(filepath.Join(modulesSrcDir, target))
+	wantData, err := templates.File(filepath.Join(modulesSrcDir, target))
 	if err != nil {
 		t.Fatal(err)
 	}

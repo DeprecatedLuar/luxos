@@ -1,4 +1,4 @@
-package framework
+package templates
 
 import (
 	"bytes"
@@ -43,7 +43,7 @@ func TestOutputsProvidesModulesPath(t *testing.T) {
 		"framework/flake-file.nix": []byte(outputsFixtureFlakeFile),
 	}
 	for _, name := range []string{"outputs.nix", "units.nix"} {
-		content, err := File(name)
+		content, err := File("framework/" + name)
 		if err != nil {
 			t.Fatal(err)
 		}

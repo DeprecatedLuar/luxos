@@ -4,14 +4,12 @@
 package computer
 
 import (
-	"bytes"
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
 
@@ -33,11 +31,6 @@ const configurationLimit = 4
 
 var efiMounts = []string{"/boot/efi", "/boot"}
 var biosMounts = []string{"/boot", "/"}
-
-//go:embed templates/boot.nix.tmpl
-var templatesFS embed.FS
-
-var bootTmpl = template.Must(template.New("boot.nix.tmpl").ParseFS(templatesFS, "templates/boot.nix.tmpl"))
 
 // Target is the EFI mount point (B4) or the "/dev/<disk>" device (B5).
 type Loader struct {
@@ -135,15 +128,15 @@ func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
 }
 
 func RenderBoot(l Loader) ([]byte, error) {
-	var buf bytes.Buffer
 	data := struct {
 		Loader
 		ConfigurationLimit int
 	}{l, configurationLimit}
-	if err := bootTmpl.Execute(&buf, data); err != nil {
+	out, err := templates.Render("boot.nix.tmpl", data)
+	if err != nil {
 		return nil, fmt.Errorf("computer.RenderBoot: %w", err)
 	}
-	return buf.Bytes(), nil
+	return out, nil
 }
 
 // An existing entry of any kind is left alone. A detection

@@ -1,4 +1,4 @@
-package framework
+package templates
 
 import (
 	"bytes"
@@ -33,11 +33,11 @@ func TestEnvironmentParser(t *testing.T) {
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		t.Skip("nix-instantiate not on PATH")
 	}
-	tmpl, err := File("templates/environment")
+	tmpl, err := File("starters/environment")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parser, err := File("environment.nix")
+	parser, err := File("framework/environment.nix")
 	if err != nil {
 		t.Fatal(err)
 	}

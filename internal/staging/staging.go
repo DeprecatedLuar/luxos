@@ -14,10 +14,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"text/template"
 
-	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 	"github.com/DeprecatedLuar/luxos/internal/userfile"
 )
@@ -421,19 +420,11 @@ func writeFlakeNix(dst, inputsNix string) error {
 	if inputsNix == "" {
 		return errors.New("staging: flake inputs are required")
 	}
-	data, err := framework.File(flakeNix)
+	out, err := templates.Render("flake.nix.tmpl", flakeNixData{Inputs: inputsNix})
 	if err != nil {
 		return err
 	}
-	tmpl, err := template.New(flakeNix).Parse(string(data))
-	if err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, flakeNixData{Inputs: inputsNix}); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dst, flakeNix), buf.Bytes(), fileMode)
+	return os.WriteFile(filepath.Join(dst, flakeNix), out, fileMode)
 }
 
 type flakeNixData struct {
@@ -441,7 +432,7 @@ type flakeNixData struct {
 }
 
 func writeFrameworkFile(dst, name string) error {
-	data, err := framework.File(name)
+	data, err := templates.File("framework/" + name)
 	if err != nil {
 		return err
 	}

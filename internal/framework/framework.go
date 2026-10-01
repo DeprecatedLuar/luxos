@@ -2,15 +2,16 @@ package framework
 
 import (
 	"bytes"
-	"embed"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 const (
-	modulesSrcDir = "files/modules"
+	modulesSrcDir = "modules"
 
 	dirMode      = 0755
 	writableMode = 0644
@@ -20,13 +21,6 @@ const (
 	ActionRestored = "restored"
 	ActionRemoved  = "removed"
 )
-
-//go:embed all:files
-var files embed.FS
-
-func File(name string) ([]byte, error) {
-	return files.ReadFile("files/" + name)
-}
 
 type Change struct {
 	Path   string // relative to dst
@@ -38,7 +32,11 @@ type Change struct {
 // removed. If dst is itself a symlink, the symlink is removed (not
 // followed) and replaced with a real directory.
 func Sync(dst string) ([]Change, error) {
-	srcFiles, dirSet, err := embeddedModulesSet()
+	modulesFS, err := templates.Dir(modulesSrcDir)
+	if err != nil {
+		return nil, err
+	}
+	srcFiles, dirSet, err := embeddedModulesSet(modulesFS)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +61,7 @@ func Sync(dst string) ([]Change, error) {
 			return nil, err
 		}
 
-		wantData, err := files.ReadFile(srcPath)
+		wantData, err := fs.ReadFile(modulesFS, srcPath)
 		if err != nil {
 			return nil, err
 		}
@@ -88,23 +86,20 @@ func Sync(dst string) ([]Change, error) {
 	return changes, nil
 }
 
-// Keyed by path relative to files/modules: the embedded FS path for every file,
+// Keyed by path relative to the modules root: the embedded FS path for every file,
 // and the set of directories that contain at least one embedded file (including the root, "").
-func embeddedModulesSet() (srcFiles map[string]string, dirSet map[string]bool, err error) {
+func embeddedModulesSet(modulesFS fs.FS) (srcFiles map[string]string, dirSet map[string]bool, err error) {
 	srcFiles = map[string]string{}
 	dirSet = map[string]bool{}
 
-	err = fs.WalkDir(files, modulesSrcDir, func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(modulesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(modulesSrcDir, path)
-		if err != nil {
-			return err
-		}
+		rel := path
 		srcFiles[rel] = path
 
 		for dir := filepath.Dir(rel); dir != "." && dir != "/"; dir = filepath.Dir(dir) {

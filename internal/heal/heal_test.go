@@ -10,8 +10,8 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/computer"
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 // hostFlakeLock is the content written to .local/machines/<host>/flake.lock in
@@ -217,7 +217,7 @@ func TestRun_EndToEnd(t *testing.T) {
 	if strings.Contains(out.String(), "created: "+hwConfig) {
 		t.Errorf("output reported creating %s, got:\n%s", hwConfig, out.String())
 	}
-	hwTmpl, err := framework.File("templates/hardware.nix")
+	hwTmpl, err := templates.File("starters/hardware.nix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 
 	// The environment file was created from the template and staged as is.
-	tmpl, err := framework.File("templates/environment")
+	tmpl, err := templates.File("starters/environment")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
 	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
 		t.Fatal(err)
 	}
-	want, err := framework.File(machineTemplate)
+	want, err := templates.File(machineTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
 
 func TestMachineTemplate_Parses(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := framework.File(machineTemplate)
+	tmpl, err := templates.File(machineTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +632,7 @@ func TestMachineTemplate_Parses(t *testing.T) {
 }
 
 func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
-	sys, err := framework.File("system.nix")
+	sys, err := templates.File("framework/system.nix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +650,7 @@ func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
 }
 
 func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
-	sys, err := framework.File("system.nix")
+	sys, err := templates.File("framework/system.nix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
 }
 
 func TestMachineTemplate_NoGC(t *testing.T) {
-	tmpl, err := framework.File(machineTemplate)
+	tmpl, err := templates.File(machineTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +682,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := filepath.Join(hw, config_.DefaultFile)
-	tmpl, err := framework.File(hardwareDefaultTemplate)
+	tmpl, err := templates.File(hardwareDefaultTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 
 func TestHardwareTemplate_Parses(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := framework.File(hardwareDefaultTemplate)
+	tmpl, err := templates.File(hardwareDefaultTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,7 +734,7 @@ func TestRun_MissingProductUUIDFails(t *testing.T) {
 
 func TestCheckMachineFile(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := framework.File(machineTemplate)
+	tmpl, err := templates.File(machineTemplate)
 	if err != nil {
 		t.Fatal(err)
 	}

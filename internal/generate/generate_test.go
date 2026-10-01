@@ -9,8 +9,8 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -113,7 +113,7 @@ func TestFlakeBootstrap_EmptyHostErrors(t *testing.T) {
 }
 
 func TestStaticFlakeNix_Parses(t *testing.T) {
-	raw, err := framework.File("flake.nix")
+	raw, err := templates.File("render/flake.nix.tmpl")
 	if err != nil {
 		t.Fatalf("framework.File(flake.nix): %v", err)
 	}
@@ -129,7 +129,7 @@ func TestStaticFlakeNix_Parses(t *testing.T) {
 }
 
 func TestSystemNix_Parses(t *testing.T) {
-	content, err := framework.File("system.nix")
+	content, err := templates.File("framework/system.nix")
 	if err != nil {
 		t.Fatalf("framework.File(system.nix): %v", err)
 	}

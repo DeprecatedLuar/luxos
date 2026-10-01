@@ -1,4 +1,4 @@
-package framework
+package templates
 
 import (
 	"bytes"
@@ -99,7 +99,7 @@ func TestGPUDefaults(t *testing.T) {
 
 	dir := t.TempDir()
 	for _, name := range []string{"luxos-hardware.nix", "luxos-hardware-defaults.nix", "nvidia-generations.nix"} {
-		content, err := File(name)
+		content, err := File("framework/" + name)
 		if err != nil {
 			t.Fatal(err)
 		}

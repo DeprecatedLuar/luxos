@@ -5,7 +5,7 @@ dist/
 build/
 !*/
 !*.*
-!internal/framework/files/templates/environment
+!internal/templates/starters/environment
 
 # Secrets
 .env

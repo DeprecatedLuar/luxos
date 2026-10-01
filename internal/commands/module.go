@@ -14,13 +14,13 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/nixsrc"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
@@ -908,7 +908,7 @@ func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
 	dest := filepath.Join(modulesRoot, target)
 
-	account, err := framework.File("templates/user/account.nix")
+	account, err := templates.File("starters/user/account.nix")
 	if err != nil {
 		return err
 	}
@@ -926,7 +926,7 @@ func moduleAddUser(modulesRoot, target string) error {
 		return err
 	}
 
-	defaultNix, err := framework.File("templates/user/default.nix")
+	defaultNix, err := templates.File("starters/user/default.nix")
 	if err != nil {
 		return err
 	}

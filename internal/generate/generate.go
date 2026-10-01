@@ -6,18 +6,9 @@
 package generate
 
 import (
-	"bytes"
-	"embed"
 	"fmt"
-	"text/template"
-)
 
-//go:embed templates/*.tmpl
-var templatesFS embed.FS
-
-var (
-	configurationTmpl = template.Must(template.New("configuration.nix.tmpl").ParseFS(templatesFS, "templates/configuration.nix.tmpl"))
-	bootstrapTmpl     = template.Must(template.New("bootstrap.nix.tmpl").ParseFS(templatesFS, "templates/bootstrap.nix.tmpl"))
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 type configurationData struct {
@@ -25,15 +16,7 @@ type configurationData struct {
 }
 
 func Configuration(host string) ([]byte, error) {
-	data := configurationData{
-		Host: host,
-	}
-
-	var buf bytes.Buffer
-	if err := configurationTmpl.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return templates.Render("configuration.nix.tmpl", configurationData{Host: host})
 }
 
 type bootstrapData struct {
@@ -44,10 +27,5 @@ func FlakeBootstrap(host string) ([]byte, error) {
 	if host == "" {
 		return nil, fmt.Errorf("generate.FlakeBootstrap: host name is required")
 	}
-
-	var buf bytes.Buffer
-	if err := bootstrapTmpl.Execute(&buf, bootstrapData{Host: host}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return templates.Render("bootstrap.nix.tmpl", bootstrapData{Host: host})
 }
