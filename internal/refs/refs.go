@@ -18,8 +18,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 const entrypointName = "default.nix"
@@ -27,8 +27,6 @@ const entrypointName = "default.nix"
 const localName = "local"
 
 const modulesDirName = "modules"
-
-const localPrefix = "local/"
 
 const nameSep = "/"
 
@@ -57,7 +55,7 @@ func Owner(modulesDir, file string) string {
 		if fi, err := os.Stat(filepath.Join(d, entrypointName)); err == nil && !fi.IsDir() {
 			return d
 		}
-		if filepath.Base(d) == modulesDirName && units.IsBundle(filepath.Dir(d)) {
+		if filepath.Base(d) == modulesDirName && modules.IsBundle(filepath.Dir(d)) {
 			return ""
 		}
 		d = filepath.Dir(d)
@@ -77,7 +75,7 @@ func Owner(modulesDir, file string) string {
 // for a root that resolves to no unit, or for I/O or parser-lookup failure
 // (e.g. nix-instantiate missing); a file that itself fails to parse is
 // reported as a Violation instead.
-func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, error) {
+func Validate(modulesDir string, us []modules.Module, roots []string) ([]Violation, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 
 	var queue []string
@@ -90,17 +88,18 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 	}
 	rootNames := make(map[string]bool, len(roots))
 	for _, r := range roots {
-		rootNames[units.NameFromPath(r)] = true
+		rootNames[modules.NameFromPath(r)] = true
 	}
 
 	var violations []Violation
 	for _, r := range roots {
-		name := units.NameFromPath(r)
-		unitPath, ok := units.Resolve(us, name)
+		name := modules.NameFromPath(r)
+		root, ok := modules.Find(us, name)
+		unitPath := root.Path
 		if !ok {
 			return nil, fmt.Errorf("import ./%s does not resolve to any module under %s/", r, modulesDirName)
 		}
-		if parent := units.Parent(name); parent != "" && !rootNames[parent] {
+		if parent := modules.Parent(name); parent != "" && !rootNames[parent] {
 			violations = append(violations, Violation{
 				File:    r,
 				Message: fmt.Sprintf("selects submodule '%s' but not its bundle '%s'; enable it with: luxos module enable %s", name, parent, parent),
@@ -112,7 +111,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 	for len(queue) > 0 {
 		unitPath := queue[0]
 		queue = queue[1:]
-		unitName := units.NameFromPath(unitPath)
+		unitName := modules.NameFromPath(unitPath)
 
 		files, err := UnitFiles(filepath.Join(root, unitPath))
 		if err != nil {
@@ -144,7 +143,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 					violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
 					continue
 				}
-				if units.IsBundle(owner) && (p == ownerModules || strings.HasPrefix(p, ownerModules+"/")) {
+				if modules.IsBundle(owner) && (p == ownerModules || strings.HasPrefix(p, ownerModules+"/")) {
 					violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s inside its bundle's modules/ (submodules are selected in the host's modules.nix)", p)})
 				}
 			}
@@ -164,7 +163,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 					})
 					continue
 				}
-				depUnit, ok := units.Find(us, name)
+				depUnit, ok := modules.Find(us, name)
 				dep := depUnit.Path
 				if !ok {
 					violations = append(violations, Violation{
@@ -176,11 +175,11 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 				if strings.Contains(name, nameSep) {
 					violations = append(violations, Violation{
 						File:    rel,
-						Message: fmt.Sprintf("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, units.Top(name)),
+						Message: fmt.Sprintf("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, modules.Top(name)),
 					})
 					continue
 				}
-				if !strings.HasPrefix(unitPath, localPrefix) && strings.HasPrefix(dep, localPrefix) && depUnit.Shadows == "" {
+				if !strings.HasPrefix(unitPath, modules.LocalPrefix) && strings.HasPrefix(dep, modules.LocalPrefix) && depUnit.Shadows == "" {
 					violations = append(violations, Violation{
 						File:    rel,
 						Message: fmt.Sprintf("luxos.modules: shared module references local module '%s'", name),
@@ -204,7 +203,7 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 // silently skipped rather than reported, since a broken config is
 // already caught by Validate at rebuild time. A root itself is never a
 // key unless something else also references it.
-func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]string, error) {
+func Closure(modulesDir string, us []modules.Module, roots []string) (map[string][]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 
 	var queue []string
@@ -216,8 +215,8 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 		}
 	}
 	for _, r := range roots {
-		if unitPath, ok := units.Resolve(us, units.NameFromPath(r)); ok {
-			enqueue(unitPath)
+		if m, ok := modules.Find(us, modules.NameFromPath(r)); ok {
+			enqueue(m.Path)
 		}
 	}
 
@@ -225,7 +224,7 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 	for len(queue) > 0 {
 		unitPath := queue[0]
 		queue = queue[1:]
-		unitName := units.NameFromPath(unitPath)
+		unitName := modules.NameFromPath(unitPath)
 
 		files, err := UnitFiles(filepath.Join(root, unitPath))
 		if err != nil {
@@ -243,10 +242,11 @@ func Closure(modulesDir string, us []units.Unit, roots []string) (map[string][]s
 				continue
 			}
 			for _, name := range names {
-				dep, ok := units.Resolve(us, name)
+				depModule, ok := modules.Find(us, name)
 				if !ok {
 					continue
 				}
+				dep := depModule.Path
 				if pullers[name] == nil {
 					pullers[name] = make(map[string]bool)
 				}
@@ -363,7 +363,7 @@ func UnitFiles(unit string) ([]string, error) {
 	if !info.IsDir() {
 		return []string{unit}, nil
 	}
-	if units.IsBundle(unit) {
+	if modules.IsBundle(unit) {
 		return findAllNix(unit, modulesDirName)
 	}
 	return findAllNix(unit, "")

@@ -13,14 +13,13 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 // entrypointName is the file under Paths.Modules that mirrors the active
@@ -29,12 +28,8 @@ const entrypointName = "default.nix"
 
 // localLinkName is the reserved entry at Paths.Modules' own root: the link
 // to the active host's local modules directory. A missing link means
-// no local units for units.Walk's purposes.
+// no local units for modules.Walk's purposes.
 const localLinkName = "local"
-
-// localPathPrefix marks a unit path as belonging to the active host's own
-// local modules, e.g. "local/foo.nix" — used by remove/rename to pick their scope.
-const localPathPrefix = "local/"
 
 // accountFileName is where a user module's account definition lives;
 // `edit` prefers it over entrypointName for a directory unit that has one.
@@ -162,7 +157,7 @@ func Module(args []string) error {
 		if err != nil {
 			return err
 		}
-		if found && units.IsBundle(filepath.Join(p.Modules, path)) {
+		if found && modules.IsBundle(filepath.Join(p.Modules, path)) {
 			return moduleList(p, args)
 		}
 		return fmt.Errorf("unknown module command: %s (list|add|edit|enable|1|disable|0|remove|rename, or a bundle name)", verb)
@@ -259,12 +254,12 @@ func nameSet(file string) (map[string]bool, error) {
 		return nil, err
 	}
 
-	itemPaths, err := imports.List(file)
+	itemPaths, err := modules.ReadSelection(file)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range itemPaths {
-		set[units.NameFromPath(p)] = true
+		set[modules.NameFromPath(p)] = true
 	}
 	return set, nil
 }
@@ -276,11 +271,11 @@ func nameSet(file string) (map[string]bool, error) {
 // pulled never overrides an enabled unit's own state. category is stored as
 // path segments relative to categoryPath, so the filtered subtree renders
 // rooted at itself rather than repeating the filter as a nested category.
-func moduleBuildRows(us []units.Unit, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
+func moduleBuildRows(us []modules.Module, enabled, running map[string]bool, pulled map[string][]string, changed map[string]bool, categoryPath string) []moduleRow {
 	subTotal := map[string]int{}
 	subEnabled := map[string]int{}
 	for _, u := range us {
-		if parent := units.Parent(u.Name); parent != "" {
+		if parent := modules.Parent(u.Name); parent != "" {
 			subTotal[parent]++
 			if enabled[u.Name] {
 				subEnabled[parent]++
@@ -349,7 +344,7 @@ func categorySegments(shown, categoryPath string) ([]string, bool) {
 // moduleRemovedRows builds one row per module the running generation imports
 // that names no unit in us, filtered and stripped by categoryPath like
 // moduleBuildRows. Duplicate names give one row.
-func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath string) []moduleRow {
+func moduleRemovedRows(runningPaths []string, us []modules.Module, categoryPath string) []moduleRow {
 	exists := make(map[string]bool, len(us))
 	for _, u := range us {
 		exists[u.Name] = true
@@ -357,7 +352,7 @@ func moduleRemovedRows(runningPaths []string, us []units.Unit, categoryPath stri
 	seen := map[string]bool{}
 	var rows []moduleRow
 	for _, rp := range runningPaths {
-		name := units.NameFromPath(rp)
+		name := modules.NameFromPath(rp)
 		if exists[name] || seen[name] {
 			continue
 		}
@@ -391,7 +386,7 @@ func baseName(unit string) string {
 func collapseBundles(rows []moduleRow, target string) []moduleRow {
 	var out []moduleRow
 	for _, r := range rows {
-		if units.Parent(r.unit) == target {
+		if modules.Parent(r.unit) == target {
 			out = append(out, r)
 		}
 	}
@@ -634,7 +629,7 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	}
 }
 
-func moduleFillInputs(rows []moduleRow, us []units.Unit, modulesDir string) error {
+func moduleFillInputs(rows []moduleRow, us []modules.Module, modulesDir string) error {
 	pathOf := make(map[string]string, len(us))
 	for _, u := range us {
 		pathOf[u.Name] = u.Path
@@ -710,14 +705,14 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	categoryPath = strings.TrimSuffix(categoryPath, "/")
 
-	us, err := units.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
+	us, err := modules.Walk(p.Modules, filepath.Join(p.Modules, localLinkName))
 	if err != nil {
 		return err
 	}
 
 	// A bundle target lists its submodules, with categories relative to its modules/.
 	var bundleView string
-	if u, ok := units.Find(us, categoryPath); ok && categoryPath != "" && units.IsBundle(filepath.Join(p.Modules, u.Path)) {
+	if u, ok := modules.Find(us, categoryPath); ok && categoryPath != "" && modules.IsBundle(filepath.Join(p.Modules, u.Path)) {
 		bundleView = u.Name
 		shown := u.Path
 		if u.Shadows != "" {
@@ -749,7 +744,7 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	var runningPaths []string
 	if _, err := os.Stat(p.RunningModules); err == nil {
-		runningPaths, err = imports.List(p.RunningModules)
+		runningPaths, err = modules.ReadSelection(p.RunningModules)
 		if err != nil {
 			return err
 		}
@@ -758,12 +753,12 @@ func moduleList(p paths.Paths, args []string) error {
 	}
 	running := map[string]bool{}
 	for _, rp := range runningPaths {
-		running[units.NameFromPath(rp)] = true
+		running[modules.NameFromPath(rp)] = true
 	}
 
 	var selection []string
 	if _, err := os.Stat(entrypoint); err == nil {
-		selection, err = imports.List(entrypoint)
+		selection, err = modules.ReadSelection(entrypoint)
 		if err != nil {
 			return err
 		}
@@ -819,7 +814,7 @@ func moduleList(p paths.Paths, args []string) error {
 // moduleChangedUnits returns the names of enabled, running units whose files
 // differ from the baseline tree: the saved previous stage when present, else
 // the staging directory.
-func moduleChangedUnits(p paths.Paths, us []units.Unit, enabled, running map[string]bool) (map[string]bool, error) {
+func moduleChangedUnits(p paths.Paths, us []modules.Module, enabled, running map[string]bool) (map[string]bool, error) {
 	changed := map[string]bool{}
 	baseline := filepath.Join(p.PreviousStage, stagedModulesRel)
 	if _, err := os.Stat(p.PreviousStage); err != nil {
@@ -1061,12 +1056,12 @@ func enabledPathForName(file, name string) (string, bool, error) {
 		}
 		return "", false, err
 	}
-	itemPaths, err := imports.List(file)
+	itemPaths, err := modules.ReadSelection(file)
 	if err != nil {
 		return "", false, err
 	}
 	for _, path := range itemPaths {
-		if units.NameFromPath(path) == name {
+		if modules.NameFromPath(path) == name {
 			return path, true, nil
 		}
 	}
@@ -1105,7 +1100,7 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 			fmt.Printf("'%s' is already enabled\n", name)
 			return nil
 		}
-		return imports.Add(entrypoint, resolvedPath)
+		return nix.AddImport(entrypoint, resolvedPath)
 	}
 
 	subs, err := disableSubmodules(p, entrypoint, name, resolvedPath)
@@ -1118,14 +1113,14 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 		}
 		return nil
 	}
-	return imports.Remove(entrypoint, existingPath)
+	return nix.RemoveImport(entrypoint, existingPath)
 }
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
 // outermost first.
 func enableBundles(p paths.Paths, entrypoint, name string) error {
 	var chain []string
-	for b := units.Parent(name); b != ""; b = units.Parent(b) {
+	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
 		chain = append([]string{b}, chain...)
 	}
 	for _, bundle := range chain {
@@ -1141,7 +1136,7 @@ func enableBundles(p paths.Paths, entrypoint, name string) error {
 		} else if on {
 			continue
 		}
-		if err := imports.Add(entrypoint, path); err != nil {
+		if err := nix.AddImport(entrypoint, path); err != nil {
 			return err
 		}
 		fmt.Printf("enabled '%s' (bundle of '%s')\n", bundle, name)
@@ -1152,20 +1147,20 @@ func enableBundles(p paths.Paths, entrypoint, name string) error {
 // disableSubmodules removes every enabled line for a submodule of name when
 // name is a bundle, reporting whether any was removed.
 func disableSubmodules(p paths.Paths, entrypoint, name, path string) (bool, error) {
-	if !units.IsBundle(filepath.Join(p.Modules, path)) {
+	if !modules.IsBundle(filepath.Join(p.Modules, path)) {
 		return false, nil
 	}
-	enabledPaths, err := imports.List(entrypoint)
+	enabledPaths, err := modules.ReadSelection(entrypoint)
 	if err != nil {
 		return false, err
 	}
 	removed := false
 	for _, ip := range enabledPaths {
-		sub := units.NameFromPath(ip)
+		sub := modules.NameFromPath(ip)
 		if !strings.HasPrefix(sub, name+nameSep) {
 			continue
 		}
-		if err := imports.Remove(entrypoint, ip); err != nil {
+		if err := nix.RemoveImport(entrypoint, ip); err != nil {
 			return removed, err
 		}
 		fmt.Printf("disabled '%s' (submodule of '%s')\n", sub, name)
@@ -1263,7 +1258,7 @@ func activeHost(p paths.Paths) (string, error) {
 // from the unit's own path (L7/L13): a "local/..." unit is scoped to the
 // active host alone; anything else is scoped to every host.
 func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []string, err error) {
-	if strings.HasPrefix(unitPath, localPathPrefix) {
+	if strings.HasPrefix(unitPath, modules.LocalPrefix) {
 		host, err = activeHost(p)
 		if err != nil {
 			return "", nil, err
@@ -1284,7 +1279,7 @@ func moduleScope(p paths.Paths, unitPath string) (host string, localDirs []strin
 // existingPath is a shadow: the new unit is local and the existing one is
 // shared.
 func shadowsShared(newPath, existingPath string) bool {
-	return strings.HasPrefix(newPath, localPathPrefix) && !strings.HasPrefix(existingPath, localPathPrefix)
+	return strings.HasPrefix(newPath, modules.LocalPrefix) && !strings.HasPrefix(existingPath, modules.LocalPrefix)
 }
 
 // shadowingHosts returns, sorted, every host whose local modules shadow the
@@ -1297,11 +1292,11 @@ func shadowingHosts(p paths.Paths, name string) ([]string, error) {
 	sort.Strings(matches)
 	var hosts []string
 	for _, dir := range matches {
-		us, err := units.Walk(p.Modules, dir)
+		us, err := modules.Walk(p.Modules, dir)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(filepath.Dir(dir)), err)
 		}
-		if u, ok := units.Find(us, units.Top(name)); ok && u.Shadows != "" {
+		if u, ok := modules.Find(us, modules.Top(name)); ok && u.Shadows != "" {
 			hosts = append(hosts, filepath.Base(filepath.Dir(dir)))
 		}
 	}
@@ -1405,7 +1400,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return err
 	}
 
-	importers, err := imports.Importers(p.Machines, name, host)
+	importers, err := modules.Importers(p.Machines, name, host)
 	if err != nil {
 		return err
 	}
@@ -1435,11 +1430,11 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if _, err := refs.Retarget(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Machines, name, "", host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(p.Machines, name, "", host, skipHosts); err != nil {
 		return err
 	}
-	if units.IsBundle(filepath.Join(p.Modules, path)) {
-		if _, err := imports.RetargetPrefix(p.Machines, path, "", host, skipHosts); err != nil {
+	if modules.IsBundle(filepath.Join(p.Modules, path)) {
+		if _, err := modules.RetargetPrefix(p.Machines, path, "", host, skipHosts); err != nil {
 			return err
 		}
 	}
@@ -1494,7 +1489,7 @@ func moduleRename(p paths.Paths, args []string) error {
 	}
 
 	newQualified := newName
-	if parent := units.Parent(oldName); parent != "" {
+	if parent := modules.Parent(oldName); parent != "" {
 		if strings.Contains(newName, nameSep) {
 			return fmt.Errorf("rename keeps a submodule in its bundle: give only the new name")
 		}
@@ -1552,23 +1547,23 @@ func moduleRename(p paths.Paths, args []string) error {
 	// writing anything, refusing the whole operation on a bad shape): a
 	// refusal here leaves the unit unmoved and every host entrypoint
 	// untouched.
-	bundle := units.IsBundle(oldFull)
+	bundle := modules.IsBundle(oldFull)
 	if _, err := refs.Retarget(p.Modules, localDirs, oldName, newQualified); err != nil {
 		return err
 	}
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := imports.Retarget(p.Machines, oldName, newPath, host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(p.Machines, oldName, newPath, host, skipHosts); err != nil {
 		return err
 	}
 	if bundle {
-		if _, err := imports.RetargetPrefix(p.Machines, oldPath, newPath, host, skipHosts); err != nil {
+		if _, err := modules.RetargetPrefix(p.Machines, oldPath, newPath, host, skipHosts); err != nil {
 			return err
 		}
 	}
 
-	if units.Parent(oldName) == "" && (category == "users" || strings.HasPrefix(category, "users/")) {
+	if modules.Parent(oldName) == "" && (category == "users" || strings.HasPrefix(category, "users/")) {
 		fmt.Printf("Note: the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.\n", newPath, oldName)
 	}
 
@@ -1583,12 +1578,12 @@ func moduleRename(p paths.Paths, args []string) error {
 
 // resolveUnitPath walks modulesDir and resolves name to its path.
 func resolveUnitPath(modulesDir, name string) (string, bool, error) {
-	us, err := units.Walk(modulesDir, filepath.Join(modulesDir, localLinkName))
+	us, err := modules.Walk(modulesDir, filepath.Join(modulesDir, localLinkName))
 	if err != nil {
 		return "", false, err
 	}
-	path, ok := units.Resolve(us, name)
-	return path, ok, nil
+	m, ok := modules.Find(us, name)
+	return m.Path, ok, nil
 }
 
 // isFrameworkPath reports whether a modules-relative path lies under the

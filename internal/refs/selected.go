@@ -5,11 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DeprecatedLuar/luxos/internal/imports"
-	"github.com/DeprecatedLuar/luxos/internal/units"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 )
-
-const entrypointFile = "modules.nix"
 
 type SelectedUnit struct {
 	Path  string
@@ -19,16 +16,16 @@ type SelectedUnit struct {
 }
 
 // SelectedUnits returns, for host's entrypoint at hostDir, every unit its
-// selection resolves to (units.Resolve) plus every unit pulled in through
+// selection resolves to (modules.Find) plus every unit pulled in through
 // luxos.modules (Closure), each with its files. A selected or pulled name
 // that resolves to nothing is silently skipped, the same as Closure: a
 // broken selection is already caught by Validate at rebuild time.
 func SelectedUnits(modulesDir, localModulesDir, hostDir string) ([]SelectedUnit, error) {
-	us, err := units.Walk(modulesDir, localModulesDir)
+	us, err := modules.Walk(modulesDir, localModulesDir)
 	if err != nil {
 		return nil, err
 	}
-	selection, err := imports.List(filepath.Join(hostDir, entrypointFile))
+	selection, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +36,7 @@ func SelectedUnits(modulesDir, localModulesDir, hostDir string) ([]SelectedUnit,
 
 	names := map[string]bool{}
 	for _, sel := range selection {
-		names[units.NameFromPath(sel)] = true
+		names[modules.NameFromPath(sel)] = true
 	}
 	for name := range pulled {
 		names[name] = true
@@ -47,12 +44,13 @@ func SelectedUnits(modulesDir, localModulesDir, hostDir string) ([]SelectedUnit,
 
 	var out []SelectedUnit
 	for name := range names {
-		unitPath, ok := units.Resolve(us, name)
+		m, ok := modules.Find(us, name)
 		if !ok {
 			continue
 		}
+		unitPath := m.Path
 		root, rel := modulesDir, unitPath
-		if trimmed, ok := strings.CutPrefix(unitPath, localPrefix); ok {
+		if trimmed, ok := strings.CutPrefix(unitPath, modules.LocalPrefix); ok {
 			root, rel = localModulesDir, trimmed
 		}
 		files, err := UnitFiles(filepath.Join(root, rel))

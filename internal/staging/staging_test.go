@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/units"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 )
 
 const testNixpkgs = "github:NixOS/nixpkgs/nixos-25.11"
@@ -798,7 +798,7 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	write(filepath.Join(hostDir, "modules", "default.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst\n    ./local/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n")
 
-	us := []units.Unit{
+	us := []modules.Module{
 		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
 		{Name: "desktop", Path: "system/desktop.nix"},
 	}
@@ -851,7 +851,7 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 	write(filepath.Join(hostDir, "modules", "default.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./local/eduardo\n    ./local/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n")
 
-	us := []units.Unit{
+	us := []modules.Module{
 		{Name: "eduardo", Path: "local/eduardo", Shadows: "users/eduardo"},
 		{Name: "eduardo/git", Path: "local/eduardo/modules/git.nix", Shadows: "users/eduardo/modules/git.nix"},
 		{Name: "desktop", Path: "system/desktop.nix"},
@@ -1023,7 +1023,7 @@ func TestUnitChanged(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check := func(name string, mods, staged string, u units.Unit, want bool) {
+	check := func(name string, mods, staged string, u modules.Module, want bool) {
 		t.Helper()
 		got, err := UnitChanged(mods, staged, u)
 		if err != nil || got != want {
@@ -1032,7 +1032,7 @@ func TestUnitChanged(t *testing.T) {
 	}
 	mods, staged := t.TempDir(), t.TempDir()
 
-	file := units.Unit{Name: "f", Path: "cat/f.nix"}
+	file := modules.Module{Name: "f", Path: "cat/f.nix"}
 	write(mods, "cat/f.nix", "a")
 	write(staged, "cat/f.nix", "a")
 	check("equal file", mods, staged, file, false)
@@ -1040,7 +1040,7 @@ func TestUnitChanged(t *testing.T) {
 	check("changed file", mods, staged, file, true)
 	check("missing staged", mods, t.TempDir(), file, true)
 
-	dir := units.Unit{Name: "d", Path: "d"}
+	dir := modules.Module{Name: "d", Path: "d"}
 	write(mods, "d/default.nix", "x")
 	write(staged, "d/default.nix", "x")
 	check("equal dir", mods, staged, dir, false)
@@ -1055,7 +1055,7 @@ func TestUnitChanged(t *testing.T) {
 	write(staged, "d/gone.nix", "g")
 	check("dir removed file", mods, staged, dir, true)
 
-	bundle := units.Unit{Name: "b", Path: "b"}
+	bundle := modules.Module{Name: "b", Path: "b"}
 	write(mods, "b/default.nix", "x")
 	write(mods, "b/modules/sub.nix", "s1")
 	write(staged, "b/default.nix", "x")
@@ -1066,7 +1066,7 @@ func TestUnitChanged(t *testing.T) {
 	write(mods, "b/default.nix", "y")
 	check("bundle plumbing change", mods, staged, bundle, true)
 
-	shadow := units.Unit{Name: "s", Path: "local/s.nix", Shadows: "cat2/s.nix"}
+	shadow := modules.Module{Name: "s", Path: "local/s.nix", Shadows: "cat2/s.nix"}
 	write(mods, "local/s.nix", "s")
 	write(staged, "cat2/s.nix", "s")
 	check("shadow", mods, staged, shadow, false)
@@ -1079,5 +1079,5 @@ func TestUnitChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(staged, "link.nix", "l")
-	check("symlink", mods, staged, units.Unit{Name: "link", Path: "link.nix"}, false)
+	check("symlink", mods, staged, modules.Module{Name: "link", Path: "link.nix"}, false)
 }

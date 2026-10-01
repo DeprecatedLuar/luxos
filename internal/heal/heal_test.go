@@ -110,7 +110,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	mountsFile := filepath.Join(root, "mounts")
 
 	// The module that host1's entrypoint refers to by a now-stale path;
-	// units.Resolve finds it by name ("foo") and imports.Heal rewrites the
+	// units.Resolve finds it by name ("foo") and modules.Heal rewrites the
 	// broken line to point here.
 	write(t, filepath.Join(modules, "misc", "foo.nix"), "{ }\n")
 
@@ -127,7 +127,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	// active host's own .local/machines/<host>/flake.lock is ever staged.
 	write(t, filepath.Join(config, "flake.lock"), "{ \"root-lock\": true }\n")
 
-	// host2: other host, already correct - imports.Heal must leave it be.
+	// host2: other host, already correct - modules.Heal must leave it be.
 	write(t, filepath.Join(local, "host2", "modules.nix"),
 		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n  ];\n}\n")
 	write(t, filepath.Join(local, "host2", ".plsdonttouch.nix"),

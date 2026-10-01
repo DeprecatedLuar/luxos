@@ -12,7 +12,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
-// plsDontTouchFile, MachineFile and selectionFile are required regular files
+// plsDontTouchFile, MachineFile and SelectionFile are required regular files
 // (symlinks followed); lockFile is an optional regular file; localModulesDir
 // is an optional directory. Nothing else may live there. MachineFile is
 // exported so the caller that creates it from a template names it without
@@ -20,7 +20,7 @@ import (
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
 	MachineFile      = "machine.nix"
-	selectionFile    = "modules.nix"
+	SelectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"
 
@@ -32,14 +32,14 @@ const (
 // A host is a directory there holding modules.nix.
 func ResolveHost(machinesDir, name string) (string, error) {
 	dir := filepath.Join(machinesDir, name)
-	selection := filepath.Join(dir, selectionFile)
+	selection := filepath.Join(dir, SelectionFile)
 
 	if _, err := os.Stat(selection); err != nil {
 		old := filepath.Join(filepath.Dir(machinesDir), name)
-		if _, oldErr := os.Stat(filepath.Join(old, selectionFile)); oldErr == nil {
+		if _, oldErr := os.Stat(filepath.Join(old, SelectionFile)); oldErr == nil {
 			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
 		}
-		return "", fmt.Errorf("no %s under %s\n  pass --machine <name> if this host was renamed or isn't named after $(hostname)", selectionFile, dir)
+		return "", fmt.Errorf("no %s under %s\n  pass --machine <name> if this host was renamed or isn't named after $(hostname)", SelectionFile, dir)
 	}
 
 	return dir, nil
@@ -56,7 +56,7 @@ func ValidateHost(hostDir string) error {
 		return err
 	}
 
-	requiredFiles := []string{plsDontTouchFile, MachineFile, selectionFile}
+	requiredFiles := []string{plsDontTouchFile, MachineFile, SelectionFile}
 
 	seen := make(map[string]bool, len(entries))
 	var problems []string
@@ -66,7 +66,7 @@ func ValidateHost(hostDir string) error {
 		path := filepath.Join(hostDir, name)
 
 		switch name {
-		case plsDontTouchFile, MachineFile, selectionFile, lockFile:
+		case plsDontTouchFile, MachineFile, SelectionFile, lockFile:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {

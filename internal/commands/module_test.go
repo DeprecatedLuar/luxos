@@ -9,9 +9,8 @@ import (
 	"testing"
 
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 func TestModuleMarker(t *testing.T) {
@@ -210,7 +209,7 @@ func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 		t.Fatalf("moduleRemove: %v", err)
 	}
 
-	host1Names, err := imports.List(filepath.Join(p.Machines, "host1", "modules.nix"))
+	host1Names, err := modules.ReadSelection(filepath.Join(p.Machines, "host1", "modules.nix"))
 	if err != nil {
 		t.Fatalf("List(host1): %v", err)
 	}
@@ -342,7 +341,7 @@ func TestModuleRename_LocalUnitMayShadowSharedName(t *testing.T) {
 }
 
 func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
-	us := []units.Unit{
+	us := []modules.Module{
 		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
 		{Name: "other", Path: "local/other.nix"},
 	}
@@ -415,7 +414,7 @@ func TestModuleFillInputs(t *testing.T) {
 	write("folder/sub/inner.nix", decl("deep"))
 	write("none.nix", "{ ... }: { }\n")
 
-	us := []units.Unit{{Name: "file", Path: "file.nix"}, {Name: "folder", Path: "folder"}, {Name: "none", Path: "none.nix"}}
+	us := []modules.Module{{Name: "file", Path: "file.nix"}, {Name: "folder", Path: "folder"}, {Name: "none", Path: "none.nix"}}
 	rows := []moduleRow{{name: "file", unit: "file"}, {name: "folder", unit: "folder"}, {name: "none", unit: "none"}}
 	if err := moduleFillInputs(rows, us, dir); err != nil {
 		t.Fatal(err)
@@ -471,7 +470,7 @@ func TestModuleListJSONConflicts(t *testing.T) {
 }
 
 func TestModuleBuildRowsModified(t *testing.T) {
-	us := []units.Unit{{Name: "a", Path: "a.nix"}, {Name: "b", Path: "b.nix"}, {Name: "c", Path: "c.nix"}}
+	us := []modules.Module{{Name: "a", Path: "a.nix"}, {Name: "b", Path: "b.nix"}, {Name: "c", Path: "c.nix"}}
 	enabled := map[string]bool{"a": true, "b": true}
 	running := map[string]bool{"a": true, "c": true}
 	changed := map[string]bool{"a": true, "b": true, "c": true}
@@ -503,7 +502,7 @@ func TestModuleRenderModified(t *testing.T) {
 }
 
 func TestModuleRemovedRows(t *testing.T) {
-	us := []units.Unit{{Name: "alive", Path: "alive.nix"}}
+	us := []modules.Module{{Name: "alive", Path: "alive.nix"}}
 	run := []string{
 		"./local/debug.nix", "./desktop/shells/ambxst", "./gone.nix", "./alive.nix",
 		"./x/dup.nix", "./y/dup.nix", "./desktop/apps/foo/default.nix",
@@ -584,7 +583,7 @@ func bundleFixture(t *testing.T) paths.Paths {
 
 func hostImports(t *testing.T, p paths.Paths, host string) []string {
 	t.Helper()
-	got, err := imports.List(filepath.Join(p.Machines, host, hostEntrypoint))
+	got, err := modules.ReadSelection(filepath.Join(p.Machines, host, hostEntrypoint))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,8 +727,8 @@ func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	}
 }
 
-func bundleUnits() []units.Unit {
-	return []units.Unit{
+func bundleUnits() []modules.Module {
+	return []modules.Module{
 		{Name: "eduardo", Path: "users/eduardo"},
 		{Name: "eduardo/git", Path: "users/eduardo/modules/git.nix"},
 		{Name: "eduardo/zsh", Path: "users/eduardo/modules/cli/zsh.nix"},
@@ -789,7 +788,7 @@ func TestCollapseBundles(t *testing.T) {
 }
 
 func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
-	us := []units.Unit{
+	us := []modules.Module{
 		{Name: "eduardo", Path: "users/eduardo"},
 		{Name: "eduardo/nvim", Path: "users/eduardo/modules/nvim"},
 		{Name: "eduardo/nvim/lsp", Path: "users/eduardo/modules/nvim/modules/lsp.nix"},

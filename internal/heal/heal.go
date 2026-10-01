@@ -13,12 +13,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/generate"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
-	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/refs"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 // Nix invocations, replaceable so tests need neither network nor flake-file.
@@ -26,8 +25,6 @@ var (
 	writeFlake = nix.WriteFlake
 	flakeLock  = nix.FlakeLock
 )
-
-const selectionFile = "modules.nix"
 
 func selectedInputsNix(modulesDir, hostDir string) (string, error) {
 	sel, err := refs.SelectedUnits(modulesDir, filepath.Join(hostDir, "modules"), hostDir)
@@ -63,7 +60,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 5. heal imports
 	fmt.Fprintf(w, "Healing modules imports...\n")
-	healChanges, healWarnings, err := imports.Heal(p.Machines, p.Modules, host, prune)
+	healChanges, healWarnings, err := modules.Heal(p.Machines, p.Modules, host, prune)
 	for _, c := range healChanges {
 		fmt.Fprintf(w, "%s\n", formatImportChange(c))
 	}
@@ -76,11 +73,11 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 6. validate module boundaries
 	fmt.Fprintf(w, "Validating module boundaries...\n")
-	us, err := units.Walk(p.Modules, filepath.Join(hostDir, "modules"))
+	us, err := modules.Walk(p.Modules, filepath.Join(hostDir, "modules"))
 	if err != nil {
 		return err
 	}
-	selection, err := imports.List(filepath.Join(hostDir, selectionFile))
+	selection, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
 	if err != nil {
 		return err
 	}
@@ -184,7 +181,7 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 	return staging.Seal(p.Staging)
 }
 
-func formatImportChange(c imports.Change) string {
+func formatImportChange(c modules.Change) string {
 	if c.New == "" {
 		return fmt.Sprintf("%s: removed ./%s", c.File, c.Old)
 	}

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ func TestHardwareSelected(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, modulesFileName), []byte(c.body), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, modules.SelectionFile), []byte(c.body), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			got, err := hardwareSelected(dir)

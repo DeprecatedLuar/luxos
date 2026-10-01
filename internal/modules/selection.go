@@ -1,17 +1,4 @@
-// Package imports is the sole reader/writer of .local/machines/<host>/modules.nix,
-// the host's selection. Block syntax (recognizing, reading, editing the
-// single "imports = [ ... ];" block) lives in internal/nix;
-// this package owns which hosts and names. A file with more than one
-// recognizable block, or one written some other way (computed imports, a
-// single-line block with items), is refused by the writers (Add/Remove) and
-// skipped, with a warning, by the read paths that loop every host
-// (Importers/Retarget/Heal).
-//
-// Path convention used throughout this file's public API: a "path" is
-// relative to CONFIG_DIR/modules with no leading "./" (the same shape
-// units.Resolve returns) — List strips it on read, Add/Retarget add it
-// back on write.
-package imports
+package modules
 
 import (
 	"fmt"
@@ -22,14 +9,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
-
-const entrypointName = "modules.nix"
-
-const localPrefix = "local/"
-
-const localModulesSubdir = "modules"
 
 // bundleModulesInfix separates a bundle's path from its submodules' in an
 // import path.
@@ -40,8 +20,9 @@ type Change struct {
 	File, Old, New string
 }
 
-// Hard error if file doesn't have exactly one recognizable imports block.
-func List(file string) ([]string, error) {
+// ReadSelection returns the import paths of file, without "./". It is a hard
+// error if file doesn't have exactly one recognizable imports block.
+func ReadSelection(file string) ([]string, error) {
 	paths, ok, err := nix.ListImports(file)
 	if err != nil {
 		return nil, err
@@ -50,16 +31,6 @@ func List(file string) ([]string, error) {
 		return nil, shapeError(file)
 	}
 	return paths, nil
-}
-
-// A no-op if path is already present.
-func Add(file, path string) error {
-	return nix.AddImport(file, path)
-}
-
-// A no-op (no write) if none match.
-func Remove(file, path string) error {
-	return nix.RemoveImport(file, path)
 }
 
 // Importers returns every entrypoint file with a line whose name (from its
@@ -84,7 +55,7 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 			continue
 		}
 		for _, p := range paths {
-			if units.NameFromPath(p) == name {
+			if NameFromPath(p) == name {
 				out = append(out, file)
 				break
 			}
@@ -93,7 +64,7 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 	return out, nil
 }
 
-// Retarget is the writer of host entrypoints (#18): rewrite every import
+// RetargetSelections is the writer of host selections: rewrite every import
 // line whose name matches name to newPath, or delete it when newPath is
 // "". host == "" reaches every <machinesDir>/*/modules.nix (the cross-host
 // case, for a shared unit); otherwise only <machinesDir>/<host>/modules.nix is
@@ -101,7 +72,7 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 // line (already at newPath) is left untouched and unreported, so a second
 // run returns no changes. A host whose file isn't recognizable is warned
 // about and left untouched. The entrypoints of skipHosts are never rewritten.
-func Retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
+func RetargetSelections(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
 	changes, _, err := retarget(machinesDir, name, newPath, host, skipHosts)
 	return changes, err
 }
@@ -112,7 +83,7 @@ func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Ch
 		return nil, nil, err
 	}
 
-	match := func(p string) bool { return units.NameFromPath(p) == name }
+	match := func(p string) bool { return NameFromPath(p) == name }
 	newPath = strings.TrimPrefix(newPath, "./")
 
 	var changes []Change
@@ -180,7 +151,7 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 // Heal rewrites every broken import line in every host's entrypoint,
 // per host (L7): each host's selection lines are checked and resolved
 // against that host's own unit set (shared units plus that host's own
-// local/ units, per units.Walk(modulesDir, <machinesDir>/<host>/modules)).
+// local/ units, per Walk(modulesDir, <machinesDir>/<host>/modules)).
 //   - path exists (local/ prefixed against that host's local modules dir,
 //     otherwise against modulesDir): keep.
 //   - name resolves to a local/ unit: retarget scoped to this host only.
@@ -192,7 +163,7 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 //   - path is config.HardwareUnitPath on a non-active host: skipped, since
 //     the hardware link exists only in the active host's modules.
 //
-// A host whose own units.Walk fails errors the whole call when it's
+// A host whose own Walk fails errors the whole call when it's
 // activeHost, otherwise adds a warning ("<host>: <err>") and skips that
 // host entirely. Heal is idempotent.
 func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
@@ -215,7 +186,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 	for _, file := range files {
 		host := filepath.Base(filepath.Dir(file))
 
-		us, err := units.Walk(modulesDir, filepath.Join(machinesDir, host, localModulesSubdir))
+		us, err := Walk(modulesDir, filepath.Join(machinesDir, host, localModulesDirName))
 		if err != nil {
 			if host == activeHost {
 				return nil, nil, err
@@ -240,8 +211,8 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 				continue
 			}
 			var fullPath string
-			if rest, cut := strings.CutPrefix(itPath, localPrefix); cut {
-				fullPath = filepath.Join(machinesDir, host, localModulesSubdir, rest)
+			if rest, cut := strings.CutPrefix(itPath, LocalPrefix); cut {
+				fullPath = filepath.Join(machinesDir, host, localModulesDirName, rest)
 			} else {
 				fullPath = filepath.Join(modulesDir, itPath)
 			}
@@ -249,9 +220,10 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 				continue
 			}
 
-			name := units.NameFromPath(itPath)
-			if resolved, ok := units.Resolve(us, name); ok {
-				if strings.HasPrefix(resolved, localPrefix) {
+			name := NameFromPath(itPath)
+			if found, ok := Find(us, name); ok {
+				resolved := found.Path
+				if strings.HasPrefix(resolved, LocalPrefix) {
 					key := host + "\x00" + name
 					if handledLocal[key] {
 						continue
@@ -280,7 +252,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 
 			if isActive {
 				if prune {
-					if err := Remove(file, itPath); err != nil {
+					if err := nix.RemoveImport(file, itPath); err != nil {
 						return nil, nil, err
 					}
 					changes = append(changes, Change{File: file, Old: itPath, New: ""})
@@ -306,7 +278,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 // hostEntrypoints returns every <machinesDir>/*/modules.nix that exists,
 // sorted for deterministic iteration.
 func hostEntrypoints(machinesDir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(machinesDir, "*", entrypointName))
+	matches, err := filepath.Glob(filepath.Join(machinesDir, "*", SelectionFile))
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +318,7 @@ func entrypointsFor(machinesDir, host string) ([]string, error) {
 	if host == "" {
 		return hostEntrypoints(machinesDir)
 	}
-	file := filepath.Join(machinesDir, host, entrypointName)
+	file := filepath.Join(machinesDir, host, SelectionFile)
 	if fi, err := os.Stat(file); err != nil || fi.IsDir() {
 		if err != nil && os.IsNotExist(err) {
 			return nil, nil

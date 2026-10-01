@@ -1,4 +1,4 @@
-package imports
+package modules
 
 import (
 	"os"
@@ -24,7 +24,7 @@ func TestRetarget_Rename(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "", nil)
+	changes, err := RetargetSelections(machinesDir, "foo", "b/foo.nix", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -33,17 +33,17 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := List(f)
+		got, err := ReadSelection(f)
 		if err != nil {
-			t.Fatalf("List(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/foo.nix"}) {
-			t.Errorf("List(%s) = %v", f, got)
+			t.Errorf("ReadSelection(%s) = %v", f, got)
 		}
 	}
 
 	// Second run: no changes (idempotent).
-	changes2, err := Retarget(machinesDir, "foo", "b/foo.nix", "", nil)
+	changes2, err := RetargetSelections(machinesDir, "foo", "b/foo.nix", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRetarget_Delete(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "", "", nil)
+	changes, err := RetargetSelections(machinesDir, "foo", "", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -70,16 +70,16 @@ func TestRetarget_Delete(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := List(f)
+		got, err := ReadSelection(f)
 		if err != nil {
-			t.Fatalf("List(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if len(got) != 0 {
-			t.Errorf("List(%s) = %v, want empty", f, got)
+			t.Errorf("ReadSelection(%s) = %v, want empty", f, got)
 		}
 	}
 
-	changes2, err := Retarget(machinesDir, "foo", "", "", nil)
+	changes2, err := RetargetSelections(machinesDir, "foo", "", "", nil)
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRetarget_HostScoped(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "host1", nil)
+	changes, err := RetargetSelections(machinesDir, "foo", "b/foo.nix", "host1", nil)
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -100,20 +100,20 @@ func TestRetarget_HostScoped(t *testing.T) {
 		t.Fatalf("changes = %v, want exactly one change to host1", changes)
 	}
 
-	got1, err := List(host1)
+	got1, err := ReadSelection(host1)
 	if err != nil {
-		t.Fatalf("List(host1): %v", err)
+		t.Fatalf("ReadSelection(host1): %v", err)
 	}
 	if !reflect.DeepEqual(got1, []string{"b/foo.nix"}) {
-		t.Errorf("List(host1) = %v", got1)
+		t.Errorf("ReadSelection(host1) = %v", got1)
 	}
 
-	got2, err := List(host2)
+	got2, err := ReadSelection(host2)
 	if err != nil {
-		t.Fatalf("List(host2): %v", err)
+		t.Fatalf("ReadSelection(host2): %v", err)
 	}
 	if !reflect.DeepEqual(got2, []string{"a/foo.nix"}) {
-		t.Errorf("List(host2) = %v, want untouched", got2)
+		t.Errorf("ReadSelection(host2) = %v, want untouched", got2)
 	}
 }
 
@@ -153,12 +153,12 @@ func TestHeal_Move(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host)", changes)
 	}
 
-	got, err := List(activeFile)
+	got, err := ReadSelection(activeFile)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"a/foo.nix"}) {
-		t.Errorf("List(active) = %v", got)
+		t.Errorf("ReadSelection(active) = %v", got)
 	}
 
 	// Idempotent: second run makes no changes.
@@ -187,12 +187,12 @@ func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	}
 
 	// Untouched.
-	got, err := List(activeFile)
+	got, err := ReadSelection(activeFile)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("List(active) = %v, want untouched", got)
+		t.Errorf("ReadSelection(active) = %v, want untouched", got)
 	}
 }
 
@@ -214,12 +214,12 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 		t.Fatalf("changes = %v, want one removal", changes)
 	}
 
-	got, err := List(activeFile)
+	got, err := ReadSelection(activeFile)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("List(active) = %v, want empty after prune", got)
+		t.Errorf("ReadSelection(active) = %v, want empty after prune", got)
 	}
 }
 
@@ -247,12 +247,12 @@ func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 		t.Fatalf("warnings = %v, want 1", warnings)
 	}
 
-	got, err := List(otherFile)
+	got, err := ReadSelection(otherFile)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("List(other) = %v, want untouched", got)
+		t.Errorf("ReadSelection(other) = %v, want untouched", got)
 	}
 }
 
@@ -284,20 +284,20 @@ func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host, independently resolved)", changes)
 	}
 
-	got1, err := List(host1File)
+	got1, err := ReadSelection(host1File)
 	if err != nil {
-		t.Fatalf("List(host1): %v", err)
+		t.Fatalf("ReadSelection(host1): %v", err)
 	}
 	if !reflect.DeepEqual(got1, []string{"local/a/foo.nix"}) {
-		t.Errorf("List(host1) = %v, want [local/a/foo.nix]", got1)
+		t.Errorf("ReadSelection(host1) = %v, want [local/a/foo.nix]", got1)
 	}
 
-	got2, err := List(host2File)
+	got2, err := ReadSelection(host2File)
 	if err != nil {
-		t.Fatalf("List(host2): %v", err)
+		t.Fatalf("ReadSelection(host2): %v", err)
 	}
 	if !reflect.DeepEqual(got2, []string{"local/b/foo.nix"}) {
-		t.Errorf("List(host2) = %v, want [local/b/foo.nix]", got2)
+		t.Errorf("ReadSelection(host2) = %v, want [local/b/foo.nix]", got2)
 	}
 }
 
@@ -323,12 +323,12 @@ func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 	}
 
 	for _, f := range []string{host1File, host2File} {
-		got, err := List(f)
+		got, err := ReadSelection(f)
 		if err != nil {
-			t.Fatalf("List(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/shared.nix"}) {
-			t.Errorf("List(%s) = %v, want [b/shared.nix]", f, got)
+			t.Errorf("ReadSelection(%s) = %v, want [b/shared.nix]", f, got)
 		}
 	}
 }
@@ -362,12 +362,12 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 		t.Fatalf("warnings = %v, want 1 (other-host's local/foo.nix does not resolve for it)", warnings)
 	}
 
-	got, err := List(otherFile)
+	got, err := ReadSelection(otherFile)
 	if err != nil {
-		t.Fatalf("List(other): %v", err)
+		t.Fatalf("ReadSelection(other): %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"local/foo.nix"}) {
-		t.Errorf("List(other) = %v, want untouched", got)
+		t.Errorf("ReadSelection(other) = %v, want untouched", got)
 	}
 }
 
@@ -403,21 +403,6 @@ func skipIfNoNix(t *testing.T) {
 	}
 }
 
-func mustMkdirAll(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0755); err != nil {
-		t.Fatalf("mkdir %s: %v", path, err)
-	}
-}
-
-func mustWriteFile(t *testing.T, path, content string) {
-	t.Helper()
-	mustMkdirAll(t, filepath.Dir(path))
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
 func mustReadFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -427,19 +412,18 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-
 func TestRetarget_SkipHosts(t *testing.T) {
 	skipIfNoNix(t)
 	machinesDir, host1, host2 := setupTwoHosts(t)
 
-	changes, err := Retarget(machinesDir, "foo", "b/foo.nix", "", []string{"host1"})
+	changes, err := RetargetSelections(machinesDir, "foo", "b/foo.nix", "", []string{"host1"})
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
 	if len(changes) != 1 || changes[0].File != host2 {
 		t.Fatalf("changes = %v, want exactly one change to host2", changes)
 	}
-	got1, err := List(host1)
+	got1, err := ReadSelection(host1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,12 +456,12 @@ func TestRetargetPrefix_Rename(t *testing.T) {
 	}
 	want := []string{"users/luar", "users/lua/modules/git.nix", "users/lua/modules/cli/zsh.nix", "users/luarx/modules/git.nix"}
 	for _, f := range []string{host1, host2} {
-		got, err := List(f)
+		got, err := ReadSelection(f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("List(%s) = %v, want %v", f, got, want)
+			t.Errorf("ReadSelection(%s) = %v, want %v", f, got, want)
 		}
 	}
 }
@@ -489,7 +473,7 @@ func TestRetargetPrefix_Remove(t *testing.T) {
 	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "", nil); err != nil {
 		t.Fatalf("RetargetPrefix: %v", err)
 	}
-	got, err := List(host1)
+	got, err := ReadSelection(host1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +490,7 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "host1", nil); err != nil {
 		t.Fatal(err)
 	}
-	got2, _ := List(host2)
+	got2, _ := ReadSelection(host2)
 	if len(got2) != 4 {
 		t.Errorf("host2 touched by host-scoped call: %v", got2)
 	}
@@ -515,8 +499,8 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "", []string{"host2"}); err != nil {
 		t.Fatal(err)
 	}
-	got1, _ := List(host1)
-	got2, _ = List(host2)
+	got1, _ := ReadSelection(host1)
+	got2, _ = ReadSelection(host2)
 	if len(got1) != 2 || len(got2) != 4 {
 		t.Errorf("host1 = %v, host2 = %v", got1, got2)
 	}

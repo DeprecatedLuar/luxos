@@ -18,7 +18,7 @@ func EnsureMirror(machinesDir, modulesDir, host string) error {
 	}
 
 	sharedDefault := filepath.Join(modulesDir, DefaultFile)
-	target := filepath.Join(hostDir, selectionFile)
+	target := filepath.Join(hostDir, SelectionFile)
 
 	if err := refuseRealFile(sharedDefault, "reserved for the generated mirror link to "+target); err != nil {
 		return err

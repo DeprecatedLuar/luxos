@@ -12,12 +12,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/heal"
-	"github.com/DeprecatedLuar/luxos/internal/imports"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 // Ported verbatim from bin/lib/nixos-rebuild/main.sh's REBUILD_HEADER.
@@ -75,8 +74,6 @@ func gradientLogo() string {
 
 // Ported from rebuild::run in bin/lib/nixos-rebuild/main.sh.
 const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
-
-const modulesFileName = "modules.nix"
 
 // Absence from the host's selection needs confirmation before a rebuild.
 const hardwareUnitName = config.HardwareUnitName
@@ -161,12 +158,12 @@ func selfUpdate(hostLock string, args []string) error {
 }
 
 func hardwareSelected(hostDir string) (bool, error) {
-	list, err := imports.List(filepath.Join(hostDir, modulesFileName))
+	list, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
 	if err != nil {
 		return false, err
 	}
 	for _, path := range list {
-		if units.NameFromPath(path) == hardwareUnitName {
+		if modules.NameFromPath(path) == hardwareUnitName {
 			return true, nil
 		}
 	}

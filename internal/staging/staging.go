@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/units"
 )
 
 const (
@@ -65,7 +65,7 @@ const (
 //
 // inputsNix is the body of flake.nix's `inputs = { ... };` block beyond the
 // flake-file pin (nix.RenderInputs output); Materialize only writes it in.
-func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, inputsNix string) error {
+func Materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, lockFile, environmentFile, inputsNix string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 	return nil
 }
 
-func StagedPath(u units.Unit) string {
+func StagedPath(u modules.Module) string {
 	if u.Shadows == "" {
 		return u.Path
 	}
@@ -149,9 +149,9 @@ func StagedPath(u units.Unit) string {
 // dereferenced, as Materialize copies them) differ from its copy under
 // stagedModulesDir. A unit missing on the staged side is changed. A bundle's
 // modules/ folder is not part of it: a submodule's change marks the submodule.
-func UnitChanged(modulesDir, stagedModulesDir string, u units.Unit) (bool, error) {
+func UnitChanged(modulesDir, stagedModulesDir string, u modules.Module) (bool, error) {
 	skip := ""
-	if units.IsBundle(filepath.Join(modulesDir, u.Path)) {
+	if modules.IsBundle(filepath.Join(modulesDir, u.Path)) {
 		skip = bundleModulesDir
 	}
 	src, err := readUnitFiles(filepath.Join(modulesDir, u.Path), skip)
@@ -216,9 +216,9 @@ func readUnitFiles(root, skipTop string) (map[string][]byte, error) {
 	return files, nil
 }
 
-func stageModules(modulesDir, dst string, us []units.Unit) error {
+func stageModules(modulesDir, dst string, us []modules.Module) error {
 	skip := make(map[string]bool)
-	var shadows []units.Unit
+	var shadows []modules.Module
 	for _, u := range us {
 		if u.Shadows == "" {
 			continue
@@ -250,7 +250,7 @@ func stageModules(modulesDir, dst string, us []units.Unit) error {
 
 		entry := filepath.Join(dst, entrypointFile)
 		name := u.Name
-		_, ok, err := nix.RetargetImports(entry, func(p string) bool { return units.NameFromPath(p) == name }, staged)
+		_, ok, err := nix.RetargetImports(entry, func(p string) bool { return modules.NameFromPath(p) == name }, staged)
 		if err != nil {
 			return err
 		}

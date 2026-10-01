@@ -1,4 +1,4 @@
-package units
+package modules
 
 import (
 	"os"
@@ -23,7 +23,7 @@ func mustWriteFile(t *testing.T, path, content string) {
 	}
 }
 
-func unitByName(t *testing.T, us []Unit, name string) Unit {
+func unitByName(t *testing.T, us []Module, name string) Module {
 	t.Helper()
 	for _, u := range us {
 		if u.Name == name {
@@ -31,7 +31,7 @@ func unitByName(t *testing.T, us []Unit, name string) Unit {
 		}
 	}
 	t.Fatalf("no unit named %q in %+v", name, us)
-	return Unit{}
+	return Module{}
 }
 
 func TestWalk_FileUnit(t *testing.T) {
@@ -224,7 +224,7 @@ func TestWalk_LocalFileShadowsSharedFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Unit{{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/ambxst"}}
+	want := []Module{{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/ambxst", Abs: filepath.Join(local, "ambxst.nix")}}
 	if !reflect.DeepEqual(us, want) {
 		t.Errorf("got %+v, want %+v", us, want)
 	}
@@ -240,7 +240,7 @@ func TestWalk_LocalFolderShadowsSharedFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Unit{{Name: "foo", Path: "local/foo", Shadows: "cat/foo.nix"}}
+	want := []Module{{Name: "foo", Path: "local/foo", Shadows: "cat/foo.nix", Abs: filepath.Join(local, "foo")}}
 	if !reflect.DeepEqual(us, want) {
 		t.Errorf("got %+v, want %+v", us, want)
 	}
@@ -275,7 +275,7 @@ func TestWalk_LocalLocalDuplicateIsError(t *testing.T) {
 }
 
 func TestFind(t *testing.T) {
-	us := []Unit{{Name: "a", Path: "a.nix"}}
+	us := []Module{{Name: "a", Path: "a.nix"}}
 	if u, ok := Find(us, "a"); !ok || u.Path != "a.nix" {
 		t.Errorf("Find(a) = %+v, %v", u, ok)
 	}
@@ -302,23 +302,6 @@ func TestWalk_RootLocalNeverWalked(t *testing.T) {
 	}
 	if us[0].Name != "hyprland" {
 		t.Errorf("Name = %q, want hyprland", us[0].Name)
-	}
-}
-
-func TestResolve(t *testing.T) {
-	us := []Unit{
-		{Name: "hyprland", Path: "hyprland.nix"},
-		{Name: "wayland", Path: "wayland"},
-	}
-
-	path, ok := Resolve(us, "wayland")
-	if !ok || path != "wayland" {
-		t.Errorf("Resolve(wayland) = %q, %v", path, ok)
-	}
-
-	_, ok = Resolve(us, "missing")
-	if ok {
-		t.Errorf("Resolve(missing) = true, want false")
 	}
 }
 
@@ -509,5 +492,79 @@ func TestWalk_LocalBundleShadowsSharedBundle(t *testing.T) {
 		if u.Name == "eduardo/zsh" {
 			t.Errorf("shared submodule survived: %+v", u)
 		}
+	}
+}
+
+const emptyModule = "{ ... }:\n{\n}\n"
+
+// selectionOf renders a modules.nix selecting items.
+func selectionOf(items ...string) string {
+	s := "{ ... }:\n{\n  imports = [\n"
+	for _, it := range items {
+		s += "    " + it + "\n"
+	}
+	return s + "  ];\n}\n"
+}
+
+// A plain tree, no symlinks: modules/local and modules/default.nix do not exist.
+func TestLoadOtherHostLocalUnits(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	machines := filepath.Join(root, ".local", "machines")
+	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(machines, "a", "modules.nix"), selectionOf("./apps/git.nix"))
+	mustWriteFile(t, filepath.Join(machines, "b", "modules.nix"), selectionOf("./local/vpn.nix"))
+	mustWriteFile(t, filepath.Join(machines, "b", "modules", "vpn.nix"), emptyModule)
+
+	h, err := Load(modulesDir, filepath.Join(machines, "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := h.Find("vpn")
+	if !ok || m.Path != "local/vpn.nix" || m.Abs != filepath.Join(machines, "b", "modules", "vpn.nix") {
+		t.Fatalf("vpn = %+v, %v", m, ok)
+	}
+	if _, ok := h.Selected("vpn"); !ok {
+		t.Error("vpn not selected on b")
+	}
+
+	ha, err := Load(modulesDir, filepath.Join(machines, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ha.Find("vpn"); ok {
+		t.Error("host a sees b's local unit")
+	}
+}
+
+func TestLoadShadow(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	hostDir := filepath.Join(root, ".local", "machines", "a")
+	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf())
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "git.nix"), emptyModule)
+
+	h, err := Load(modulesDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := h.Find("git")
+	if m.Path != "local/git.nix" || m.Shadows != "apps/git.nix" {
+		t.Fatalf("git = %+v", m)
+	}
+	if len(h.Modules) != 1 {
+		t.Errorf("shadowed shared unit still listed: %+v", h.Modules)
+	}
+}
+
+func TestHosts(t *testing.T) {
+	machines := t.TempDir()
+	mustWriteFile(t, filepath.Join(machines, "b", "modules.nix"), selectionOf())
+	mustWriteFile(t, filepath.Join(machines, "a", "modules.nix"), selectionOf())
+	mustMkdirAll(t, filepath.Join(machines, "stray"))
+	got, err := Hosts(machines)
+	if err != nil || !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("Hosts = %v, %v", got, err)
 	}
 }

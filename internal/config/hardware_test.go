@@ -62,7 +62,7 @@ func TestValidateHardware_NotRegular(t *testing.T) {
 
 func TestValidateHost_HardwareEntryRejected(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, plsDontTouchFile, MachineFile, selectionFile)
+	writeFiles(t, dir, plsDontTouchFile, MachineFile, SelectionFile)
 	if err := os.Symlink("../../hardware/x", filepath.Join(dir, "hardware")); err != nil {
 		t.Fatal(err)
 	}
