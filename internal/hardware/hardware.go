@@ -1,4 +1,4 @@
-package computer
+package hardware
 
 import (
 	"errors"
@@ -24,7 +24,7 @@ func EnsureHardwareConfig(hardwareFile string) (created bool, err error) {
 		return false, fmt.Errorf("cannot generate %s: %w\nrun by hand: nixos-generate-config --show-hardware-config > %s", hardwareFile, err, hardwareFile)
 	}
 	if err := userfile.Write(hardwareFile, content); err != nil {
-		return false, fmt.Errorf("computer.EnsureHardwareConfig: write %s: %w", hardwareFile, err)
+		return false, fmt.Errorf("hardware.EnsureHardwareConfig: write %s: %w", hardwareFile, err)
 	}
 	return true, nil
 }

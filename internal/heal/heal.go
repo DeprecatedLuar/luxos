@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DeprecatedLuar/luxos/internal/computer"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/framework"
 	"github.com/DeprecatedLuar/luxos/internal/generate"
@@ -80,7 +80,7 @@ func ensureMachineFile(out *progress, hostDir string) error {
 }
 
 func ensureHardware(out *progress, p paths.Paths) (string, error) {
-	key, err := computer.HardwareKey(p.Sys)
+	key, err := hardware.Key(p.Sys)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +91,7 @@ func ensureHardware(out *progress, p paths.Paths) (string, error) {
 	}
 
 	hwConfig := filepath.Join(hwDir, config.HardwareConfigFile)
-	created, err := computer.EnsureHardwareConfig(hwConfig)
+	created, err := hardware.EnsureHardwareConfig(hwConfig)
 	if err != nil {
 		return "", err
 	}
@@ -100,7 +100,7 @@ func ensureHardware(out *progress, p paths.Paths) (string, error) {
 	}
 
 	bootPath := filepath.Join(hwDir, config.BootFile)
-	created, err = computer.EnsureBoot(bootPath, p.Sys, p.Mounts)
+	created, err = hardware.EnsureBoot(bootPath, p.Sys, p.Mounts)
 	if err != nil {
 		return "", err
 	}
@@ -384,14 +384,14 @@ func Run(w io.Writer, p paths.Paths, host string, prune bool) error {
 
 	// 9b. detect GPUs and install the fact file
 	out.printf("Detecting GPUs...\n")
-	gpus, err := computer.DetectGPUs(p.Sys)
+	gpus, err := hardware.DetectGPUs(p.Sys)
 	if err != nil {
 		return err
 	}
 	for _, g := range gpus {
 		out.printf("  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}
-	gpuContent, err := computer.RenderGPUs(gpus)
+	gpuContent, err := hardware.RenderGPUs(gpus)
 	if err != nil {
 		return err
 	}

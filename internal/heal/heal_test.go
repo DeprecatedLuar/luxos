@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeprecatedLuar/luxos/internal/computer"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
@@ -25,7 +25,7 @@ const fixtureUUID = "4c4c4544-0042-5110-8042-cac04f375433"
 // hardwareDir returns the hardware folder Run uses for p.
 func hardwareDir(t *testing.T, p paths.Paths) string {
 	t.Helper()
-	key, err := computer.HardwareKey(p.Sys)
+	key, err := hardware.Key(p.Sys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
-	key, err := computer.HardwareKey(sysDir)
+	key, err := hardware.Key(sysDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
-	want, err := computer.RenderBoot(computer.Loader{EFI: true, Target: "/boot"})
+	want, err := hardware.RenderBoot(hardware.Loader{EFI: true, Target: "/boot"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 
 // writeGPUDevice writes a fake sysfs PCI device directory
 // <sysDir>/bus/pci/devices/<addr> with the given class/vendor hex strings,
-// matching internal/computer's own test fixture shape.
+// matching internal/hardware's own test fixture shape.
 func writeGPUDevice(t *testing.T, sysDir, addr, class, vendor string) {
 	t.Helper()
 	dir := filepath.Join(sysDir, "bus", "pci", "devices", addr)
@@ -373,7 +373,7 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 	gpuFile := filepath.Join(p.Staging, "framework", "gpu.nix")
 	got := mustReadFile(t, gpuFile)
 
-	want, err := computer.RenderGPUs([]computer.GPU{
+	want, err := hardware.RenderGPUs([]hardware.GPU{
 		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1234", Class: "3d", BootVGA: false},
 	})
 	if err != nil {
@@ -413,7 +413,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
-	key, err := computer.HardwareKey(sysDir)
+	key, err := hardware.Key(sysDir)
 	if err != nil {
 		t.Fatal(err)
 	}

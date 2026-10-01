@@ -1,4 +1,4 @@
-package computer
+package hardware
 
 import (
 	"os"

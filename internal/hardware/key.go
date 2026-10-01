@@ -1,4 +1,4 @@
-package computer
+package hardware
 
 import (
 	"crypto/sha256"
@@ -19,7 +19,7 @@ const (
 // The first keyLen hex characters of sha256(keyPrefix + product_uuid).
 // The raw UUID is a permanent identifier and never leaves this function. An
 // unreadable or empty UUID is an error; there is no fallback.
-func HardwareKey(sysDir string) (string, error) {
+func Key(sysDir string) (string, error) {
 	path := filepath.Join(sysDir, productUUIDRel)
 	data, err := os.ReadFile(path)
 	if err != nil {

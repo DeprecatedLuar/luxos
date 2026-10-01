@@ -1,7 +1,6 @@
-// Package computer detects facts about the physical computer - boot loader, GPUs, hardware
-// configuration - and writes or renders them as Nix. It takes every path as a parameter: nothing here
-// resolves paths, prints, or exits.
-package computer
+// Package hardware reads facts about the physical computer from /sys and
+// /proc (its key, boot loader and GPUs) and renders them as Nix.
+package hardware
 
 import (
 	"fmt"
@@ -134,7 +133,7 @@ func RenderBoot(l Loader) ([]byte, error) {
 	}{l, configurationLimit}
 	out, err := templates.Render("boot.nix.tmpl", data)
 	if err != nil {
-		return nil, fmt.Errorf("computer.RenderBoot: %w", err)
+		return nil, fmt.Errorf("hardware.RenderBoot: %w", err)
 	}
 	return out, nil
 }
@@ -145,7 +144,7 @@ func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
 	if _, err := os.Lstat(bootFile); err == nil {
 		return false, nil
 	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("computer.EnsureBoot: stat %s: %w", bootFile, err)
+		return false, fmt.Errorf("hardware.EnsureBoot: stat %s: %w", bootFile, err)
 	}
 
 	loader, err := DetectBoot(sysDir, mountsFile)
@@ -159,7 +158,7 @@ func EnsureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
 	}
 
 	if err := userfile.Write(bootFile, content); err != nil {
-		return false, fmt.Errorf("computer.EnsureBoot: write %s: %w", bootFile, err)
+		return false, fmt.Errorf("hardware.EnsureBoot: write %s: %w", bootFile, err)
 	}
 
 	return true, nil

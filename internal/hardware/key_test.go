@@ -1,4 +1,4 @@
-package computer
+package hardware
 
 import (
 	"crypto/sha256"
@@ -24,11 +24,11 @@ func writeUUID(t *testing.T, content string) string {
 	return sys
 }
 
-func TestHardwareKey(t *testing.T) {
+func TestKey(t *testing.T) {
 	sum := sha256.Sum256([]byte("luxos-hardware:" + fixtureUUID))
 	want := hex.EncodeToString(sum[:])[:16]
 
-	got, err := HardwareKey(writeUUID(t, "  "+strings.ToUpper(fixtureUUID)+"\n"))
+	got, err := Key(writeUUID(t, "  "+strings.ToUpper(fixtureUUID)+"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,14 +40,14 @@ func TestHardwareKey(t *testing.T) {
 	}
 }
 
-func TestHardwareKey_Missing(t *testing.T) {
-	if _, err := HardwareKey(t.TempDir()); err == nil || !strings.Contains(err.Error(), "cannot read") {
+func TestKey_Missing(t *testing.T) {
+	if _, err := Key(t.TempDir()); err == nil || !strings.Contains(err.Error(), "cannot read") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestHardwareKey_Empty(t *testing.T) {
-	if _, err := HardwareKey(writeUUID(t, "\n")); err == nil {
+func TestKey_Empty(t *testing.T) {
+	if _, err := Key(writeUUID(t, "\n")); err == nil {
 		t.Fatal("expected error")
 	}
 }
