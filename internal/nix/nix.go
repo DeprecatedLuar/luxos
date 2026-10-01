@@ -3,13 +3,12 @@ package nix
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
 const instantiateBin = "nix-instantiate"
@@ -51,20 +50,10 @@ func Parse(absPath string) (string, error) {
 		return "", fmt.Errorf("nix.Parse: path %q is not absolute", absPath)
 	}
 
-	if _, err := exec.LookPath(instantiateBin); err != nil {
-		return "", fmt.Errorf("nix.Parse: %s not found: %w", instantiateBin, err)
-	}
-
-	cmd := exec.Command(instantiateBin, "--parse", absPath)
-	out, err := cmd.Output()
+	out, err := shell.Output(shell.Cmd{Bin: instantiateBin, Args: []string{"--parse", absPath}})
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return "", fmt.Errorf("%s --parse %s failed:\n%s", instantiateBin, absPath, string(exitErr.Stderr))
-		}
-		return "", fmt.Errorf("%s --parse %s: %w", instantiateBin, absPath, err)
+		return "", err
 	}
-
 	return string(out), nil
 }
 
@@ -72,24 +61,11 @@ func Parse(absPath string) (string, error) {
 // args passed through as --argstr, and returns its stdout. On failure the
 // returned error includes the command's stderr.
 func EvalJSON(expr string, args map[string]string) ([]byte, error) {
-	if _, err := exec.LookPath(instantiateBin); err != nil {
-		return nil, fmt.Errorf("nix.EvalJSON: %s not found: %w", instantiateBin, err)
-	}
-
 	argv := []string{"--eval", "--strict", "--json", "--expr", expr}
 	for k, v := range args {
 		argv = append(argv, "--argstr", k, v)
 	}
-	cmd := exec.Command(instantiateBin, argv...)
-	out, err := cmd.Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return nil, fmt.Errorf("%s %s failed:\n%s", instantiateBin, strings.Join(argv, " "), string(exitErr.Stderr))
-		}
-		return nil, fmt.Errorf("%s %s: %w", instantiateBin, strings.Join(argv, " "), err)
-	}
-	return out, nil
+	return shell.Output(shell.Cmd{Bin: instantiateBin, Args: argv})
 }
 
 // FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
@@ -97,11 +73,7 @@ func EvalJSON(expr string, args map[string]string) ([]byte, error) {
 func FlakeUpdate(flakeDir string, inputs ...string) error {
 	args := append([]string{"flake", "update"}, inputs...)
 	args = append(args, "--flake", flakeDir)
-	cmd := exec.Command(flakeBin, args...)
-	cmd.Env = flakeEnv(os.Environ())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return shell.Run(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
 }
 
 // BuildFlakeRef builds the flake reference ref and returns its store path.
@@ -121,12 +93,9 @@ func buildFlakeRef(ref string, offline bool) (string, error) {
 		args = append(args, "--offline")
 	}
 	args = append(args, "--no-link", "--print-out-paths")
-	cmd := exec.Command(flakeBin, args...)
-	cmd.Env = flakeEnv(os.Environ())
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	out, err := shell.OutputLive(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
 	if err != nil {
-		return "", fmt.Errorf("%s %s: %w", flakeBin, strings.Join(args, " "), err)
+		return "", err
 	}
 	outPath := strings.TrimSpace(string(out))
 	if outPath == "" {
@@ -148,15 +117,8 @@ func FlakeLock(stagingDir string) error {
 }
 
 func runIn(dir string, args []string) error {
-	cmd := exec.Command(flakeBin, args...)
-	cmd.Dir = dir
-	cmd.Env = flakeEnv(os.Environ())
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %s (in %s) failed: %w\n%s", flakeBin, strings.Join(args, " "), dir, err, stderr.String())
-	}
-	return nil
+	_, err := shell.Output(shell.Cmd{Bin: flakeBin, Args: args, Dir: dir, Env: flakeEnv(os.Environ())})
+	return err
 }
 
 // RebuildFromFlake builds nixosConfigurations.<host>.config.system.build.nixos-rebuild
@@ -164,12 +126,13 @@ func runIn(dir string, args []string) error {
 // resulting nixos-rebuild binary.
 func RebuildFromFlake(stagingDir, host string) (string, error) {
 	target := fmt.Sprintf("%s#nixosConfigurations.%s.%s", stagingDir, host, rebuildAttr)
-	cmd := exec.Command(flakeBin, "build", target, "--no-link", "--print-out-paths")
-	cmd.Env = flakeEnv(os.Environ())
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	out, err := shell.OutputLive(shell.Cmd{
+		Bin:  flakeBin,
+		Args: []string{"build", target, "--no-link", "--print-out-paths"},
+		Env:  flakeEnv(os.Environ()),
+	})
 	if err != nil {
-		return "", fmt.Errorf("%s build %s: %w", flakeBin, target, err)
+		return "", err
 	}
 	outPath := strings.TrimSpace(string(out))
 	if outPath == "" {
@@ -200,11 +163,9 @@ func flakeEnv(env []string) []string {
 // <nixpkgs/nixos>, independent of staging and the flake, and returns
 // the path to the resulting nixos-rebuild binary.
 func RebuildFromChannel() (string, error) {
-	cmd := exec.Command(buildBin, rebuildChannelExpr, "-A", rebuildAttr, "--no-out-link")
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	out, err := shell.OutputLive(shell.Cmd{Bin: buildBin, Args: []string{rebuildChannelExpr, "-A", rebuildAttr, "--no-out-link"}})
 	if err != nil {
-		return "", fmt.Errorf("%s %s -A %s: %w", buildBin, rebuildChannelExpr, rebuildAttr, err)
+		return "", err
 	}
 	outPath := strings.TrimSpace(string(out))
 	if outPath == "" {
@@ -213,34 +174,13 @@ func RebuildFromChannel() (string, error) {
 	return filepath.Join(outPath, rebuildBinRelpath), nil
 }
 
-// Exec replaces the current process image with bin, passing args as
-// argv[1:] (argv[0] is bin).
-func Exec(bin string, args []string) error {
-	argv := append([]string{bin}, args...)
-	return syscall.Exec(bin, argv, os.Environ())
-}
-
-// Run runs bin with args as a child process, wiring stdin, stdout and
-// stderr straight through, and returns its exit status as an error. Unlike
-// Exec it returns, so the caller can act on the result; callers that have
-// nothing left to do should use Exec.
-func Run(bin string, args []string) error {
-	cmd := exec.Command(bin, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 // ShowHardwareConfig returns the hardware-configuration.nix that
 // nixos-generate-config generates for this computer.
 func ShowHardwareConfig() ([]byte, error) {
-	cmd := exec.Command(hardwareConfigBin, hardwareConfigArgs...)
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	out, err := shell.OutputLive(shell.Cmd{Bin: hardwareConfigBin, Args: hardwareConfigArgs})
 	line := strings.Join(append([]string{hardwareConfigBin}, hardwareConfigArgs...), " ")
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", line, err)
+		return nil, err
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
 		return nil, fmt.Errorf("%s: no output", line)

@@ -1,10 +1,8 @@
 package commands
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -17,6 +15,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/imports"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/units"
 )
@@ -138,7 +137,7 @@ func selfUpdate(hostLock string, args []string) error {
 		return fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
 	}
 
-	exe, err := shared.Executable()
+	exe, err := shell.Self()
 	if err != nil {
 		return err
 	}
@@ -158,7 +157,7 @@ func selfUpdate(hostLock string, args []string) error {
 	}
 
 	fmt.Println(selfUpdateNotice)
-	return nix.Exec(pinned, append([]string{"rebuild"}, args...))
+	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
 }
 
 func hardwareSelected(hostDir string) (bool, error) {
@@ -332,10 +331,9 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string) error {
 
 	// Only nixos-rebuild's own exit status becomes the command's: it has
 	// already printed its error. Any other failure keeps its message.
-	err = nix.Run(rebuildBin, flakeArgs)
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return shared.ExitCode(ee.ExitCode())
+	err = shell.Run(shell.Cmd{Bin: rebuildBin, Args: flakeArgs})
+	if code, ok := shell.ExitCode(err); ok {
+		return shared.ExitCode(code)
 	}
 	return err
 }
@@ -421,7 +419,7 @@ func goodbye(dir string, rest []string) error {
 	if err != nil {
 		return err
 	}
-	if err := nix.Run(bin, rest); err != nil {
+	if err := shell.Run(shell.Cmd{Bin: bin, Args: rest}); err != nil {
 		return err
 	}
 

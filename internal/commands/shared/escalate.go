@@ -3,11 +3,12 @@ package shared
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"syscall"
 
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
+
+const sudoBin = "sudo"
 
 // Resolved config dir is passed through this across the sudo re-exec.
 const configDirEnv = "LUXOS_CONFIG_DIR"
@@ -23,12 +24,7 @@ func EnsureRoot(args []string) error {
 		return nil
 	}
 
-	sudoPath, err := exec.LookPath("sudo")
-	if err != nil {
-		return fmt.Errorf("sudo not found: %w", err)
-	}
-
-	exe, err := Executable()
+	exe, err := shell.Self()
 	if err != nil {
 		return err
 	}
@@ -40,12 +36,12 @@ func EnsureRoot(args []string) error {
 		return err
 	}
 
-	argv := []string{sudoPath, fmt.Sprintf("%s=%s", configDirEnv, p.Config)}
+	argv := []string{fmt.Sprintf("%s=%s", configDirEnv, p.Config)}
 	if backup := os.Getenv(backupDirEnv); backup != "" {
 		argv = append(argv, fmt.Sprintf("%s=%s", backupDirEnv, backup))
 	}
 	argv = append(argv, exe)
 	argv = append(argv, args...)
 
-	return syscall.Exec(sudoPath, argv, os.Environ())
+	return shell.Exec(sudoBin, argv)
 }

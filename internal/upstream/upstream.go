@@ -9,15 +9,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
 )
 
 const (
+	gitBin     = "git"
 	typeGitHub = "github"
 	typeGit    = "git"
 
@@ -89,9 +90,9 @@ func gitTip(ref staging.LockRef) (string, error) {
 	if ref.Ref != "" {
 		target = fmt.Sprintf(headsRefFormat, ref.Ref)
 	}
-	out, err := exec.Command("git", "ls-remote", ref.URL, target).Output()
+	out, err := shell.Output(shell.Cmd{Bin: gitBin, Args: []string{"ls-remote", ref.URL, target}})
 	if err != nil {
-		return "", fmt.Errorf("upstream: git ls-remote %s: %w", ref.URL, err)
+		return "", fmt.Errorf("upstream: %w", err)
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
@@ -154,9 +155,9 @@ func githubTags(ref staging.LockRef) (map[string]string, error) {
 }
 
 func gitTags(ref staging.LockRef) (map[string]string, error) {
-	out, err := exec.Command("git", "ls-remote", "--tags", ref.URL).Output()
+	out, err := shell.Output(shell.Cmd{Bin: gitBin, Args: []string{"ls-remote", "--tags", ref.URL}})
 	if err != nil {
-		return nil, fmt.Errorf("upstream: git ls-remote --tags %s: %w", ref.URL, err)
+		return nil, fmt.Errorf("upstream: %w", err)
 	}
 
 	var names []string
