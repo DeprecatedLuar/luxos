@@ -1248,7 +1248,6 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 // errHardwareUnit refuses remove and rename of the computer's hardware folder.
 var errHardwareUnit = errors.New("'hardware-support' is this computer's hardware folder, managed by luxos; it cannot be removed or renamed\n  disable it with: luxos module disable hardware-support")
 
-// moduleRemove implements `module remove|rm <name> [-y]`.
 func moduleRemove(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {
@@ -1334,7 +1333,6 @@ func joinCategory(category, base string) string {
 	return category + "/" + base
 }
 
-// moduleRename implements `module rename|rn <old> <new> [-y]`.
 func moduleRename(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {

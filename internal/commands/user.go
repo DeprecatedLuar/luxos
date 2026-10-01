@@ -48,9 +48,8 @@ func User(args []string) error {
 	}
 }
 
-// userTarget prefixes name with "users/" unless it already is, so
-// `luxos user add foo` and `luxos user add users/foo` build the same
-// module-add target.
+// userTarget lets `luxos user add foo` and `luxos user add users/foo`
+// build the same module-add target.
 func userTarget(name string) string {
 	if strings.HasPrefix(name, "users/") {
 		return name
@@ -79,8 +78,6 @@ func userAdd(p paths.Paths, args []string) error {
 	return moduleAdd(p, fwd)
 }
 
-// userCategory builds the category-path `user list [subpath]` forwards to
-// `module list`: "users" or "users/<subpath>".
 func userCategory(sub string) string {
 	if sub == "" {
 		return "users"

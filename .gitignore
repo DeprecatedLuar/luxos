@@ -55,6 +55,7 @@ _*
 !__*
 *.local
 *.local.*
+graphify-out/
 
 
 # Whitelist

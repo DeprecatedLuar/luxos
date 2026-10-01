@@ -49,29 +49,20 @@ const (
 	lockFileName = "flake.lock"
 )
 
-// Materialize regenerates the luxos-owned entries of stagingDir: it prunes
-// them (see Prune), then writes framework/system.nix,
-// framework/units.nix, framework/overlay.nix, framework/outputs.nix,
-// framework/environment.nix, framework/luxos-hardware.nix,
-// framework/luxos-hardware-defaults.nix, flake.nix, config/modules (from
-// modulesDir), config/machine.nix and config/.plsdonttouch.nix (copied from hostDir),
-// config/environment (from environmentFile, required), and flake.lock if lockFile exists. lockFile is
-// the active host's own flake.lock (hostDir/flake.lock), not a config-root
-// one. Entries outside the owned list are left alone; Adopt is what deals
-// with strangers.
-// Every symlink under modulesDir and hostDir is dereferenced. Refuses a
-// dangling symlink under modulesDir or hostDir, naming it, before touching
-// stagingDir.
+// Materialize regenerates the luxos-owned entries of stagingDir (pruning
+// them first). lockFile is the active host's own flake.lock
+// (hostDir/flake.lock), not a config-root one; entries outside the owned
+// list are left alone for Adopt to handle. Every symlink under modulesDir
+// and hostDir is dereferenced; a dangling one refuses the whole call,
+// naming it, before anything is touched.
 //
 // us is the host's unit set: each unit with Shadows set is staged at its
-// original's location (same category, the shadow's own file or folder name)
-// and every import of that name in the staged config/modules/default.nix is
+// original's location (same category, its own file or folder name), and
+// every import of that name in the staged config/modules/default.nix is
 // pointed there. The original is not staged; no source file is rewritten.
 //
 // inputsNix is the body of flake.nix's `inputs = { ... };` block beyond the
-// flake-file pin, rendered by nixsrc.RenderInputs from the selected modules'
-// flake-file.inputs declarations (the caller's job; Materialize only writes
-// it in).
+// flake-file pin (nixsrc.RenderInputs output); Materialize only writes it in.
 func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFile, environmentFile, inputsNix string) error {
 	if err := checkNoDanglingLinks(modulesDir); err != nil {
 		return err

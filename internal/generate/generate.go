@@ -24,7 +24,6 @@ type configurationData struct {
 	Host string
 }
 
-// Configuration renders configuration.nix for host. Its imports are fixed.
 func Configuration(host string) ([]byte, error) {
 	data := configurationData{
 		Host: host,
@@ -41,7 +40,6 @@ type bootstrapData struct {
 	Host string
 }
 
-// FlakeBootstrap renders flake-file.nix for host.
 func FlakeBootstrap(host string) ([]byte, error) {
 	if host == "" {
 		return nil, fmt.Errorf("generate.FlakeBootstrap: host name is required")
