@@ -99,6 +99,8 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "flake.nix"),
 		filepath.Join(stagingDir, "framework", "outputs.nix"),
 		filepath.Join(stagingDir, "framework", "environment.nix"),
+		filepath.Join(stagingDir, "framework", "luxos-hardware-defaults.nix"),
+		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
 		filepath.Join(stagingDir, "config", "environment"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),

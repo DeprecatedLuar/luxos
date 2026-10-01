@@ -39,6 +39,7 @@ const (
 	environmentNix        = "environment.nix"
 	luxosHardwareNix      = "luxos-hardware.nix"
 	luxosHardwareDefaults = "luxos-hardware-defaults.nix"
+	nvidiaGenerations     = "nvidia-generations.nix"
 	stagedEnvironment     = "environment"
 
 	stagedModulesDir   = "modules"
@@ -103,6 +104,9 @@ func Materialize(stagingDir, modulesDir, hostDir string, us []units.Unit, lockFi
 		return err
 	}
 	if err := writeFrameworkFile(fwDir, luxosHardwareNix); err != nil {
+		return err
+	}
+	if err := writeFrameworkFile(fwDir, nvidiaGenerations); err != nil {
 		return err
 	}
 	if err := writeFrameworkFile(fwDir, luxosHardwareDefaults); err != nil {
