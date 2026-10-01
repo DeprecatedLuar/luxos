@@ -802,3 +802,126 @@ func TestValidate_SelfReferenceIsViolation(t *testing.T) {
 		t.Errorf("got %v, want one violation %q", vs, want)
 	}
 }
+
+func validateBundle(t *testing.T, mods string, roots []string) []Violation {
+	t.Helper()
+	us, err := units.Walk(mods, "")
+	if err != nil {
+		t.Fatalf("units.Walk: %v", err)
+	}
+	vs, err := Validate(mods, us, roots)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	return vs
+}
+
+func hasViolation(vs []Violation, file, substr string) bool {
+	for _, v := range vs {
+		if v.File == file && strings.Contains(v.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	bundleRoot       = "users/eduardo"
+	bundleSubGitRoot = "users/eduardo/modules/git.nix"
+)
+
+func TestValidate_BundlePlumbingReferencingModulesIsViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ imports = [ ./modules/git.nix ]; }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ }`)
+
+	vs := validateBundle(t, mods, []string{bundleRoot, bundleSubGitRoot})
+	if !hasViolation(vs, bundleRoot+"/default.nix", "inside its bundle's modules/") {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_FileSubmoduleReferencingBundleIsViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "account.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ imports = [ ../account.nix ]; }`)
+
+	vs := validateBundle(t, mods, []string{bundleRoot, bundleSubGitRoot})
+	if !hasViolation(vs, bundleSubGitRoot, "outside its module") {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_FolderSubmoduleOwnFilesAreFine(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "modules", "nvim", "default.nix"), `{ imports = [ ./lsp.nix ]; }`)
+	write(t, filepath.Join(mods, bundleRoot, "modules", "nvim", "lsp.nix"), `{ }`)
+
+	vs := validateBundle(t, mods, []string{bundleRoot, bundleRoot + "/modules/nvim"})
+	if len(vs) != 0 {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_LuxosModulesNamingSubmoduleIsViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ }`)
+	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "eduardo/git" ]; }`)
+
+	vs := validateBundle(t, mods, []string{"a.nix"})
+	want := "luxos.modules: 'eduardo/git' is a submodule, private to its bundle; reference 'eduardo' instead"
+	if !hasViolation(vs, "a.nix", want) {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_SubmoduleNameResolvesToGlobalModule(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "desktop", "hyprland.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "modules", "hyprland.nix"), `{ luxos, ... }: { imports = luxos.modules [ "hyprland" ]; }`)
+
+	vs := validateBundle(t, mods, []string{bundleRoot, bundleRoot + "/modules/hyprland.nix"})
+	if len(vs) != 0 {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_SubmoduleRootNeedsItsBundle(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ }`)
+
+	vs := validateBundle(t, mods, []string{bundleSubGitRoot})
+	want := "selects submodule 'eduardo/git' but not its bundle 'eduardo'; enable it with: luxos module enable eduardo"
+	if len(vs) != 1 || vs[0].File != bundleSubGitRoot || vs[0].Message != want {
+		t.Errorf("got %v", vs)
+	}
+	if vs := validateBundle(t, mods, []string{bundleRoot, bundleSubGitRoot}); len(vs) != 0 {
+		t.Errorf("with bundle selected: got %v", vs)
+	}
+}
+
+func TestUnitFiles_BundleExcludesModules(t *testing.T) {
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "extra.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ }`)
+
+	files, err := UnitFiles(filepath.Join(mods, bundleRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Errorf("got %v, want default.nix and extra.nix only", files)
+	}
+}

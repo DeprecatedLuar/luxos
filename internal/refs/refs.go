@@ -4,6 +4,11 @@
 // (owners, closures, dependents, boundary violations); all Nix syntax
 // reading and editing goes through internal/nixsrc. Every function here
 // takes absolute file paths.
+//
+// Bundles (a folder unit with a modules/ subdirectory) add three boundary
+// rules: a bundle's own files may not reference paths inside its modules/,
+// luxos.modules may not name a submodule, and a selected submodule needs its
+// bundle selected too.
 package refs
 
 import (
@@ -25,6 +30,8 @@ const modulesDirName = "modules"
 
 const localPrefix = "local/"
 
+const nameSep = "/"
+
 type Violation struct {
 	File, Message string
 }
@@ -39,6 +46,8 @@ type Change struct {
 // Owner returns the owning folder-module directory of file (absolute path,
 // may be a file or a directory), or "" when none exists — the nearest
 // ancestor strictly below modulesDir that has its own default.nix.
+// A file submodule (directly or through categories under a bundle's
+// modules/) has no owner, so it may reference no paths.
 // Comparison is purely lexical (string prefix, per §3): never resolved with
 // EvalSymlinks.
 func Owner(modulesDir, file string) string {
@@ -47,6 +56,9 @@ func Owner(modulesDir, file string) string {
 	for strings.HasPrefix(d, root+"/") {
 		if fi, err := os.Stat(filepath.Join(d, entrypointName)); err == nil && !fi.IsDir() {
 			return d
+		}
+		if filepath.Base(d) == modulesDirName && units.IsBundle(filepath.Dir(d)) {
+			return ""
 		}
 		d = filepath.Dir(d)
 	}
@@ -57,7 +69,9 @@ func Owner(modulesDir, file string) string {
 // (the host entrypoint's import paths, relative to modulesDir), it follows
 // every luxos.modules name to its unit, transitively, and collects every
 // boundary, dynamic-path, call-shape and unresolved-name violation in that
-// closure — not just the first. A unit nothing reaches is never checked:
+// closure — not just the first. Bundle rules: a bundle's own files may not
+// reference paths inside its modules/, luxos.modules may not name a
+// submodule, and a root submodule needs its bundle among the roots. A unit nothing reaches is never checked:
 // importing it makes it part of the closure on the next run. A file unit
 // contributes itself, a folder unit every *.nix beneath it. err is returned
 // for a root that resolves to no unit, or for I/O or parser-lookup failure
@@ -74,15 +88,27 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 			queue = append(queue, unitPath)
 		}
 	}
+	rootNames := make(map[string]bool, len(roots))
 	for _, r := range roots {
-		unitPath, ok := units.Resolve(us, units.NameFromPath(r))
+		rootNames[units.NameFromPath(r)] = true
+	}
+
+	var violations []Violation
+	for _, r := range roots {
+		name := units.NameFromPath(r)
+		unitPath, ok := units.Resolve(us, name)
 		if !ok {
 			return nil, fmt.Errorf("import ./%s does not resolve to any module under %s/", r, modulesDirName)
+		}
+		if parent := units.Parent(name); parent != "" && !rootNames[parent] {
+			violations = append(violations, Violation{
+				File:    r,
+				Message: fmt.Sprintf("selects submodule '%s' but not its bundle '%s'; enable it with: luxos module enable %s", name, parent, parent),
+			})
 		}
 		enqueue(unitPath)
 	}
 
-	var violations []Violation
 	for len(queue) > 0 {
 		unitPath := queue[0]
 		queue = queue[1:]
@@ -112,11 +138,15 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 
 			owner := Owner(root, file)
 
+			ownerModules := filepath.Join(owner, modulesDirName)
 			for _, p := range static {
-				if owner != "" && (p == owner || strings.HasPrefix(p, owner+"/")) {
+				if owner == "" || !(p == owner || strings.HasPrefix(p, owner+"/")) {
+					violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
 					continue
 				}
-				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
+				if units.IsBundle(owner) && (p == ownerModules || strings.HasPrefix(p, ownerModules+"/")) {
+					violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s inside its bundle's modules/ (submodules are selected in the host's modules.nix)", p)})
+				}
 			}
 
 			for _, p := range dynamic {
@@ -140,6 +170,13 @@ func Validate(modulesDir string, us []units.Unit, roots []string) ([]Violation, 
 					violations = append(violations, Violation{
 						File:    rel,
 						Message: fmt.Sprintf("luxos.modules: '%s' does not resolve to any module under %s/", name, modulesDirName),
+					})
+					continue
+				}
+				if strings.Contains(name, nameSep) {
+					violations = append(violations, Violation{
+						File:    rel,
+						Message: fmt.Sprintf("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, units.Top(name)),
 					})
 					continue
 				}
@@ -325,6 +362,9 @@ func UnitFiles(unit string) ([]string, error) {
 	}
 	if !info.IsDir() {
 		return []string{unit}, nil
+	}
+	if units.IsBundle(unit) {
+		return findAllNix(unit, modulesDirName)
 	}
 	return findAllNix(unit, "")
 }
