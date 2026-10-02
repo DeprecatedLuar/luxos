@@ -331,14 +331,14 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 	}
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
-	want := "base\tstaged\t\ndep\tpulled\t\ndesktop/shells/ambxst\tactive\tambxst axctl\nidle\toff\t\nold\tleftover\t\n"
+	want := "base\tstaged\t\tok\ndep\tpulled\t\tok\ndesktop/shells/ambxst\tactive\tambxst axctl\tok\nidle\toff\t\tok\nold\tleftover\t\tok\n"
 	if b.String() != want {
 		t.Errorf("got %q want %q", b.String(), want)
 	}
 
 	var tty strings.Builder
 	ui.Tree(&tty, uiRows(rows), "modules/", ui.Palette{})
-	if !strings.Contains(tty.String(), "ambxst"+flakeMark+"\n") {
+	if !strings.Contains(tty.String(), "ambxst "+flakeMark+"\n") {
 		t.Errorf("flake mark missing:\n%s", tty.String())
 	}
 }
@@ -346,7 +346,7 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 func TestModuleRenderJSON(t *testing.T) {
 	rows := []moduleRow{
 		{category: []string{"desktop", "shells"}, name: "ambxst", marker: markerEnabledBoth, inputs: []string{"ambxst", "axctl"}},
-		{name: "base", marker: markerEnabledOnly},
+		{name: "base", marker: markerEnabledOnly, broken: true},
 	}
 	var b strings.Builder
 	if err := moduleRenderJSON(&b, rows); err != nil {
@@ -356,7 +356,8 @@ func TestModuleRenderJSON(t *testing.T) {
   {
     "path": "base",
     "state": "staged",
-    "inputs": []
+    "inputs": [],
+    "ok": false
   },
   {
     "path": "desktop/shells/ambxst",
@@ -364,7 +365,8 @@ func TestModuleRenderJSON(t *testing.T) {
     "inputs": [
       "ambxst",
       "axctl"
-    ]
+    ],
+    "ok": true
   }
 ]
 `
@@ -389,7 +391,7 @@ func TestModuleRenderModified(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if want := "a\tmodified\t\n"; plain.String() != want {
+	if want := "a\tmodified\t\tok\n"; plain.String() != want {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }
@@ -401,8 +403,11 @@ func TestModuleRenderRemoved(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if want := "local/debug\tremoved\t\n"; plain.String() != want {
+	if want := "local/debug\tremoved\t\tok\n"; plain.String() != want {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
+	}
+	if got := uiRows(rows)[0]; len(got.Marks) != 0 {
+		t.Errorf("removed row marks = %+v, want none", got.Marks)
 	}
 }
 
@@ -594,7 +599,7 @@ func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
 		byUnit[r.unit] = r
 	}
 	b := byUnit["eduardo"]
-	if !b.bundle || b.subEnabled != 1 || b.subTotal != 2 {
+	if !b.bundle || b.subEnabled != 1 {
 		t.Errorf("bundle row = %+v", b)
 	}
 	g := byUnit["eduardo/git"]
@@ -627,7 +632,7 @@ func TestCollapseBundles(t *testing.T) {
 	var b strings.Builder
 	ui.Tree(&b, uiRows(top), "modules/", ui.Palette{})
 	out := b.String()
-	if !strings.Contains(out, "eduardo+ 1/2") || strings.Contains(out, "git") {
+	if !strings.Contains(out, markerBundle+" eduardo 1\n") || strings.Contains(out, "git") {
 		t.Errorf("collapsed tree:\n%s", out)
 	}
 
@@ -645,7 +650,7 @@ func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
 	}
 	rows := moduleRows(statusesFor(us, nil, nil), "users/eduardo/modules")
 	view := collapseBundles(rows, "eduardo")
-	if len(view) != 1 || view[0].name != "nvim" || !view[0].bundle || view[0].subTotal != 1 {
+	if len(view) != 1 || view[0].name != "nvim" || !view[0].bundle {
 		t.Errorf("view = %+v", view)
 	}
 }
@@ -654,7 +659,7 @@ func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
 	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "")
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
-	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\n") {
+	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\tok\n") {
 		t.Errorf("plain output:\n%s", b.String())
 	}
 	var j strings.Builder
@@ -755,5 +760,52 @@ func TestModuleRowsRemovedCategories(t *testing.T) {
 	}
 	if rows := moduleRows(sts, "local"); len(rows) != 1 || len(rows[0].category) != 0 {
 		t.Errorf("local filter = %+v", rows)
+	}
+}
+
+func TestModuleMarksDimOutsideBuild(t *testing.T) {
+	rows := []moduleRow{
+		{name: "on", marker: markerEnabledBoth, inputs: []string{"x"}, broken: true},
+		{name: "dep", marker: markerPulled, broken: true},
+		{name: "idle", marker: markerNeither, inputs: []string{"x"}, broken: true},
+		{name: "old", marker: markerRunningOnly, broken: true},
+	}
+	want := map[string][]ui.Mark{
+		"on":   {{Glyph: flakeMark, Color: ui.ColorNix}, {Glyph: brokenMark, Color: ui.ColorYellow}},
+		"dep":  {{Glyph: brokenMark, Color: ui.ColorYellow}},
+		"idle": {{Glyph: flakeMark, Color: ui.ColorLine}, {Glyph: brokenMark, Color: ui.ColorLine}},
+		"old":  {{Glyph: brokenMark, Color: ui.ColorLine}},
+	}
+	for _, r := range uiRows(rows) {
+		if !reflect.DeepEqual(r.Marks, want[r.Name]) {
+			t.Errorf("%s marks = %+v, want %+v", r.Name, r.Marks, want[r.Name])
+		}
+	}
+}
+
+func TestModuleBundleRowGlyphAndCount(t *testing.T) {
+	rows := moduleRows(statusesFor(bundleUnits(), map[string]bool{"eduardo": true}, nil), "")
+	for _, r := range uiRows(collapseBundles(rows, "")) {
+		if r.Name != "eduardo" {
+			continue
+		}
+		if r.Marker != markerBundle || r.Color != ui.ColorTeal || r.Count != "0" {
+			t.Errorf("bundle row = %+v, want a teal %s with count 0", r, markerBundle)
+		}
+	}
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows)
+	if !strings.Contains(plain.String(), "users/eduardo\tstaged\t\tok\n") {
+		t.Errorf("plain keeps the state word:\n%s", plain.String())
+	}
+}
+
+func TestModuleRowsCarryBroken(t *testing.T) {
+	sts := []modules.Status{{Module: modules.Module{Name: "a", Path: "a.nix"}, State: modules.Off, Broken: true}}
+	rows := moduleRows(sts, "")
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows)
+	if plain.String() != "a\toff\t\tbroken\n" {
+		t.Errorf("plain = %q", plain.String())
 	}
 }

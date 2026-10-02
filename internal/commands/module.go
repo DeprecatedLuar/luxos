@@ -64,6 +64,7 @@ const (
 	markerRunningOnly = "⊘" // running, not enabled
 	markerPulled      = "◍" // pulled in by luxos.modules transitively, not directly selected
 	markerNeither     = "○" // neither
+	markerBundle      = "◈" // a bundle, in its state's color
 )
 
 // State words of the plain output, shared by module and flake listings.
@@ -77,7 +78,17 @@ const (
 	stateWordRemoved  = "removed"
 )
 
-const flakeMark = "❄"
+// Marks drawn after a module's name.
+const (
+	flakeMark  = "❄" // declares flake inputs
+	brokenMark = "!" // a file fails to evaluate
+)
+
+// Words of the plain ok column.
+const (
+	plainOK     = "ok"
+	plainBroken = "broken"
+)
 
 // bundleModulesDir is the folder of a bundle's submodules.
 const bundleModulesDir = "modules"
@@ -170,13 +181,13 @@ type moduleRow struct {
 	note     string
 	shadow   bool
 	inputs   []string
+	broken   bool
 	status   string
 	modified bool // files changed since the running build
 	removed  bool // imported by the running generation, no longer a unit in the config
 
 	bundle     bool // has submodules; shown collapsed with its enabled count
 	subEnabled int  // direct submodules enabled
-	subTotal   int  // direct submodules
 }
 
 //──[list]─────────────────────────────────────────────────────────────────
@@ -233,9 +244,9 @@ func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 			modified:   st.State == modules.Modified,
 			removed:    st.State == modules.Removed,
 			inputs:     st.Inputs,
+			broken:     st.Broken,
 			bundle:     subTotal[m.Name] > 0,
 			subEnabled: subEnabled[m.Name],
-			subTotal:   subTotal[m.Name],
 		})
 	}
 	return rows
@@ -319,24 +330,46 @@ func noteColor(note string) ui.Color {
 	return ui.ColorOff
 }
 
+// inBuild reports whether a marker's module is part of the build: selected or pulled in.
+func inBuild(marker string) bool {
+	switch marker {
+	case markerEnabledBoth, markerEnabledOnly, markerPulled:
+		return true
+	}
+	return false
+}
+
+// marksOf is the marks drawn after a row's name, in the line color outside the build.
+func marksOf(r moduleRow) []ui.Mark {
+	var marks []ui.Mark
+	if len(r.inputs) > 0 {
+		marks = append(marks, ui.Mark{Glyph: flakeMark, Color: ui.ColorNix})
+	}
+	if r.broken {
+		marks = append(marks, ui.Mark{Glyph: brokenMark, Color: ui.ColorYellow})
+	}
+	if !inBuild(r.marker) {
+		for i := range marks {
+			marks[i].Color = ui.ColorLine
+		}
+	}
+	return marks
+}
+
 // uiRows maps rows, and their children, to what ui draws.
 func uiRows(rows []moduleRow) []ui.Row {
 	out := make([]ui.Row, len(rows))
 	for i, r := range rows {
-		mark := ""
-		if len(r.inputs) > 0 {
-			mark = flakeMark
-		}
-		count := ""
+		marker, count := r.marker, ""
 		if r.bundle {
-			count = fmt.Sprintf("%d/%d", r.subEnabled, r.subTotal)
+			marker, count = markerBundle, fmt.Sprint(r.subEnabled)
 		}
 		out[i] = ui.Row{
 			Category:  r.category,
 			Name:      r.name,
-			Mark:      mark,
+			Marks:     marksOf(r),
 			Count:     count,
-			Marker:    r.marker,
+			Marker:    marker,
 			Color:     colorOf(r),
 			Rank:      r.rank,
 			Underline: r.shadow,
@@ -357,10 +390,18 @@ func rowPath(r moduleRow) string {
 	return strings.Join(r.category, "/") + "/" + r.name
 }
 
+func okWord(r moduleRow) string {
+	if r.broken {
+		return plainBroken
+	}
+	return plainOK
+}
+
 type moduleJSONRow struct {
 	Path   string   `json:"path"`
 	State  string   `json:"state"`
 	Inputs []string `json:"inputs"`
+	OK     bool     `json:"ok"`
 }
 
 func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
@@ -370,7 +411,7 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 		if inputs == nil {
 			inputs = []string{}
 		}
-		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs})
+		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs, OK: !r.broken})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return ui.JSON(w, out)
@@ -381,7 +422,7 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
 	lines := make([][]string, 0, len(sorted))
 	for _, r := range sorted {
-		lines = append(lines, []string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep)})
+		lines = append(lines, []string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep), okWord(r)})
 	}
 	ui.Plain(w, lines)
 }
