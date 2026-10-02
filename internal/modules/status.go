@@ -32,6 +32,7 @@ type Status struct {
 	State    State
 	PulledBy []string // set when State is Pulled
 	Inputs   []string // flake inputs the module declares
+	Broken   bool     // a file of the module fails to evaluate
 }
 
 // StatusOf reports every module of h plus every running import that names no
@@ -70,10 +71,11 @@ func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
 				st.State = Modified
 			}
 		}
-		if st.Inputs, err = m.inputs(); err != nil {
-			return nil, err
-		}
 		out = append(out, st)
+	}
+
+	if err := readInputs(h.Modules, out); err != nil {
+		return nil, err
 	}
 
 	seen := map[string]bool{}
@@ -182,24 +184,45 @@ func readFiles(root, skipTop string) (map[string][]byte, error) {
 	return files, nil
 }
 
-// inputs returns the sorted names of the flake inputs the module declares.
-func (m Module) inputs() ([]string, error) {
-	files, err := m.Files()
-	if err != nil {
-		return nil, err
+// readInputs sets Inputs and Broken on sts, whose entries match mods by
+// index, from one evaluation of every module file.
+func readInputs(mods []Module, sts []Status) error {
+	owner := map[string]int{}
+	var files []string
+	for i, m := range mods {
+		mf, err := m.Files()
+		if err != nil {
+			return err
+		}
+		for _, f := range mf {
+			abs, err := filepath.Abs(f)
+			if err != nil {
+				return err
+			}
+			owner[abs] = i
+		}
+		files = append(files, mf...)
 	}
-	decls, err := nix.InputDecls(files...)
+	decls, broken, err := nix.ReadInputDecls(files...)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	set := map[string]bool{}
+	names := map[int]map[string]bool{}
 	for _, d := range decls {
-		set[d.Name] = true
+		i := owner[d.File]
+		if names[i] == nil {
+			names[i] = map[string]bool{}
+		}
+		names[i][d.Name] = true
 	}
-	var names []string
-	for name := range set {
-		names = append(names, name)
+	for i, set := range names {
+		for name := range set {
+			sts[i].Inputs = append(sts[i].Inputs, name)
+		}
+		sort.Strings(sts[i].Inputs)
 	}
-	sort.Strings(names)
-	return names, nil
+	for file := range broken {
+		sts[owner[file]].Broken = true
+	}
+	return nil
 }

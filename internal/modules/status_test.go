@@ -206,3 +206,31 @@ func TestChangedFrom(t *testing.T) {
 	write(staged, "link.nix", "l")
 	check("symlink", Module{Name: "link", Path: "link.nix"}, staged, false)
 }
+
+func TestStatusOfBroken(t *testing.T) {
+	skipIfNoNix(t)
+	h := statusFixture(t, nil, "fine.nix")
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "flaky.nix"), "{ ... }: {\n  flake-file.inputs.zed.url = \"github:o/zed\";\n}\n")
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "default.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ x = ; }\n")
+	h, err := Load(h.ModulesDir, h.HostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sts, err := StatusOf(h, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := map[string]bool{}
+	inputs := map[string]string{}
+	for _, s := range sts {
+		broken[s.Module.Name] = s.Broken
+		inputs[s.Module.Name] = strings.Join(s.Inputs, ",")
+	}
+	if want := map[string]bool{"fine": false, "flaky": false, "folder": true}; !reflect.DeepEqual(broken, want) {
+		t.Errorf("broken = %v, want %v", broken, want)
+	}
+	if inputs["flaky"] != "zed" {
+		t.Errorf("flaky inputs = %q, want zed despite a broken neighbour", inputs["flaky"])
+	}
+}
