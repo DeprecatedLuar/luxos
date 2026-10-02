@@ -20,6 +20,8 @@ const (
 	codeRed       = "\x1b[38;2;237;112;122m"        // #ED707A
 	codePurple    = "\x1b[38;2;181;166;250m"        // #B5A6FA
 	codeBlue      = "\x1b[38;2;130;170;255m"        // #82AAFF
+	codeNix       = "\x1b[38;2;126;186;228m"        // #7EBAE4 NixOS blue: flake marks
+	codeYellow    = "\x1b[38;2;255;199;119m"        // #FFC777
 	codeLine      = "\x1b[38;2;74;79;115m"          // #212436 lightened: tree connectors
 	codeTitle     = "\x1b[1m\x1b[38;2;107;112;137m" // #6B7089 bold: category names
 	codeOff       = "\x1b[38;2;156;163;196m"        // #9CA3C4
@@ -39,17 +41,20 @@ const (
 	ColorRed
 	ColorPurple
 	ColorBlue
+	ColorNix
+	ColorYellow
+	ColorLine
 )
 
 // Palette is the set of color codes rendering tints with; the zero Palette
 // renders the same shapes with no escape codes.
 type Palette struct {
-	green, teal, red, purple, blue, line, title, off, underline, strike, reset string
+	green, teal, red, purple, blue, nix, yellow, line, title, off, underline, strike, reset string
 }
 
 // Colored is the palette of a color terminal.
 var Colored = Palette{
-	green: codeGreen, teal: codeTeal, red: codeRed, purple: codePurple, blue: codeBlue,
+	green: codeGreen, teal: codeTeal, red: codeRed, purple: codePurple, blue: codeBlue, nix: codeNix, yellow: codeYellow,
 	line: codeLine, title: codeTitle, off: codeOff, underline: codeUnderline, strike: codeStrike, reset: codeReset,
 }
 
@@ -81,6 +86,12 @@ func (p Palette) Tint(c Color) string {
 		return p.purple
 	case ColorBlue:
 		return p.blue
+	case ColorNix:
+		return p.nix
+	case ColorYellow:
+		return p.yellow
+	case ColorLine:
+		return p.line
 	default:
 		return p.off
 	}

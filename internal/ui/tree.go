@@ -16,15 +16,20 @@ const (
 
 	pathSep    = "/"
 	trailerSep = ", "
-	countMark  = "+"
 )
+
+// Mark is a glyph drawn after a row's name in its own color.
+type Mark struct {
+	Glyph string
+	Color Color
+}
 
 // Row is one line of a tree or flat list.
 type Row struct {
 	Category  []string
 	Name      string // sorted and addressed by this
-	Mark      string // drawn right after Name, inside its underline or strike
-	Count     string // drawn after Mark as "+ <Count>" in the quiet connector color
+	Marks     []Mark // drawn after Name and one space, outside its underline or strike
+	Count     string // drawn right after Marks in the connector color
 	Marker    string
 	Color     Color
 	Rank      int // sorts before Name
@@ -46,18 +51,25 @@ func SortRows(rows []Row) {
 	})
 }
 
-// name is a row's name as drawn: Mark appended, struck through or underlined,
-// then the Count.
+// name is a row's name as drawn: struck through or underlined, then one space
+// and its marks and count when it has any.
 func (r Row) name(pal Palette) string {
-	name := r.Name + r.Mark
+	name := r.Name
 	switch {
 	case r.Strike:
 		name = pal.strike + name + pal.reset
 	case r.Underline:
 		name = pal.underline + name + pal.reset
 	}
+	if len(r.Marks) == 0 && r.Count == "" {
+		return name
+	}
+	name += " "
+	for _, m := range r.Marks {
+		name += pal.Tint(m.Color) + m.Glyph + pal.reset
+	}
 	if r.Count != "" {
-		name += fmt.Sprintf("%s%s %s%s", countMark, pal.line, r.Count, pal.reset)
+		name += pal.line + r.Count + pal.reset
 	}
 	return name
 }

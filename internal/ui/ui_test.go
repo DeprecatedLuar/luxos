@@ -69,7 +69,8 @@ func TestTreeEmpty(t *testing.T) {
 
 func TestTreeStylesNameMarkNoteAndTrailer(t *testing.T) {
 	rows := []Row{
-		{Name: "ambxst", Mark: "❄", Marker: "◉", Color: ColorGreen, Underline: true, Note: "↑", NoteColor: ColorTeal, Trailer: []string{"a", "b"}, Count: "1/2"},
+		{Name: "ambxst", Marks: []Mark{{Glyph: "❄", Color: ColorNix}, {Glyph: "!", Color: ColorYellow}}, Marker: "◉", Color: ColorGreen, Underline: true, Note: "↑", NoteColor: ColorTeal, Trailer: []string{"a", "b"}},
+		{Name: "eduardo", Marks: []Mark{{Glyph: "!", Color: ColorLine}}, Count: "3", Marker: "◈", Color: ColorOff},
 		{Name: "debug", Marker: "⊘", Color: ColorRed, Strike: true},
 		{Name: "mod", Marker: "⊕", Color: ColorBlue},
 	}
@@ -77,11 +78,12 @@ func TestTreeStylesNameMarkNoteAndTrailer(t *testing.T) {
 	Tree(&b, rows, "modules/", Colored)
 	got := b.String()
 	for _, want := range []string{
-		codeGreen + "◉ " + codeUnderline + "ambxst❄" + codeReset + "+" + codeLine + " 1/2" + codeReset,
+		codeGreen + "◉ " + codeUnderline + "ambxst" + codeReset + " " + codeNix + "❄" + codeReset + codeYellow + "!" + codeReset,
+		"◈ eduardo " + codeLine + "!" + codeReset + codeLine + "3" + codeReset,
 		" " + codeTeal + "↑" + codeReset,
 		"  " + codeLine + "← a, b" + codeReset,
-		codeRed + "⊘ " + codeStrike + "debug" + codeReset,
-		codeBlue + "⊕ mod",
+		codeRed + "⊘ " + codeStrike + "debug" + codeReset + codeReset + "\n",
+		codeBlue + "⊕ mod" + codeReset + "\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("tree lacks %q:\n%q", want, got)
@@ -90,8 +92,14 @@ func TestTreeStylesNameMarkNoteAndTrailer(t *testing.T) {
 
 	b.Reset()
 	Tree(&b, rows, "modules/", Palette{})
-	if strings.Contains(b.String(), "\x1b") {
-		t.Errorf("zero palette emitted escapes: %q", b.String())
+	plain := b.String()
+	if strings.Contains(plain, "\x1b") {
+		t.Errorf("zero palette emitted escapes: %q", plain)
+	}
+	for _, want := range []string{"◉ ambxst ❄!", "◈ eduardo !3\n", "⊘ debug\n"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("plain tree lacks %q:\n%q", want, plain)
+		}
 	}
 }
 
