@@ -47,6 +47,9 @@ var vendorNames = map[string]string{
 // "<domain>:<bus>:<dev>.<fn>", each field hex.
 var addrPattern = regexp.MustCompile(`^([0-9a-fA-F]+):([0-9a-fA-F]+):([0-9a-fA-F]+)\.([0-9a-fA-F]+)$`)
 
+// addrPattern's groups, in order.
+var addrFields = [...]string{"domain", "bus", "device", "function"}
+
 type GPU struct {
 	BusID    string // "PCI:<bus>@<domain>:<dev>:<fn>", decimal.
 	Vendor   string // "intel", "amd", "nvidia", or "unknown".
@@ -89,22 +92,15 @@ func busID(addr string) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("device directory name %q does not match <domain>:<bus>:<dev>.<fn>", addr)
 	}
-	domain, err := strconv.ParseUint(m[1], 16, 64)
-	if err != nil {
-		return "", fmt.Errorf("parse domain from %q: %w", addr, err)
+	var f [len(addrFields)]uint64
+	for i, field := range addrFields {
+		v, err := strconv.ParseUint(m[i+1], 16, 64)
+		if err != nil {
+			return "", fmt.Errorf("parse %s from %q: %w", field, addr, err)
+		}
+		f[i] = v
 	}
-	bus, err := strconv.ParseUint(m[2], 16, 64)
-	if err != nil {
-		return "", fmt.Errorf("parse bus from %q: %w", addr, err)
-	}
-	dev, err := strconv.ParseUint(m[3], 16, 64)
-	if err != nil {
-		return "", fmt.Errorf("parse device from %q: %w", addr, err)
-	}
-	fn, err := strconv.ParseUint(m[4], 16, 64)
-	if err != nil {
-		return "", fmt.Errorf("parse function from %q: %w", addr, err)
-	}
+	domain, bus, dev, fn := f[0], f[1], f[2], f[3]
 	return fmt.Sprintf("PCI:%d@%d:%d:%d", bus, domain, dev, fn), nil
 }
 

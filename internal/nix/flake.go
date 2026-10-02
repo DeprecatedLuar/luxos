@@ -56,15 +56,7 @@ func buildFlakeRef(ref string, offline bool) (string, error) {
 		args = append(args, "--offline")
 	}
 	args = append(args, "--no-link", "--print-out-paths")
-	out, err := shell.OutputLive(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
-	if err != nil {
-		return "", err
-	}
-	outPath := strings.TrimSpace(string(out))
-	if outPath == "" {
-		return "", fmt.Errorf("%s %s: no output path printed", flakeBin, strings.Join(args, " "))
-	}
-	return outPath, nil
+	return storePath(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
 }
 
 // WriteFlake runs flake-file's write-flake app in stagingDir, regenerating

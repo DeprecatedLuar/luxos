@@ -30,7 +30,8 @@ const configurationLimit = 4
 var efiMounts = []string{"/boot/efi", "/boot"}
 var biosMounts = []string{"/boot", "/"}
 
-// Target is the EFI mount point (B4) or the "/dev/<disk>" device (B5).
+// Loader is the detected GRUB target: the EFI mount point when EFI, else the
+// "/dev/<disk>" BIOS boot device.
 type Loader struct {
 	EFI    bool
 	Target string

@@ -4,6 +4,7 @@
 package modules
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,6 +37,9 @@ const localModulesDirName = "modules"
 const bundleModulesDir = "modules"
 
 const nameSep = "/"
+
+// nixExt marks a file unit.
+const nixExt = ".nix"
 
 // Module is one unit: a <name>.nix file or a folder with its own default.nix.
 // Path is relative to the modules dir, with no leading "./" and LocalPrefix on a
@@ -100,7 +104,7 @@ func (h *Host) Selected(name string) (string, bool) {
 
 // Walk discovers every unit for a host: the shared units under modulesDir
 // plus, when localModulesDir is given, that host's own local units.
-// Over modulesDir, per §3 Walk:
+// Over modulesDir:
 //   - the root's own default.nix is skipped;
 //   - the root's own "local" entry (the reserved link to the active host's
 //     local modules) is skipped, so it is never descended into here;
@@ -211,14 +215,14 @@ func checkDuplicates(us []Module) error {
 			fmt.Fprintf(&b, "\n  - %s", p)
 		}
 	}
-	return fmt.Errorf("%s", b.String())
+	return errors.New(b.String())
 }
 
 // walkDir emits (unsorted, duplicates left in) units found under dir into
 // *out. root is the fixed walk root, used to compute relative paths.
 // prefix is the qualified-name prefix of the bundle being walked ("" outside
 // one). skipLocalRoot, when true, also skips an entry named localName at the
-// walk root (used for the shared modulesDir walk only; L5).
+// walk root (used for the shared modulesDir walk only).
 func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -228,11 +232,10 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 	for _, entry := range entries {
 		entryPath := filepath.Join(dir, entry.Name())
 
-		// os.Stat follows symlinks, matching bash's "-d"/"-f" tests.
+		// Symlinks are followed; a broken one or a file that vanished
+		// mid-walk is skipped.
 		info, err := os.Stat(entryPath)
 		if err != nil {
-			// A broken symlink or a file that vanished mid-walk: skip it,
-			// matching bash's "[[ -e ]] || continue".
 			continue
 		}
 
@@ -244,12 +247,11 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 		}
 
 		if info.IsDir() {
-			defaultNix := filepath.Join(entryPath, entrypointName)
 			relPath, err := filepath.Rel(root, entryPath)
 			if err != nil {
 				return err
 			}
-			if fi, err := os.Stat(defaultNix); err == nil && !fi.IsDir() {
+			if isFile(filepath.Join(entryPath, entrypointName)) {
 				name := prefix + entry.Name()
 				*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
 				if IsBundle(entryPath) {
@@ -268,12 +270,12 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 			continue
 		}
 
-		if strings.HasSuffix(entry.Name(), ".nix") {
+		if strings.HasSuffix(entry.Name(), nixExt) {
 			relPath, err := filepath.Rel(root, entryPath)
 			if err != nil {
 				return err
 			}
-			name := prefix + strings.TrimSuffix(entry.Name(), ".nix")
+			name := prefix + strings.TrimSuffix(entry.Name(), nixExt)
 			*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
 		}
 	}
@@ -285,7 +287,7 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 // under the bundle's qualified name.
 func walkBundle(root, bundleDir, rel, name string, skipLocalRoot bool, out *[]Module) error {
 	modulesDir := filepath.Join(bundleDir, bundleModulesDir)
-	if fi, err := os.Stat(filepath.Join(modulesDir, entrypointName)); err == nil && !fi.IsDir() {
+	if isFile(filepath.Join(modulesDir, entrypointName)) {
 		return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
 	}
 	return walkDir(root, modulesDir, name+nameSep, skipLocalRoot, out)
@@ -293,11 +295,17 @@ func walkBundle(root, bundleDir, rel, name string, skipLocalRoot bool, out *[]Mo
 
 // IsBundle reports whether dir is a folder unit with a modules/ subdirectory.
 func IsBundle(dir string) bool {
-	if fi, err := os.Stat(filepath.Join(dir, entrypointName)); err != nil || fi.IsDir() {
+	if !isFile(filepath.Join(dir, entrypointName)) {
 		return false
 	}
 	fi, err := os.Stat(filepath.Join(dir, bundleModulesDir))
 	return err == nil && fi.IsDir()
+}
+
+// isFile reports whether path, symlinks followed, exists and is not a directory.
+func isFile(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // Parent is the qualified name of a submodule's bundle, "" for a top-level name.
@@ -334,7 +342,7 @@ func Hosts(machinesDir string) ([]string, error) {
 	}
 	var hosts []string
 	for _, e := range entries {
-		if fi, err := os.Stat(filepath.Join(machinesDir, e.Name(), SelectionFile)); err == nil && !fi.IsDir() {
+		if isFile(filepath.Join(machinesDir, e.Name(), SelectionFile)) {
 			hosts = append(hosts, e.Name())
 		}
 	}
@@ -347,7 +355,7 @@ func Hosts(machinesDir string) ([]string, error) {
 // "modules" segment (not the first or last) makes the segment before it a
 // bundle, and the name is qualified by those bundles ("eduardo/git").
 func NameFromPath(path string) string {
-	trimmed := strings.TrimSuffix(path, ".nix")
+	trimmed := strings.TrimSuffix(path, nixExt)
 	if t := strings.TrimSuffix(path, nameSep+entrypointName); t != path {
 		trimmed = t
 	}

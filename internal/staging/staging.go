@@ -51,6 +51,9 @@ const (
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
+
+	frameworkTemplateDir = "framework/"
+	flakeTemplate        = "flake.nix.tmpl"
 )
 
 // Materialize regenerates every luxos-owned entry of stagingDir for h
@@ -167,13 +170,14 @@ func stageModules(h *modules.Host, hwDir, dst string) error {
 
 	localDst := filepath.Join(dst, rootLocalEntry)
 	hostModules := filepath.Join(h.HostDir, localModulesDir)
-	if _, err := os.Stat(hostModules); err == nil {
-		if err := copyDerefSkip(hostModules, localDst, localSkip); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	} else if err := os.MkdirAll(localDst, dirMode); err != nil {
+	_, err := os.Stat(hostModules)
+	switch {
+	case err == nil:
+		err = copyDerefSkip(hostModules, localDst, localSkip)
+	case os.IsNotExist(err):
+		err = os.MkdirAll(localDst, dirMode)
+	}
+	if err != nil {
 		return err
 	}
 	if _, err := os.Stat(hwDir); err != nil {
@@ -235,7 +239,7 @@ func checkNoDanglingLinks(root string) error {
 }
 
 func writeFlakeNix(dst, inputsNix string) error {
-	out, err := templates.Render("flake.nix.tmpl", flakeNixData{Inputs: inputsNix})
+	out, err := templates.Render(flakeTemplate, flakeNixData{Inputs: inputsNix})
 	if err != nil {
 		return err
 	}
@@ -247,7 +251,7 @@ type flakeNixData struct {
 }
 
 func writeFrameworkFile(dst, name string) error {
-	data, err := templates.File("framework/" + name)
+	data, err := templates.File(frameworkTemplateDir + name)
 	if err != nil {
 		return err
 	}
@@ -379,17 +383,8 @@ func RestorePrevious(stagingDir, prevDir string) error {
 	} else if err != nil {
 		return err
 	}
-	if err := Prune(stagingDir); err != nil {
+	if err := Replace(prevDir, stagingDir); err != nil {
 		return err
-	}
-	entries, err := os.ReadDir(prevDir)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if err := copyDeref(filepath.Join(prevDir, e.Name()), filepath.Join(stagingDir, e.Name())); err != nil {
-			return err
-		}
 	}
 	if err := Seal(stagingDir); err != nil {
 		return err

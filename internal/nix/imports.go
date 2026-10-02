@@ -72,11 +72,7 @@ func AddImport(file, path string) error {
 		return shapeError(file)
 	}
 
-	items, err := blockItems(lines, s, e, inline)
-	if err != nil {
-		return err
-	}
-	for _, it := range items {
+	for _, it := range blockItems(lines, s, e, inline) {
 		if it.path == path {
 			return nil
 		}
@@ -262,26 +258,25 @@ func findBlock(lines []string) (start, end int, inline bool, ok bool) {
 
 // blockItems extracts the recognized import lines between an already-found
 // block's boundaries (see findBlock).
-func blockItems(lines []string, s, e int, inline bool) ([]item, error) {
+func blockItems(lines []string, s, e int, inline bool) []item {
 	if inline {
-		return nil, nil
+		return nil
 	}
 	var items []item
 	for i := s; i < e-1; i++ {
-		ln := i + 1
 		l := lines[i]
 		m := lineRe.FindStringSubmatch(l)
 		if m == nil {
 			continue
 		}
 		items = append(items, item{
-			lineNo:  ln,
+			lineNo:  i + 1,
 			path:    m[1],
 			comment: m[2],
 			leading: leadingWSRe.FindString(l),
 		})
 	}
-	return items, nil
+	return items
 }
 
 // itemLines finds file's single block and returns its recognized import
@@ -298,11 +293,7 @@ func itemLines(file string) ([]item, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	items, err := blockItems(lines, s, e, inline)
-	if err != nil {
-		return nil, false, err
-	}
-	return items, true, nil
+	return blockItems(lines, s, e, inline), true, nil
 }
 
 func shapeError(file string) error {

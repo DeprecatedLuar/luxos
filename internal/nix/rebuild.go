@@ -27,7 +27,7 @@ const rebuildChannelExpr = "<nixpkgs/nixos>"
 // resulting nixos-rebuild binary.
 func RebuildFromFlake(stagingDir, host string) (string, error) {
 	target := fmt.Sprintf("%s#nixosConfigurations.%s.%s", stagingDir, host, rebuildAttr)
-	out, err := shell.OutputLive(shell.Cmd{
+	out, err := storePath(shell.Cmd{
 		Bin:  flakeBin,
 		Args: []string{"build", target, "--no-link", "--print-out-paths"},
 		Env:  flakeEnv(os.Environ()),
@@ -35,38 +35,43 @@ func RebuildFromFlake(stagingDir, host string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	outPath := strings.TrimSpace(string(out))
-	if outPath == "" {
-		return "", fmt.Errorf("%s build %s: no output path printed", flakeBin, target)
-	}
-	return filepath.Join(outPath, rebuildBinRelpath), nil
+	return filepath.Join(out, rebuildBinRelpath), nil
 }
 
 // RebuildFromChannel builds nixos-rebuild from the channel-based
 // <nixpkgs/nixos>, independent of staging and the flake, and returns
 // the path to the resulting nixos-rebuild binary.
 func RebuildFromChannel() (string, error) {
-	out, err := shell.OutputLive(shell.Cmd{Bin: buildBin, Args: []string{rebuildChannelExpr, "-A", rebuildAttr, "--no-out-link"}})
+	out, err := storePath(shell.Cmd{Bin: buildBin, Args: []string{rebuildChannelExpr, "-A", rebuildAttr, "--no-out-link"}})
 	if err != nil {
 		return "", err
 	}
-	outPath := strings.TrimSpace(string(out))
-	if outPath == "" {
-		return "", fmt.Errorf("%s %s -A %s: no output path printed", buildBin, rebuildChannelExpr, rebuildAttr)
+	return filepath.Join(out, rebuildBinRelpath), nil
+}
+
+// storePath runs c, its stderr on the terminal, and returns the store path it prints.
+func storePath(c shell.Cmd) (string, error) {
+	out, err := shell.OutputLive(c)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(outPath, rebuildBinRelpath), nil
+	path := strings.TrimSpace(string(out))
+	if path == "" {
+		return "", fmt.Errorf("%s: no output path printed", c)
+	}
+	return path, nil
 }
 
 // ShowHardwareConfig returns the hardware-configuration.nix that
 // nixos-generate-config generates for this computer.
 func ShowHardwareConfig() ([]byte, error) {
-	out, err := shell.OutputLive(shell.Cmd{Bin: hardwareConfigBin, Args: hardwareConfigArgs})
-	line := strings.Join(append([]string{hardwareConfigBin}, hardwareConfigArgs...), " ")
+	c := shell.Cmd{Bin: hardwareConfigBin, Args: hardwareConfigArgs}
+	out, err := shell.OutputLive(c)
 	if err != nil {
 		return nil, err
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
-		return nil, fmt.Errorf("%s: no output", line)
+		return nil, fmt.Errorf("%s: no output", c)
 	}
 	return out, nil
 }

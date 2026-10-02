@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,8 @@ const flakeFlagSpec = "machine:value config|C:value"
 const flakeUpdateTmpPattern = "luxos-flake-update-"
 
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
+
+const gitLockType = "git"
 
 const (
 	flakeInputsLabel = "inputs/"
@@ -232,13 +235,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 
 	var rows []moduleRow
 	for name := range names {
-		marker := markerRunningOnly
-		switch {
-		case declared[name] && locked[name]:
-			marker = markerEnabledBoth
-		case declared[name]:
-			marker = markerEnabledOnly
-		}
+		marker := inputMarker(declared[name], locked[name])
 
 		var category []string
 		if !builtin[name] && len(decls[name]) == 1 {
@@ -248,12 +245,9 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 		}
 
 		var children []moduleRow
-		if locked[name] {
-			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true}, notes)
-		}
-
 		var note flake.Note
 		if locked[name] {
+			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true}, notes)
 			note = notes[rootInputs[name]]
 		}
 		rows = append(rows, moduleRow{
@@ -267,6 +261,18 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 		})
 	}
 	return rows
+}
+
+// inputMarker is the state marker of a root input.
+func inputMarker(declared, locked bool) string {
+	switch {
+	case declared && locked:
+		return markerEnabledBoth
+	case declared:
+		return markerEnabledOnly
+	default:
+		return markerRunningOnly
+	}
 }
 
 // Recurses without depth limit. ancestors holds the node keys on the path from
@@ -422,26 +428,15 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 		return flakeView{}, unknown
 	}
 
-	builtin := false
-	for _, b := range flake.Builtin {
-		builtin = builtin || b == root
-	}
+	builtin := slices.Contains(flake.Builtin, root)
 	rootKey, locked := graph.Nodes[nix.LockRootNode].Inputs[root]
 	declared := builtin || len(sites[root]) > 0
 	if !locked && !declared {
 		return flakeView{}, unknown
 	}
 
-	view := flakeView{name: segments[len(segments)-1]}
+	view := flakeView{name: segments[len(segments)-1], marker: inputMarker(declared, locked)}
 	key, hasNode := rootKey, locked
-	switch {
-	case locked && declared:
-		view.marker = markerEnabledBoth
-	case declared:
-		view.marker = markerEnabledOnly
-	default:
-		view.marker = markerRunningOnly
-	}
 
 	parent, prev := "", root
 	for _, seg := range segments[1:] {
@@ -504,19 +499,20 @@ func flakeSourceText(orig nix.LockRef, decls []flake.Decl, hasNode bool) string 
 		}
 		return ""
 	}
-	text := orig.URL
+	var text string
 	switch orig.Type {
-	case "github":
-		text = "github:" + orig.Owner + "/" + orig.Repo
+	case githubLockType:
+		text = githubLockType + ":" + orig.Owner + "/" + orig.Repo
 		if orig.Ref != "" {
 			text += "/" + orig.Ref
 		}
-	case "git":
+	case gitLockType:
+		text = orig.URL
 	default:
-		if text == "" {
-			text = orig.Type
+		if orig.URL != "" {
+			return orig.URL
 		}
-		return text
+		return orig.Type
 	}
 	if orig.Ref == "" {
 		text += flakeSourceDefaultBranch

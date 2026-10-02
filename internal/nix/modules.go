@@ -45,8 +45,8 @@ func ModuleNames(file string) (names, violations []string, err error) {
 }
 
 // Names is ModuleNames with the first violation returned as an error naming
-// file. It errors, naming file, on any other use of "luxos" (#28) or on a
-// parse failure.
+// file. It errors, naming file, on any other use of "luxos" or on a parse
+// failure.
 func Names(file string) ([]string, error) {
 	names, violations, err := ModuleNames(file)
 	if err != nil {
@@ -150,26 +150,25 @@ func scanLuxosUses(body string) (names []string, violations []string) {
 // new if given, else drops the element. ok is false when old wasn't found
 // in any span (text is then unchanged and must be ignored by the caller).
 func rewriteSource(text, old, newName string) (rewritten string, ok bool) {
-	return rewriteCalls(text, old, newName, sourceSpanRe, sourceItemRe, "plain")
+	return rewriteCalls(text, old, newName, sourceSpanRe, sourceItemRe, false)
 }
 
 // rewriteParse applies the identical rewrite to a file's PARSE output
 // instead of its source, so the two can be cross-checked.
 func rewriteParse(text, old, newName string) (rewritten string, ok bool) {
-	return rewriteCalls(text, old, newName, callSpanRe, parseItemRe, "parens")
+	return rewriteCalls(text, old, newName, callSpanRe, parseItemRe, true)
 }
 
 // rewriteCalls rewrites every matching span in text that contains the
-// literal element old, using spanRe/itemRe to find spans/items and style
-// ("plain" -> "tok", "parens" -> ("tok")) to reconstruct them. Spans with no
-// occurrence of old are left byte-for-byte, including their original
-// formatting.
-func rewriteCalls(text, old, newName string, spanRe, itemRe *regexp.Regexp, style string) (string, bool) {
-	var needle string
-	if style == "parens" {
-		needle = `("` + old + `")`
-	} else {
-		needle = `"` + old + `"`
+// literal element old, using spanRe/itemRe to find spans/items and parens
+// (parse output: (luxos).modules [ ("tok") ]; source: luxos.modules [ "tok" ])
+// to reconstruct them. Spans with no occurrence of old are left
+// byte-for-byte, including their original formatting.
+func rewriteCalls(text, old, newName string, spanRe, itemRe *regexp.Regexp, parens bool) (string, bool) {
+	needle := itemStr(parens, old)
+	head := "luxos.modules"
+	if parens {
+		head = "(luxos).modules"
 	}
 
 	matches := spanRe.FindAllStringSubmatchIndex(text, -1)
@@ -185,36 +184,30 @@ func rewriteCalls(text, old, newName string, spanRe, itemRe *regexp.Regexp, styl
 		innerStart, innerEnd := m[2], m[3]
 		out.WriteString(text[last:spanStart])
 		span := text[spanStart:spanEnd]
+		last = spanEnd
 
-		if strings.Contains(span, needle) {
-			changed = true
-			inner := text[innerStart:innerEnd]
+		if !strings.Contains(span, needle) {
+			out.WriteString(span)
+			continue
+		}
+		changed = true
 
-			var items []string
-			for _, im := range itemRe.FindAllStringSubmatch(inner, -1) {
-				tok := im[1]
-				if tok == old {
-					if newName != "" {
-						items = append(items, itemStr(style, newName))
-					}
+		var items []string
+		for _, im := range itemRe.FindAllStringSubmatch(text[innerStart:innerEnd], -1) {
+			tok := im[1]
+			if tok == old {
+				if newName == "" {
 					continue
 				}
-				items = append(items, itemStr(style, tok))
+				tok = newName
 			}
-
-			head := "luxos.modules"
-			if style == "parens" {
-				head = "(luxos).modules"
-			}
-			if len(items) > 0 {
-				out.WriteString(head + " [ " + strings.Join(items, " ") + " ]")
-			} else {
-				out.WriteString(head + " [ ]")
-			}
-		} else {
-			out.WriteString(span)
+			items = append(items, itemStr(parens, tok))
 		}
-		last = spanEnd
+		if len(items) > 0 {
+			out.WriteString(head + " [ " + strings.Join(items, " ") + " ]")
+		} else {
+			out.WriteString(head + " [ ]")
+		}
 	}
 	out.WriteString(text[last:])
 
@@ -224,8 +217,8 @@ func rewriteCalls(text, old, newName string, spanRe, itemRe *regexp.Regexp, styl
 	return out.String(), true
 }
 
-func itemStr(style, tok string) string {
-	if style == "parens" {
+func itemStr(parens bool, tok string) string {
+	if parens {
 		return `("` + tok + `")`
 	}
 	return `"` + tok + `"`

@@ -10,19 +10,18 @@ func Owned() []string {
 	return slices.Clone(owned)
 }
 
-// Replace makes stagingDir's contents exactly goodbyeDir's: it removes every
-// owned entry from stagingDir, then copies each entry of goodbyeDir in.
-// Nothing is preserved and nothing is backed up.
-func Replace(goodbyeDir, stagingDir string) error {
+// Replace removes every owned entry from stagingDir, then copies each entry
+// of srcDir in, symlinks dereferenced. Nothing is backed up.
+func Replace(srcDir, stagingDir string) error {
 	if err := Prune(stagingDir); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(goodbyeDir)
+	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if err := copyDeref(filepath.Join(goodbyeDir, e.Name()), filepath.Join(stagingDir, e.Name())); err != nil {
+		if err := copyDeref(filepath.Join(srcDir, e.Name()), filepath.Join(stagingDir, e.Name())); err != nil {
 			return err
 		}
 	}

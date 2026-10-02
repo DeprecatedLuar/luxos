@@ -19,6 +19,8 @@ import (
 
 const instantiateBin = "nix-instantiate"
 
+const tempPattern = "luxos-nix-*.nix"
+
 // Parse runs `nix-instantiate --parse <absPath>` and returns its stdout.
 // absPath must be an absolute path; the binary must be on PATH. On failure
 // the returned error includes the command's stderr.
@@ -45,12 +47,9 @@ func EvalJSON(expr string, args map[string]string) ([]byte, error) {
 	return shell.Output(shell.Cmd{Bin: instantiateBin, Args: argv})
 }
 
-const tempPattern = "luxos-nix-*.nix"
-
-// parse runs nix.Parse and trims the trailing newline nix-instantiate
-// always appends — matching bash's command substitution, which strips it
-// implicitly and is what every regex in this package (formalsRe's "$" in
-// particular) is written against.
+// parse runs Parse and trims the trailing newline nix-instantiate always
+// appends; every regex in this package (formalsRe's "$" in particular) is
+// written against the trimmed output.
 func parse(file string) (string, error) {
 	out, err := Parse(file)
 	if err != nil {

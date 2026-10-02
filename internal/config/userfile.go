@@ -16,14 +16,9 @@ const (
 
 // WriteFile truncates in place, never renaming. Sets mode to 0644 and gives it the uid/gid of its parent directory.
 func WriteFile(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	info, err := os.Stat(dir)
+	uid, gid, err := ownerOf(filepath.Dir(path))
 	if err != nil {
 		return err
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("cannot read the owner of %s", dir)
 	}
 	if err := os.WriteFile(path, data, fileMode); err != nil {
 		return err
@@ -31,7 +26,7 @@ func WriteFile(path string, data []byte) error {
 	if err := os.Chmod(path, fileMode); err != nil {
 		return err
 	}
-	return os.Chown(path, int(st.Uid), int(st.Gid))
+	return os.Chown(path, uid, gid)
 }
 
 // Checked with Lstat, so a symlink or directory counts as existing.

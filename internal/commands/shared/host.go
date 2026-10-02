@@ -25,7 +25,7 @@ func ResolveHost(opts map[string]string) (p paths.Paths, host, hostDir string, e
 		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
 			return p, "", "", fmt.Errorf("config dir %s does not exist", abs)
 		}
-		if err := os.Setenv(configDirEnv, abs); err != nil {
+		if err := os.Setenv(paths.ConfigDirEnv, abs); err != nil {
 			return p, "", "", err
 		}
 	}

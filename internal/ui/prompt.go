@@ -14,7 +14,10 @@ func Ask(w io.Writer, prompt string) (string, error) {
 	if _, err := fmt.Fprint(w, prompt); err != nil {
 		return "", err
 	}
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", err
+	}
 	return strings.TrimSpace(line), nil
 }
 

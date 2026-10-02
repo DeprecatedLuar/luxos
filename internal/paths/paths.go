@@ -8,9 +8,13 @@ import (
 	"path/filepath"
 )
 
+// The only overrides; commands set them to carry flags across the sudo re-exec.
 const (
-	configDirEnv     = "LUXOS_CONFIG_DIR"
-	backupDirEnv     = "LUXOS_BACKUP_DIR"
+	ConfigDirEnv = "LUXOS_CONFIG_DIR"
+	BackupDirEnv = "LUXOS_BACKUP_DIR"
+)
+
+const (
 	sudoUserEnv      = "SUDO_USER"
 	homeEnv          = "HOME"
 	xdgConfigHomeEnv = "XDG_CONFIG_HOME"
@@ -50,7 +54,7 @@ func Resolve() (Paths, error) {
 		return Paths{}, err
 	}
 
-	config := os.Getenv(configDirEnv)
+	config := os.Getenv(ConfigDirEnv)
 	if config == "" {
 		if xdgConfigHome := os.Getenv(xdgConfigHomeEnv); xdgConfigHome != "" {
 			config = filepath.Join(xdgConfigHome, configDirName)
@@ -59,15 +63,16 @@ func Resolve() (Paths, error) {
 		}
 	}
 
-	backup := os.Getenv(backupDirEnv)
-	if backup == "" && os.Getenv(sudoUserEnv) != "" {
+	sudoUser := os.Getenv(sudoUserEnv) != ""
+	backup := os.Getenv(BackupDirEnv)
+	if backup == "" && sudoUser {
 		backup = filepath.Join(u.HomeDir, backupDirName)
 	}
 
 	return Paths{
 		Home:           u.HomeDir,
 		User:           u.Username,
-		SudoUser:       os.Getenv(sudoUserEnv) != "",
+		SudoUser:       sudoUser,
 		Backup:         backup,
 		Config:         config,
 		Machines:       filepath.Join(config, machinesRel),

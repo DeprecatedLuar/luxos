@@ -43,10 +43,7 @@ func renderLines(w *strings.Builder, lines []Line, prefix string, pal Palette) {
 		}
 	}
 	for i, l := range lines {
-		connector, childPrefix := branch, prefix+trunk
-		if i == len(lines)-1 {
-			connector, childPrefix = lastBranch, prefix+blank
-		}
+		connector, childPrefix := connectors(prefix, i == len(lines)-1)
 		fmt.Fprintf(w, "%s%s%s%s", pal.line, prefix, connector, pal.reset)
 		if l.Label != "" {
 			fmt.Fprintf(w, "%s%s%s", pal.title, l.Label, pal.reset)

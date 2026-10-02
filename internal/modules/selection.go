@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 // line whose name matches name to newPath, or delete it when newPath is
 // "". host == "" reaches every <machinesDir>/*/modules.nix (the cross-host
 // case, for a shared unit); otherwise only <machinesDir>/<host>/modules.nix is
-// touched (the local-unit case, L7). Returns every change made; a no-op
+// touched (the local-unit case). Returns every change made; a no-op
 // line (already at newPath) is left untouched and unreported, so a second
 // run returns no changes. A host whose file isn't recognizable is warned
 // about and left untouched. The entrypoints of skipHosts are never rewritten.
@@ -149,14 +150,14 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 }
 
 // Heal rewrites every broken import line in every host's entrypoint,
-// per host (L7): each host's selection lines are checked and resolved
+// per host: each host's selection lines are checked and resolved
 // against that host's own unit set (shared units plus that host's own
 // local/ units, per Walk(modulesDir, <machinesDir>/<host>/modules)).
 //   - path exists (local/ prefixed against that host's local modules dir,
 //     otherwise against modulesDir): keep.
 //   - name resolves to a local/ unit: retarget scoped to this host only.
 //   - name resolves to a shared unit: retarget in every host referencing
-//     it (once per name, as before).
+//     it (once per name).
 //   - name resolves to nothing, active host: error (collecting every such
 //     line into one), or with prune: remove and report as a Change.
 //   - name resolves to nothing, other host: warning, untouched.
@@ -176,12 +177,10 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 	var warnings []string
 	var unresolved []string // "file: ./path" for active-host unresolved names
 
-	// Track which (host, name) local retargets and which shared-name
-	// retargets have already been applied, so a name referenced by more
-	// than one broken line in the same run is only retargeted once —
-	// Retarget itself loops every relevant host already.
-	handledLocal := make(map[string]bool)
-	handledShared := make(map[string]bool)
+	// Retargets already applied, keyed by name for a shared unit and by host
+	// and name for a local one: retarget itself reaches every relevant host,
+	// so a name on more than one broken line is retargeted once.
+	handled := make(map[string]bool)
 
 	for _, file := range files {
 		host := filepath.Base(filepath.Dir(file))
@@ -222,31 +221,20 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 
 			name := NameFromPath(itPath)
 			if found, ok := Find(us, name); ok {
-				resolved := found.Path
-				if strings.HasPrefix(resolved, LocalPrefix) {
-					key := host + "\x00" + name
-					if handledLocal[key] {
-						continue
-					}
-					handledLocal[key] = true
-					rc, rw, err := retarget(machinesDir, name, resolved, host, nil)
-					if err != nil {
-						return nil, nil, err
-					}
-					changes = append(changes, rc...)
-					warnings = append(warnings, rw...)
-				} else {
-					if handledShared[name] {
-						continue
-					}
-					handledShared[name] = true
-					rc, rw, err := retarget(machinesDir, name, resolved, "", nil)
-					if err != nil {
-						return nil, nil, err
-					}
-					changes = append(changes, rc...)
-					warnings = append(warnings, rw...)
+				scope, key := "", name
+				if strings.HasPrefix(found.Path, LocalPrefix) {
+					scope, key = host, host+"\x00"+name
 				}
+				if handled[key] {
+					continue
+				}
+				handled[key] = true
+				rc, rw, err := retarget(machinesDir, name, found.Path, scope, nil)
+				if err != nil {
+					return nil, nil, err
+				}
+				changes = append(changes, rc...)
+				warnings = append(warnings, rw...)
 				continue
 			}
 
@@ -267,7 +255,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 
 	if len(unresolved) > 0 {
 		msg := strings.Join(unresolved, "\n") + "\n  Fix the import by hand, or rerun with --prune to remove it."
-		return changes, warnings, fmt.Errorf("%s", msg)
+		return changes, warnings, errors.New(msg)
 	}
 
 	return changes, warnings, nil
@@ -284,7 +272,7 @@ func hostEntrypoints(machinesDir string) ([]string, error) {
 	}
 	var files []string
 	for _, m := range matches {
-		if fi, err := os.Stat(m); err == nil && !fi.IsDir() {
+		if isFile(m) {
 			files = append(files, m)
 		}
 	}
@@ -319,13 +307,13 @@ func entrypointsFor(machinesDir, host string) ([]string, error) {
 		return hostEntrypoints(machinesDir)
 	}
 	file := filepath.Join(machinesDir, host, SelectionFile)
-	if fi, err := os.Stat(file); err != nil || fi.IsDir() {
-		if err != nil && os.IsNotExist(err) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	fi, err := os.Stat(file)
+	switch {
+	case os.IsNotExist(err):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case fi.IsDir():
 		return nil, nil
 	}
 	return []string{file}, nil

@@ -188,10 +188,11 @@ func gitTags(ref nix.LockRef) (map[string]string, error) {
 		name := strings.TrimPrefix(fields[1], tagsRefPrefix)
 		peeled := strings.HasSuffix(name, peeledSuffix)
 		name = strings.TrimSuffix(name, peeledSuffix)
-		if _, seen := revOf[name]; !seen {
+		_, seen := revOf[name]
+		if !seen {
 			names = append(names, name)
 		}
-		if _, seen := revOf[name]; !seen || peeled {
+		if !seen || peeled {
 			revOf[name] = fields[0]
 		}
 	}

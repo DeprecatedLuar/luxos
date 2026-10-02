@@ -27,7 +27,7 @@ func Owner(root, file string) string {
 	root = strings.TrimSuffix(root, "/")
 	d := filepath.Dir(file)
 	for strings.HasPrefix(d, root+"/") {
-		if fi, err := os.Stat(filepath.Join(d, entrypointName)); err == nil && !fi.IsDir() {
+		if isFile(filepath.Join(d, entrypointName)) {
 			return d
 		}
 		if filepath.Base(d) == bundleModulesDir && IsBundle(filepath.Dir(d)) {
@@ -112,14 +112,18 @@ func (h *Host) Validate() ([]Violation, error) {
 			rel = LocalPrefix + rel
 		}
 
+		report := func(format string, args ...any) {
+			violations = append(violations, Violation{File: rel, Message: fmt.Sprintf(format, args...)})
+		}
+
 		static, dynamic, perr := nix.PathsAndDynamic(file)
 		if perr != nil {
-			violations = append(violations, Violation{File: rel, Message: "failed to parse"})
+			report("failed to parse")
 			return nil
 		}
 		names, callViolations, perr := nix.ModuleNames(file)
 		if perr != nil {
-			violations = append(violations, Violation{File: rel, Message: "failed to parse"})
+			report("failed to parse")
 			return nil
 		}
 
@@ -127,49 +131,37 @@ func (h *Host) Validate() ([]Violation, error) {
 		ownerModules := filepath.Join(owner, bundleModulesDir)
 		for _, p := range static {
 			if owner == "" || (p != owner && !strings.HasPrefix(p, owner+"/")) {
-				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
+				report("references %s outside its module", p)
 				continue
 			}
 			if IsBundle(owner) && (p == ownerModules || strings.HasPrefix(p, ownerModules+"/")) {
-				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s inside its bundle's modules/ (submodules are selected in the host's modules.nix)", p)})
+				report("references %s inside its bundle's modules/ (submodules are selected in the host's modules.nix)", p)
 			}
 		}
 		for _, p := range dynamic {
-			violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("uses a dynamic path (%s)", p)})
+			report("uses a dynamic path (%s)", p)
 		}
 		for _, v := range callViolations {
-			violations = append(violations, Violation{File: rel, Message: v})
+			report("%s", v)
 		}
 
 		var follow []string
 		for _, name := range names {
 			if name == m.Name {
-				violations = append(violations, Violation{
-					File:    rel,
-					Message: fmt.Sprintf("luxos.modules: module references its own name '%s'", name),
-				})
+				report("luxos.modules: module references its own name '%s'", name)
 				continue
 			}
 			dep, ok := h.Find(name)
 			if !ok {
-				violations = append(violations, Violation{
-					File:    rel,
-					Message: fmt.Sprintf("luxos.modules: '%s' does not resolve to any module under %s/", name, bundleModulesDir),
-				})
+				report("luxos.modules: '%s' does not resolve to any module under %s/", name, bundleModulesDir)
 				continue
 			}
 			if strings.Contains(name, nameSep) {
-				violations = append(violations, Violation{
-					File:    rel,
-					Message: fmt.Sprintf("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, Top(name)),
-				})
+				report("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, Top(name))
 				continue
 			}
 			if !strings.HasPrefix(m.Path, LocalPrefix) && strings.HasPrefix(dep.Path, LocalPrefix) && dep.Shadows == "" {
-				violations = append(violations, Violation{
-					File:    rel,
-					Message: fmt.Sprintf("luxos.modules: shared module references local module '%s'", name),
-				})
+				report("luxos.modules: shared module references local module '%s'", name)
 			}
 			follow = append(follow, name)
 		}
@@ -260,7 +252,7 @@ func (h *Host) Built() ([]Module, error) {
 }
 
 // Dependents returns every module file under modulesDir (root "local"
-// entry skipped, L5) plus every localModulesDirs entry, whose
+// entry skipped) plus every localModulesDirs entry, whose
 // luxos.modules list contains name. Read-only; a file whose luxos.modules
 // use isn't the recognized shape (or that fails to parse) is silently
 // skipped — it just can't be a hit. A missing localModulesDirs entry is
@@ -311,7 +303,7 @@ func Dependents(modulesDir string, localModulesDirs []string, name string) ([]st
 // name, rewrite it to newName if given, else delete it from the list.
 // Every dependent's call shape is validated (nix.Names, which errors on an
 // unrecognized use of luxos) before any file is touched, so a bad shape
-// anywhere refuses the whole operation before anything changes (item 20).
+// anywhere refuses the whole operation before anything changes.
 // nix.RetargetModuleName refuses any candidate that differs from the
 // original by more than the one substitution.
 func RetargetRefs(modulesDir string, localModulesDirs []string, name, newName string) ([]Change, error) {
@@ -375,7 +367,7 @@ func (m Module) Root() string {
 // symlink or vanished entry is skipped. skipRootEntry, when non-empty, is
 // the name of one entry at root's own top level (not any nested occurrence)
 // that is skipped entirely rather than walked — used to keep modulesDir's
-// reserved "local" link (L5) out of a walk rooted at modulesDir itself.
+// reserved "local" link out of a walk rooted at modulesDir itself.
 func findAllNix(root, skipRootEntry string) ([]string, error) {
 	var out []string
 	var walk func(dir string) error
@@ -399,7 +391,7 @@ func findAllNix(root, skipRootEntry string) ([]string, error) {
 				}
 				continue
 			}
-			if strings.HasSuffix(e.Name(), ".nix") {
+			if strings.HasSuffix(e.Name(), nixExt) {
 				out = append(out, p)
 			}
 		}

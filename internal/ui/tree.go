@@ -126,22 +126,25 @@ func renderNode(w *strings.Builder, node *treeNode, prefix string, pal Palette) 
 
 	for _, r := range node.rows {
 		i++
-		connector, childPrefix := branch, prefix+trunk
-		if i == total {
-			connector, childPrefix = lastBranch, prefix+blank
-		}
+		connector, childPrefix := connectors(prefix, i == total)
 		renderRow(w, r, prefix, connector, childPrefix, pal)
 	}
 
 	for _, cat := range cats {
 		i++
-		connector, childPrefix := branch, prefix+trunk
-		if i == total {
-			connector, childPrefix = lastBranch, prefix+blank
-		}
+		connector, childPrefix := connectors(prefix, i == total)
 		fmt.Fprintf(w, "%s%s%s%s%s%s/%s\n", pal.line, prefix, connector, pal.reset, pal.title, cat, pal.reset)
 		renderNode(w, node.children[cat], childPrefix, pal)
 	}
+}
+
+// connectors returns the branch drawn before an item under prefix and the
+// prefix its children continue with.
+func connectors(prefix string, last bool) (connector, childPrefix string) {
+	if last {
+		return lastBranch, prefix + blank
+	}
+	return branch, prefix + trunk
 }
 
 func renderRow(w *strings.Builder, r Row, prefix, connector, childPrefix string, pal Palette) {
@@ -154,10 +157,7 @@ func renderRow(w *strings.Builder, r Row, prefix, connector, childPrefix string,
 
 	SortRows(r.Children)
 	for i, c := range r.Children {
-		childConnector, grandPrefix := branch, childPrefix+trunk
-		if i == len(r.Children)-1 {
-			childConnector, grandPrefix = lastBranch, childPrefix+blank
-		}
+		childConnector, grandPrefix := connectors(childPrefix, i == len(r.Children)-1)
 		renderRow(w, c, childPrefix, childConnector, grandPrefix, pal)
 	}
 }

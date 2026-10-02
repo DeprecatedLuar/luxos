@@ -203,3 +203,29 @@ func TestSync_DstSymlinkReplaced(t *testing.T) {
 		t.Fatalf("sentinel content = %q, want %q", data, "keep me")
 	}
 }
+
+func TestSync_MatchingFileModeRestored(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "system")
+	if _, err := Sync(dst); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dst, embeddedModuleNames(t)[0])
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := Sync(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 0 {
+		t.Fatalf("changes = %v, want none", changes)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != lockedMode {
+		t.Fatalf("mode = %o, want %o", info.Mode().Perm(), lockedMode)
+	}
+}

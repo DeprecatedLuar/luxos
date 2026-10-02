@@ -22,12 +22,7 @@ func User(args []string) error {
 		return err
 	}
 
-	var verb string
-	var rest []string
-	if len(args) > 0 {
-		verb, rest = args[0], args[1:]
-	}
-
+	verb, rest := args[0], args[1:]
 	switch verb {
 	case "add", "a":
 		return userAdd(p, rest)
@@ -51,10 +46,10 @@ func User(args []string) error {
 // userTarget lets `luxos user add foo` and `luxos user add users/foo`
 // build the same module-add target.
 func userTarget(name string) string {
-	if strings.HasPrefix(name, "users/") {
+	if strings.HasPrefix(name, usersCategory+"/") {
 		return name
 	}
-	return "users/" + name
+	return usersCategory + "/" + name
 }
 
 func userAdd(p paths.Paths, args []string) error {
@@ -80,9 +75,9 @@ func userAdd(p paths.Paths, args []string) error {
 
 func userCategory(sub string) string {
 	if sub == "" {
-		return "users"
+		return usersCategory
 	}
-	return "users/" + sub
+	return usersCategory + "/" + sub
 }
 
 // Flags (--flat, --raw, ...) are forwarded untouched; the first non-flag

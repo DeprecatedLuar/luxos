@@ -40,9 +40,23 @@ const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 // in the embedded user template's account.nix.
 const moduleUserPlaceholder = "users.users.user ="
 
-// moduleFrameworkCategory is the reserved top-level category `add`/`remove`/
-// `rename` refuse to touch: modules/system is owned by internal/framework.
+// moduleFrameworkCategory is the reserved top-level category `remove`/`rename`
+// refuse to touch: modules/system is owned by the binary.
 const moduleFrameworkCategory = "system"
+
+// usersCategory holds user modules, scaffolded from the user starter.
+const usersCategory = "users"
+
+const (
+	userStarterAccount = "starters/user/account.nix"
+	userStarterDefault = "starters/user/default.nix"
+)
+
+// moduleListFlagSpec is the flag spec of the list verbs.
+const moduleListFlagSpec = "flat:bool raw:bool json:bool"
+
+// moduleYesSpec is the flag spec for verbs whose only flag is --yes.
+const moduleYesSpec = "yes|y:bool"
 
 const (
 	markerEnabledOnly = "⊕" // enabled, not running
@@ -83,12 +97,7 @@ func Module(args []string) error {
 		return err
 	}
 
-	var verb string
-	var rest []string
-	if len(args) > 0 {
-		verb, rest = args[0], args[1:]
-	}
-
+	verb, rest := args[0], args[1:]
 	switch verb {
 	case "list", "ls":
 		return moduleList(p, rest)
@@ -208,12 +217,7 @@ func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 	var rows []moduleRow
 	for _, st := range sts {
 		m := st.Module
-		// A shadow sits where the unit it hides sits, not under local/.
-		shown := m.Path
-		if m.Shadows != "" {
-			shown = m.Shadows
-		}
-		segs, ok := categorySegments(shown, categoryPath)
+		segs, ok := categorySegments(shownPath(m), categoryPath)
 		if !ok {
 			continue
 		}
@@ -411,11 +415,7 @@ func moduleList(p paths.Paths, args []string) error {
 	var bundleView string
 	if u, ok := h.Find(categoryPath); ok && categoryPath != "" && modules.IsBundle(u.Abs) {
 		bundleView = u.Name
-		shown := u.Path
-		if u.Shadows != "" {
-			shown = u.Shadows
-		}
-		categoryPath = shown + "/" + bundleModulesDir
+		categoryPath = shownPath(u) + "/" + bundleModulesDir
 	} else if categoryPath != "" {
 		catDir := filepath.Join(p.Modules, categoryPath)
 		info, err := os.Stat(catDir)
@@ -429,18 +429,17 @@ func moduleList(p paths.Paths, args []string) error {
 
 	tty := ui.IsTerminal(os.Stdout)
 
-	if _, err := os.Stat(p.RunningModules); err != nil {
-		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
-	}
-
 	var runningPaths []string
 	if _, err := os.Stat(p.RunningModules); err == nil {
 		runningPaths, err = modules.ReadSelection(p.RunningModules)
 		if err != nil {
 			return err
 		}
-	} else if !os.IsNotExist(err) {
-		return err
+	} else {
+		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
+		if !os.IsNotExist(err) {
+			return err
+		}
 	}
 
 	baseline, err := staging.Baseline(p.Staging, p.PreviousStage)
@@ -538,12 +537,12 @@ func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
 	dest := filepath.Join(modulesRoot, target)
 
-	account, err := templates.File("starters/user/account.nix")
+	account, err := templates.File(userStarterAccount)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(string(account), moduleUserPlaceholder) {
-		return fmt.Errorf("embedded templates/user/account.nix has no '%s' to fill in", moduleUserPlaceholder)
+		return fmt.Errorf("embedded %s has no '%s' to fill in", userStarterAccount, moduleUserPlaceholder)
 	}
 	filled := strings.ReplaceAll(string(account), moduleUserPlaceholder, "users.users."+name+" =")
 
@@ -556,11 +555,11 @@ func moduleAddUser(modulesRoot, target string) error {
 		return err
 	}
 
-	defaultNix, err := templates.File("starters/user/default.nix")
+	defaultNix, err := templates.File(userStarterDefault)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dest, "default.nix"), defaultNix, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dest, entrypointName), defaultNix, 0644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dest, accountFileName), edited, 0644); err != nil {
@@ -610,7 +609,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 		return err
 	}
 
-	if strings.HasPrefix(target, "users/") || target == "users" {
+	if underCategory(target, usersCategory) {
 		if err := moduleAddUser(p.Modules, target); err != nil {
 			return err
 		}
@@ -788,12 +787,6 @@ func moduleEnable(p paths.Paths, args []string) error {
 	return nil
 }
 
-// moduleListFlagSpec is the flag spec of the list verbs.
-const moduleListFlagSpec = "flat:bool raw:bool json:bool"
-
-// moduleYesSpec is the flag spec for verbs whose only flag is --yes.
-const moduleYesSpec = "yes|y:bool"
-
 // errHardwareDisableAborted is returned when disabling hardware is not confirmed.
 var errHardwareDisableAborted = errors.New("aborted: nothing changed\n  confirm with: luxos module disable hardware-support --yes")
 
@@ -920,17 +913,11 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, found := h.Find(name)
-	if !found {
-		return fmt.Errorf("unknown module '%s'", name)
+	m, err := ownedUnit(h, name)
+	if err != nil {
+		return err
 	}
 	path := m.Path
-	if isFrameworkPath(path) {
-		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, path)
-	}
-	if path == config.HardwareUnitPath {
-		return errHardwareUnit
-	}
 
 	scope, err := modules.ScopeOf(p.Machines, p.Modules, h.Name, m)
 	if err != nil {
@@ -1016,17 +1003,11 @@ func moduleRename(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	old, found := h.Find(oldName)
-	if !found {
-		return fmt.Errorf("unknown module '%s'", oldName)
+	old, err := ownedUnit(h, oldName)
+	if err != nil {
+		return err
 	}
 	oldPath := old.Path
-	if isFrameworkPath(oldPath) {
-		return fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", oldName, oldPath)
-	}
-	if oldPath == config.HardwareUnitPath {
-		return errHardwareUnit
-	}
 
 	newQualified := newName
 	if parent := modules.Parent(oldName); parent != "" {
@@ -1102,7 +1083,7 @@ func moduleRename(p paths.Paths, args []string) error {
 		}
 	}
 
-	if modules.Parent(oldName) == "" && (category == "users" || strings.HasPrefix(category, "users/")) {
+	if modules.Parent(oldName) == "" && underCategory(category, usersCategory) {
 		fmt.Printf("Note: the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.\n", newPath, oldName)
 	}
 
@@ -1115,9 +1096,31 @@ func moduleRename(p paths.Paths, args []string) error {
 
 //──[shared helpers]──────────────────────────────────────────────────────
 
-// isFrameworkPath reports whether a modules-relative path lies under the
-// reserved framework category (modules/system), which add/remove/rename
-// refuse to touch.
-func isFrameworkPath(path string) bool {
-	return path == moduleFrameworkCategory || strings.HasPrefix(path, moduleFrameworkCategory+"/")
+// underCategory reports whether a modules-relative path is category or lies under it.
+func underCategory(path, category string) bool {
+	return path == category || strings.HasPrefix(path, category+"/")
+}
+
+// ownedUnit finds name for remove and rename, refusing framework modules and
+// the hardware folder.
+func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
+	m, found := h.Find(name)
+	if !found {
+		return m, fmt.Errorf("unknown module '%s'", name)
+	}
+	if underCategory(m.Path, moduleFrameworkCategory) {
+		return m, fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, m.Path)
+	}
+	if m.Path == config.HardwareUnitPath {
+		return m, errHardwareUnit
+	}
+	return m, nil
+}
+
+// shownPath is where a unit is listed: a shadow sits where the unit it hides sits, not under local/.
+func shownPath(m modules.Module) string {
+	if m.Shadows != "" {
+		return m.Shadows
+	}
+	return m.Path
 }

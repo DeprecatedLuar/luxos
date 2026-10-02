@@ -22,11 +22,7 @@ import (
 // After one succeeds the staged tree is the running system.
 var rebuildActivatingActions = map[string]bool{"switch": true, "boot": true, "test": true}
 
-// Ported from rebuild::run in bin/lib/nixos-rebuild/main.sh.
 const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
-
-// Absence from the host's selection needs confirmation before a rebuild.
-const hardwareUnitName = config.HardwareUnitName
 
 // Appended when a prompt was already answered, so the root process does not ask again.
 const yesFlag = "--yes"
@@ -50,8 +46,6 @@ const luxosBinRelpath = "bin/luxos"
 const githubLockType = "github"
 
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
-
-const backupDirEnv = "LUXOS_BACKUP_DIR"
 
 func printLogo() {
 	fmt.Print(ui.Logo(os.Stdout))
@@ -103,7 +97,7 @@ func hardwareSelected(hostDir string) (bool, error) {
 		return false, err
 	}
 	for _, path := range list {
-		if modules.NameFromPath(path) == hardwareUnitName {
+		if modules.NameFromPath(path) == config.HardwareUnitName {
 			return true, nil
 		}
 	}
@@ -148,7 +142,7 @@ func Rebuild(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.Setenv(backupDirEnv, abs); err != nil {
+		if err := os.Setenv(paths.BackupDirEnv, abs); err != nil {
 			return err
 		}
 	}

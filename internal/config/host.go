@@ -90,16 +90,16 @@ func ValidateHost(hostDir string) error {
 		}
 	}
 
+	return problemsError("invalid host folder "+hostDir, problems)
+}
+
+// problemsError lists problems, sorted, under title; none is nil.
+func problemsError(title string, problems []string) error {
 	if len(problems) == 0 {
 		return nil
 	}
-
 	sort.Strings(problems)
-	msg := fmt.Sprintf("invalid host folder %s", hostDir)
-	for _, p := range problems {
-		msg += "\n  - " + p
-	}
-	return fmt.Errorf("%s", msg)
+	return errors.New(title + "\n  - " + strings.Join(problems, "\n  - "))
 }
 
 func ProtectHost(hostDir string) (bool, error) {
@@ -158,11 +158,7 @@ func baseChannelHint() string {
 // checkMachineFile fails when the machine.nix at path holds any static or
 // dynamic path literal.
 func checkMachineFile(path string) error {
-	static, err := nix.Paths(path)
-	if err != nil {
-		return err
-	}
-	dynamic, err := nix.DynamicPaths(path)
+	static, dynamic, err := nix.PathsAndDynamic(path)
 	if err != nil {
 		return err
 	}

@@ -53,13 +53,13 @@ func Sync(dst string) ([]SyncChange, error) {
 
 	var changes []SyncChange
 
-	for relPath, srcPath := range srcFiles {
+	for relPath := range srcFiles {
 		dstPath := filepath.Join(dst, relPath)
 		if err := os.MkdirAll(filepath.Dir(dstPath), dirMode); err != nil {
 			return nil, err
 		}
 
-		wantData, err := fs.ReadFile(modulesFS, srcPath)
+		wantData, err := fs.ReadFile(modulesFS, relPath)
 		if err != nil {
 			return nil, err
 		}
@@ -84,11 +84,11 @@ func Sync(dst string) ([]SyncChange, error) {
 	return changes, nil
 }
 
-// Keyed by path relative to the modules root: the embedded FS path for every file,
-// and the set of directories that contain at least one embedded file (including the root, "").
-func embeddedModulesSet(modulesFS fs.FS) (srcFiles map[string]string, dirSet map[string]bool, err error) {
-	srcFiles = map[string]string{}
-	dirSet = map[string]bool{}
+// The set of every embedded file, by path relative to the modules root, and
+// the set of directories that contain at least one (including the root, "").
+func embeddedModulesSet(modulesFS fs.FS) (srcFiles, dirSet map[string]bool, err error) {
+	srcFiles = map[string]bool{}
+	dirSet = map[string]bool{"": true}
 
 	err = fs.WalkDir(modulesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -97,14 +97,10 @@ func embeddedModulesSet(modulesFS fs.FS) (srcFiles map[string]string, dirSet map
 		if d.IsDir() {
 			return nil
 		}
-		rel := path
-		srcFiles[rel] = path
-
-		for dir := filepath.Dir(rel); dir != "." && dir != "/"; dir = filepath.Dir(dir) {
+		srcFiles[path] = true
+		for dir := filepath.Dir(path); dir != "." && dir != "/"; dir = filepath.Dir(dir) {
 			dirSet[dir] = true
 		}
-		dirSet[""] = true
-
 		return nil
 	})
 	if err != nil {
@@ -114,59 +110,47 @@ func embeddedModulesSet(modulesFS fs.FS) (srcFiles map[string]string, dirSet map
 	return srcFiles, dirSet, nil
 }
 
-// Always leaves the file at mode lockedMode. Returns the action taken,
-// or "" if the file already matched.
+// writeIfNeeded writes wantData to dstPath unless it already matches, and
+// leaves the file at mode lockedMode either way. Returns the action taken, or
+// "" if the content already matched.
 func writeIfNeeded(dstPath string, wantData []byte) (string, error) {
 	haveData, err := os.ReadFile(dstPath)
+	action := ActionRestored
 	switch {
 	case os.IsNotExist(err):
-		if err := os.WriteFile(dstPath, wantData, fileMode); err != nil {
-			return "", err
-		}
-		if err := os.Chmod(dstPath, lockedMode); err != nil {
-			return "", err
-		}
-		return ActionCreated, nil
+		action = ActionCreated
 	case err != nil:
 		return "", err
 	case bytes.Equal(haveData, wantData):
-		return "", nil
+		return "", os.Chmod(dstPath, lockedMode)
 	default:
 		if err := os.Chmod(dstPath, fileMode); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(dstPath, wantData, fileMode); err != nil {
-			return "", err
-		}
-		if err := os.Chmod(dstPath, lockedMode); err != nil {
-			return "", err
-		}
-		return ActionRestored, nil
 	}
+	if err := os.WriteFile(dstPath, wantData, fileMode); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dstPath, lockedMode); err != nil {
+		return "", err
+	}
+	return action, nil
 }
 
-func removeExtras(dst string, srcFiles map[string]string, dirSet map[string]bool) ([]SyncChange, error) {
+// removeExtras removes every entry under dst that is neither an embedded file
+// nor a directory holding one.
+func removeExtras(dst string, srcFiles, dirSet map[string]bool) ([]SyncChange, error) {
 	var changes []SyncChange
-
-	entries, err := os.ReadDir(dst)
-	if err != nil {
+	if err := removeExtrasWalk(dst, "", srcFiles, dirSet, &changes); err != nil {
 		return nil, err
 	}
-
-	for _, e := range entries {
-		rel := e.Name()
-		if err := removeExtrasWalk(dst, rel, srcFiles, dirSet, &changes); err != nil {
-			return nil, err
-		}
-	}
-
 	return changes, nil
 }
 
-func removeExtrasWalk(dst, rel string, srcFiles map[string]string, dirSet map[string]bool, changes *[]SyncChange) error {
+func removeExtrasWalk(dst, rel string, srcFiles, dirSet map[string]bool, changes *[]SyncChange) error {
 	fullPath := filepath.Join(dst, rel)
 
-	if !dirIsKnown(rel, dirSet) && !fileIsKnown(rel, srcFiles) {
+	if !dirSet[rel] && !srcFiles[rel] {
 		if err := os.RemoveAll(fullPath); err != nil {
 			return err
 		}
@@ -191,15 +175,5 @@ func removeExtrasWalk(dst, rel string, srcFiles map[string]string, dirSet map[st
 			return err
 		}
 	}
-
 	return nil
-}
-
-func fileIsKnown(rel string, srcFiles map[string]string) bool {
-	_, ok := srcFiles[rel]
-	return ok
-}
-
-func dirIsKnown(rel string, dirSet map[string]bool) bool {
-	return dirSet[rel]
 }

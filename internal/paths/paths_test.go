@@ -8,7 +8,7 @@ import (
 
 func TestResolve_ConfigDirOverride(t *testing.T) {
 	override := filepath.Join(t.TempDir(), "custom-config")
-	t.Setenv(configDirEnv, override)
+	t.Setenv(ConfigDirEnv, override)
 
 	p, err := Resolve()
 	if err != nil {
@@ -28,7 +28,7 @@ func TestResolve_ConfigDirOverride(t *testing.T) {
 
 func TestResolve_ConfigDirOverrideWinsOverHomeAndXDG(t *testing.T) {
 	override := filepath.Join(t.TempDir(), "custom-config")
-	t.Setenv(configDirEnv, override)
+	t.Setenv(ConfigDirEnv, override)
 	t.Setenv(homeEnv, t.TempDir())
 	t.Setenv(xdgConfigHomeEnv, t.TempDir())
 
@@ -129,7 +129,7 @@ func TestResolve_XDGConfigHomeUnset(t *testing.T) {
 
 func TestResolve_BackupEmptyWithoutInvokingUser(t *testing.T) {
 	t.Setenv(sudoUserEnv, "")
-	t.Setenv(backupDirEnv, "")
+	t.Setenv(BackupDirEnv, "")
 	t.Setenv(homeEnv, t.TempDir())
 
 	p, err := Resolve()
@@ -146,7 +146,7 @@ func TestResolve_BackupEmptyWithoutInvokingUser(t *testing.T) {
 
 func TestResolve_BackupEnvOverride(t *testing.T) {
 	override := filepath.Join(t.TempDir(), "backup")
-	t.Setenv(backupDirEnv, override)
+	t.Setenv(BackupDirEnv, override)
 
 	p, err := Resolve()
 	if err != nil {

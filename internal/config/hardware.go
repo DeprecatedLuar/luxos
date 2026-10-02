@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -154,14 +153,5 @@ func ValidateHardware(dir string) error {
 			problems = append(problems, name+" is not a regular file")
 		}
 	}
-
-	if len(problems) == 0 {
-		return nil
-	}
-	sort.Strings(problems)
-	msg := fmt.Sprintf("invalid hardware folder %s", dir)
-	for _, p := range problems {
-		msg += "\n  - " + p
-	}
-	return fmt.Errorf("%s", msg)
+	return problemsError("invalid hardware folder "+dir, problems)
 }

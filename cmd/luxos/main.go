@@ -27,7 +27,6 @@ func withDefaultVerb(args []string, verb string) []string {
 		return args
 	}
 	return append([]string{verb}, args...)
-
 }
 
 func run(args []string) error {
@@ -50,18 +49,8 @@ func run(args []string) error {
 		return commands.Module(rest)
 	case "modules", "m":
 		return commands.Module(withDefaultVerb(rest, "list"))
-	case "list", "ls":
-		return commands.Module(append([]string{"list"}, rest...))
-	case "edit":
-		return commands.Module(append([]string{"edit"}, rest...))
-	case "enable":
-		return commands.Module(append([]string{"enable"}, rest...))
-	case "disable":
-		return commands.Module(append([]string{"disable"}, rest...))
-	case "remove", "rm":
-		return commands.Module(append([]string{"remove"}, rest...))
-	case "rename", "rn":
-		return commands.Module(append([]string{"rename"}, rest...))
+	case "list", "ls", "edit", "enable", "disable", "remove", "rm", "rename", "rn":
+		return commands.Module(args)
 	case "user":
 		return commands.User(rest)
 	case "users":
@@ -71,7 +60,6 @@ func run(args []string) error {
 	default:
 		fmt.Fprintln(os.Stderr, "Error: unknown command")
 		_ = help.Run(nil)
-		os.Exit(1)
-		return nil
+		return shared.ExitCode(1)
 	}
 }

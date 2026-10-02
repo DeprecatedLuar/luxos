@@ -73,76 +73,34 @@ func parse(spec string, args []string, passthrough bool) (map[string]string, []s
 			rest = append(rest, args[i+1:]...)
 			i = len(args)
 
-		case strings.HasPrefix(arg, "--") && len(arg) > 2:
-			key := arg[2:]
-			val := ""
-			hasVal := false
-			if idx := strings.Index(key, "="); idx >= 0 {
-				val = key[idx+1:]
-				key = key[:idx]
-				hasVal = true
-			}
-
-			def, ok := byLong[key]
-			if !ok {
-				if passthrough {
-					rest = append(rest, arg)
-					i++
-					continue
-				}
-				return nil, nil, fmt.Errorf("unknown flag '--%s'", key)
-			}
-
-			if def.typ == flagBool {
-				opts[def.name] = "1"
-				i++
-				continue
-			}
-
-			if !hasVal {
-				if i+1 >= len(args) {
-					return nil, nil, fmt.Errorf("flag '--%s' requires a value", key)
-				}
-				val = args[i+1]
-				i++
-			}
-			opts[def.name] = val
-			i++
-
 		case strings.HasPrefix(arg, "-") && len(arg) > 1:
-			key := arg[1:]
-			val := ""
-			hasVal := false
-			if idx := strings.Index(key, "="); idx >= 0 {
-				val = key[idx+1:]
-				key = key[:idx]
-				hasVal = true
+			dashes, defs := "-", byShort
+			if strings.HasPrefix(arg, "--") {
+				dashes, defs = "--", byLong
 			}
+			key, val, hasVal := strings.Cut(arg[len(dashes):], "=")
 
-			def, ok := byShort[key]
+			def, ok := defs[key]
 			if !ok {
 				if passthrough {
 					rest = append(rest, arg)
 					i++
 					continue
 				}
-				return nil, nil, fmt.Errorf("unknown flag '-%s'", key)
+				return nil, nil, fmt.Errorf("unknown flag '%s%s'", dashes, key)
 			}
 
-			if def.typ == flagBool {
+			switch {
+			case def.typ == flagBool:
 				opts[def.name] = "1"
+			case hasVal:
+				opts[def.name] = val
+			case i+1 < len(args):
 				i++
-				continue
+				opts[def.name] = args[i]
+			default:
+				return nil, nil, fmt.Errorf("flag '%s%s' requires a value", dashes, key)
 			}
-
-			if !hasVal {
-				if i+1 >= len(args) {
-					return nil, nil, fmt.Errorf("flag '-%s' requires a value", key)
-				}
-				val = args[i+1]
-				i++
-			}
-			opts[def.name] = val
 			i++
 
 		default:
