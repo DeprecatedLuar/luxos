@@ -1,6 +1,7 @@
 package nix
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,5 +189,67 @@ func TestRenderInputs(t *testing.T) {
 	np, _ := nested["nixpkgs"].(map[string]any)
 	if np["follows"] != "nixpkgs" {
 		t.Errorf("nixos-hardware lost its follows: %+v", hw.Value)
+	}
+}
+
+func TestReadInputDeclsSkipsBrokenFiles(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	good := writeNixFile(t, dir, "good.nix", `{ ... }: { flake-file.inputs.a.url = "github:x/a"; }`)
+	syntax := writeNixFile(t, dir, "syntax.nix", `{ x = ; }`)
+	typeErr := writeNixFile(t, dir, "type.nix", `{ flake-file.inputs.b.url = 1 + "x"; }`)
+
+	decls, broken, err := ReadInputDecls(syntax, good, typeErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decls) != 1 || decls[0].File != good || decls[0].Name != "a" {
+		t.Errorf("decls = %+v, want only good.nix's a", decls)
+	}
+	if !strings.Contains(broken[syntax], "syntax error") {
+		t.Errorf("broken[syntax] = %q", broken[syntax])
+	}
+	if !strings.Contains(broken[typeErr], "cannot add a string to an integer") {
+		t.Errorf("broken[type] = %q", broken[typeErr])
+	}
+	if len(broken) != 2 {
+		t.Errorf("broken = %v, want 2 entries", broken)
+	}
+}
+
+func TestReadInputDeclsAllBroken(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	a := writeNixFile(t, dir, "a.nix", `{ x = ; }`)
+	b := writeNixFile(t, dir, "b.nix", `{ y = ; }`)
+
+	decls, broken, err := ReadInputDecls(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decls) != 0 || len(broken) != 2 {
+		t.Errorf("decls = %+v, broken = %v; want none and both", decls, broken)
+	}
+}
+
+func TestInputDeclsBrokenFileErrorNamesFile(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	good := writeNixFile(t, dir, "good.nix", `{ }`)
+	syntax := writeNixFile(t, dir, "syntax.nix", `{ x = ; }`)
+
+	_, err := InputDecls(good, syntax)
+	if err == nil {
+		t.Fatal("want an error for a broken file")
+	}
+	want := syntax + ": syntax error, unexpected ';'"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestFailedFileUnknownError(t *testing.T) {
+	if got := failedFile(errors.New("nix-instantiate failed:\nerror: out of memory"), []string{"/a.nix"}); got != "" {
+		t.Errorf("failedFile = %q, want none", got)
 	}
 }

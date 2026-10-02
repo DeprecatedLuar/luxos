@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,12 @@ const nixConfigVar = "NIX_CONFIG"
 // rebuild on a machine whose nix.conf has them off (before system.nix
 // turns them on) still works. extra- appends, so it is a no-op elsewhere.
 const flakeFeatures = "extra-experimental-features = nix-command flakes"
+
+// failedAttrFormat is how nix names the batch entry an evaluation failed in.
+const failedAttrFormat = `while evaluating attribute '"%s"'`
+
+// nixErrorPrefix starts the line of nix's own message, after its trace.
+const nixErrorPrefix = "error: "
 
 // FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
 // stdout and stderr through to the caller's. With no inputs every input moves.
@@ -151,28 +158,63 @@ type InputDecl struct {
 }
 
 // InputDecls returns the flake-file.inputs declarations across files, in
-// file-then-name order. It evaluates each file, so a value built at runtime
-// (not a plain literal) is read like any other; a file that cannot be
-// evaluated as a module (needs a real argument, fails to parse) silently
-// contributes none, since a broken module is already caught elsewhere.
-// Every file must exist.
+// file-then-name order. A file that nix cannot evaluate is an error naming
+// it; see ReadInputDecls. Every file must exist.
 func InputDecls(files ...string) ([]InputDecl, error) {
-	if len(files) == 0 {
-		return nil, nil
+	decls, broken, err := ReadInputDecls(files...)
+	if err != nil {
+		return nil, err
 	}
+	if len(broken) > 0 {
+		lines := make([]string, 0, len(broken))
+		for file, msg := range broken {
+			lines = append(lines, file+": "+msg)
+		}
+		sort.Strings(lines)
+		return nil, errors.New(strings.Join(lines, "\n"))
+	}
+	return decls, nil
+}
 
+// ReadInputDecls returns the flake-file.inputs declarations across files, in
+// file-then-name order, evaluating each file so a value built at runtime (not
+// a plain literal) is read like any other. A file that needs a real argument
+// contributes none. A file nix cannot evaluate at all (syntax or type error)
+// is left out and returned in broken, keyed by absolute path, with nix's
+// message; each one costs one more evaluation. Every file must exist.
+func ReadInputDecls(files ...string) ([]InputDecl, map[string]string, error) {
 	abs := make([]string, len(files))
 	for i, f := range files {
 		a, err := filepath.Abs(f)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, err := os.Stat(a); err != nil {
-			return nil, fmt.Errorf("nix.InputDecls: %w", err)
+			return nil, nil, fmt.Errorf("nix.InputDecls: %w", err)
 		}
 		abs[i] = a
 	}
 
+	broken := map[string]string{}
+	for {
+		decls, err := evalInputDecls(abs)
+		if err == nil {
+			return decls, broken, nil
+		}
+		file := failedFile(err, abs)
+		if file == "" {
+			return nil, nil, err
+		}
+		broken[file] = nixMessage(err)
+		abs = slices.DeleteFunc(abs, func(f string) bool { return f == file })
+	}
+}
+
+// evalInputDecls evaluates absolute, existing files in one nix-instantiate run.
+func evalInputDecls(abs []string) ([]InputDecl, error) {
+	if len(abs) == 0 {
+		return nil, nil
+	}
 	payload, err := json.Marshal(abs)
 	if err != nil {
 		return nil, err
@@ -205,6 +247,29 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 		}
 	}
 	return decls, nil
+}
+
+// failedFile returns the file of files whose evaluation err reports, or ""
+// when err names none of them.
+func failedFile(err error, files []string) string {
+	text := err.Error()
+	for _, f := range files {
+		if strings.Contains(text, fmt.Sprintf(failedAttrFormat, f)) {
+			return f
+		}
+	}
+	return ""
+}
+
+// nixMessage returns nix's own message from err: its last "error: " line.
+func nixMessage(err error) string {
+	lines := strings.Split(err.Error(), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if msg, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), nixErrorPrefix); ok {
+			return msg
+		}
+	}
+	return strings.TrimSpace(err.Error())
 }
 
 const BaseChannelInput = "nixpkgs"
