@@ -174,7 +174,7 @@ func TestLogo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	t.Cleanup(func() { _ = f.Close() })
 
 	plain := Logo(f)
 	if strings.Contains(plain, "\x1b") || !strings.HasPrefix(plain, "\n██╗") || !strings.HasSuffix(plain, "made by me <3 (luar)\n\n") {

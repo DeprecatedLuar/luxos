@@ -12,6 +12,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // Exported so callers name them without repeating the strings.
@@ -42,12 +43,12 @@ func HardwareDir(sysDir, hardwareRoot string) (string, error) {
 
 // ensureHardware creates this computer's hardware folder and whichever of its
 // files are missing, then validates it. Existing files are never rewritten.
-func ensureHardware(out *progress, p paths.Paths) (string, error) {
+func ensureHardware(out *ui.Progress, p paths.Paths) (string, error) {
 	hwDir, err := HardwareDir(p.Sys, p.HardwareRoot)
 	if err != nil {
 		return "", err
 	}
-	out.printf("Ensuring %s...\n", hwDir)
+	out.Printf("Ensuring %s...\n", hwDir)
 	if err := MkdirAll(hwDir); err != nil {
 		return "", err
 	}
@@ -58,7 +59,7 @@ func ensureHardware(out *progress, p paths.Paths) (string, error) {
 		return "", err
 	}
 	if created {
-		out.printf("  created: %s%s\n", hwConfig, hardwareConfigNote)
+		out.Printf("  created: %s%s\n", hwConfig, hardwareConfigNote)
 	}
 
 	bootPath := filepath.Join(hwDir, BootFile)
@@ -67,7 +68,7 @@ func ensureHardware(out *progress, p paths.Paths) (string, error) {
 		return "", err
 	}
 	if created {
-		out.printf("  created: %s%s\n", bootPath, bootNote)
+		out.Printf("  created: %s%s\n", bootPath, bootNote)
 	}
 
 	for _, f := range []struct{ name, template string }{
@@ -84,7 +85,7 @@ func ensureHardware(out *progress, p paths.Paths) (string, error) {
 			return "", err
 		}
 		if created {
-			out.printf("  created: %s\n", path)
+			out.Printf("  created: %s\n", path)
 		}
 	}
 

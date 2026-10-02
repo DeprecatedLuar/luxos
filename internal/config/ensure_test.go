@@ -11,6 +11,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const fixtureUUID = "4c4c4544-0042-5110-8042-cac04f375433"
@@ -110,7 +111,7 @@ func TestActiveHost(t *testing.T) {
 func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
 	hostDir := t.TempDir()
 	var out bytes.Buffer
-	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
+	if err := ensureMachineFile(ui.NewProgress(&out), hostDir); err != nil {
 		t.Fatal(err)
 	}
 	want, err := templates.File(machineTemplate)
@@ -132,7 +133,7 @@ func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
 	const own = "{ ... }: { }\n"
 	writeFile(t, path, own)
 	var out bytes.Buffer
-	if err := ensureMachineFile(&progress{w: &out}, hostDir); err != nil {
+	if err := ensureMachineFile(ui.NewProgress(&out), hostDir); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, path); got != own {
@@ -214,7 +215,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	skipIfNoNix(t)
 	p := hardwareFixture(t)
 	var out bytes.Buffer
-	hw, err := ensureHardware(&progress{w: &out}, p)
+	hw, err := ensureHardware(ui.NewProgress(&out), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 
 	writeFile(t, def, "{ }\n")
 	out.Reset()
-	if _, err := ensureHardware(&progress{w: &out}, p); err != nil {
+	if _, err := ensureHardware(ui.NewProgress(&out), p); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, def); got != "{ }\n" {

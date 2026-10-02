@@ -192,9 +192,12 @@ func flakeRenderListJSON(w *strings.Builder, rows []moduleRow) error {
 }
 
 func flakeRenderPlain(w *strings.Builder, rows []moduleRow) {
-	for _, e := range flakeListEntries(rows) {
-		fmt.Fprintln(w, strings.Join([]string{e.Path, e.State, e.Status}, plainColumnSep))
+	entries := flakeListEntries(rows)
+	lines := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		lines = append(lines, []string{e.Path, e.State, e.Status})
 	}
+	ui.Plain(w, lines)
 }
 
 // Builds the input tree's rows from declarations (input name -> declaring unit
@@ -567,12 +570,12 @@ func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (ui.Li
 	version.checked = true
 
 	unknown := string(flake.NoteUnknown)
-	switch {
-	case info.Note == flake.NoteUnknown:
+	switch info.Note {
+	case flake.NoteUnknown:
 		line.Children = []ui.Line{cur, {Label: "latest", Value: unknown}}
 		version.latest = string(flake.StatusUnknown)
 		return line, unknown, version
-	case info.Note == "":
+	case "":
 		cur.Value += flakeUpToDate
 		line.Children = []ui.Line{cur}
 		version.commits = flakeViewCommitsCurrent

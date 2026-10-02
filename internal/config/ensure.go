@@ -9,6 +9,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const (
@@ -21,19 +22,6 @@ const (
 
 var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/machines/*/modules/hardware-support"}
 
-// progress prints to w and keeps the first write error, so a broken output
-// stream is reported rather than dropped while Ensure keeps sequencing.
-type progress struct {
-	w   io.Writer
-	err error
-}
-
-func (o *progress) printf(format string, a ...any) {
-	if o.err == nil {
-		_, o.err = fmt.Fprintf(o.w, format, a...)
-	}
-}
-
 // Ensure brings CONFIG_DIR to the state a rebuild of host expects: .gitignore,
 // the environment file, the synced framework modules, machine.nix, the host
 // folder (validated and protected), this computer's hardware folder and the
@@ -41,18 +29,18 @@ func (o *progress) printf(format string, a ...any) {
 // checks and the local link.
 func Ensure(w io.Writer, p paths.Paths, host string) error {
 	hostDir := filepath.Join(p.Machines, host)
-	out := &progress{w: w}
+	out := ui.NewProgress(w)
 
-	out.printf("Ensuring .gitignore...\n")
+	out.Printf("Ensuring .gitignore...\n")
 	added, err := ensureGitignore(filepath.Join(p.Config, gitignoreFile), gitignoreLines)
 	if err != nil {
 		return err
 	}
 	for _, line := range added {
-		out.printf("  added: %s\n", line)
+		out.Printf("  added: %s\n", line)
 	}
 
-	out.printf("Ensuring environment file...\n")
+	out.Printf("Ensuring environment file...\n")
 	tmpl, err := templates.File(environmentTemplate)
 	if err != nil {
 		return err
@@ -63,10 +51,10 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	if created {
-		out.printf("  created: %s\n", envPath)
+		out.Printf("  created: %s\n", envPath)
 	}
 
-	out.printf("Syncing framework modules...\n")
+	out.Printf("Syncing framework modules...\n")
 	changes, err := Sync(filepath.Join(p.Modules, systemModules))
 	if err != nil {
 		return err
@@ -74,9 +62,9 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 	for _, c := range changes {
 		line := fmt.Sprintf("%s: %s", c.Action, c.Path)
 		if c.Action == ActionCreated {
-			out.printf("%s\n", line)
+			out.Printf("%s\n", line)
 		} else {
-			out.printf("Warning: %s\n", line)
+			out.Printf("Warning: %s\n", line)
 		}
 	}
 
@@ -84,7 +72,7 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 
-	out.printf("Validating %s...\n", hostDir)
+	out.Printf("Validating %s...\n", hostDir)
 	if err := ValidateHost(hostDir); err != nil {
 		return err
 	}
@@ -93,7 +81,7 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	if protected {
-		out.printf("  protected: %s\n", filepath.Join(hostDir, plsDontTouchFile))
+		out.Printf("  protected: %s\n", filepath.Join(hostDir, plsDontTouchFile))
 	}
 
 	hwDir, err := ensureHardware(out, p)
@@ -101,17 +89,17 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	key := filepath.Base(hwDir)
-	out.printf("Ensuring local/modules/hardware-support -> .local/hardware/%s link...\n", key)
+	out.Printf("Ensuring local/modules/hardware-support -> .local/hardware/%s link...\n", key)
 	if err := ensureHardwareLink(p.Machines, p.HardwareRoot, host, key); err != nil {
 		return err
 	}
 
-	out.printf("Ensuring %s's modules mirror...\n", host)
+	out.Printf("Ensuring %s's modules mirror...\n", host)
 	if err := EnsureMirror(p.Machines, p.Modules, host); err != nil {
 		return err
 	}
 
-	out.printf("Ensuring modules/local -> .local/machines/%s/modules link...\n", host)
+	out.Printf("Ensuring modules/local -> .local/machines/%s/modules link...\n", host)
 	if err := EnsureLocalModules(p.Machines, p.Modules, host); err != nil {
 		return err
 	}
@@ -123,11 +111,11 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 
-	out.printf("Ensuring local -> .local/machines/%s link...\n", host)
+	out.Printf("Ensuring local -> .local/machines/%s link...\n", host)
 	if err := ensureLocalLink(p.Config, p.Machines, host); err != nil {
 		return err
 	}
-	return out.err
+	return out.Err()
 }
 
 // ActiveHost returns the active host's name, read from the modules/local link

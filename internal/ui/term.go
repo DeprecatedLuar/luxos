@@ -86,9 +86,6 @@ func (p Palette) Tint(c Color) string {
 	}
 }
 
-// Reset returns the escape code that ends a tint.
-func (p Palette) Reset() string { return p.reset }
-
 // Italic returns s in italics when f is a color terminal, and s otherwise.
 func Italic(f *os.File, s string) string {
 	if PaletteFor(f) == (Palette{}) {

@@ -12,6 +12,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // flakeSteps are the Nix invocations of a stage, replaceable so tests need
@@ -27,19 +28,20 @@ var realFlakeSteps = flakeSteps{write: nix.WriteFlake, lock: nix.FlakeLock}
 // the active host's module boundaries. prune removes unresolvable lines from
 // the active host's selection instead of failing.
 func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error {
-	fmt.Fprintf(w, "Healing modules imports...\n")
+	out := ui.NewProgress(w)
+	out.Printf("Healing modules imports...\n")
 	changes, warnings, err := modules.Heal(p.Machines, p.Modules, host, prune)
 	for _, c := range changes {
-		fmt.Fprintf(w, "%s\n", formatImportChange(c))
+		out.Printf("%s\n", formatImportChange(c))
 	}
 	for _, wm := range warnings {
-		fmt.Fprintf(w, "Warning: %s\n", wm)
+		out.Printf("Warning: %s\n", wm)
 	}
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "Validating module boundaries...\n")
+	out.Printf("Validating module boundaries...\n")
 	h, err := modules.Load(p.Modules, filepath.Join(p.Machines, host))
 	if err != nil {
 		return err
@@ -50,11 +52,11 @@ func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error 
 	}
 	if len(violations) > 0 {
 		for _, v := range violations {
-			fmt.Fprintf(w, "Error: %s: %s\n", v.File, v.Message)
+			out.Printf("Error: %s: %s\n", v.File, v.Message)
 		}
 		return fmt.Errorf("module boundary violations: %d", len(violations))
 	}
-	return nil
+	return out.Err()
 }
 
 func formatImportChange(c modules.Change) string {
@@ -68,8 +70,9 @@ func formatImportChange(c modules.Change) string {
 // (apart from the host's flake.lock, when staging locked something new).
 func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error {
 	hostDir := filepath.Join(p.Machines, host)
+	out := ui.NewProgress(w)
 
-	fmt.Fprintf(w, "Adopting %s...\n", dir)
+	out.Printf("Adopting %s...\n", dir)
 	adopted, err := staging.Adopt(dir, p.Backup)
 	if errors.Is(err, staging.ErrNoBackupDir) {
 		return fmt.Errorf("%s holds entries luxos does not own and there is no user to move them to; choose a directory with:\n  luxos rebuild --backup-dir <path>", dir)
@@ -77,7 +80,7 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 	if err != nil {
 		return err
 	}
-	printAdopted(w, adopted)
+	printAdopted(out, adopted)
 
 	h, err := modules.Load(p.Modules, hostDir)
 	if err != nil {
@@ -92,19 +95,19 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 		return err
 	}
 
-	fmt.Fprintf(w, "Detecting GPUs...\n")
+	out.Printf("Detecting GPUs...\n")
 	gpus, err := hardware.DetectGPUs(p.Sys)
 	if err != nil {
 		return err
 	}
-	printGPUs(w, gpus)
+	printGPUs(out, gpus)
 
-	fmt.Fprintf(w, "Materializing %s for %s...\n", dir, host)
+	out.Printf("Materializing %s for %s...\n", dir, host)
 	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, gpus); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "Generating flake.nix with flake-file...\n")
+	out.Printf("Generating flake.nix with flake-file...\n")
 	if err := steps.write(dir); err != nil {
 		return err
 	}
@@ -117,11 +120,14 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 		return err
 	}
 	if changed {
-		fmt.Fprintf(w, "  locked new inputs: %s\n", hostLock)
+		out.Printf("  locked new inputs: %s\n", hostLock)
 	}
 
-	fmt.Fprintf(w, "Sealing %s...\n", dir)
-	return staging.Seal(dir)
+	out.Printf("Sealing %s...\n", dir)
+	if err := staging.Seal(dir); err != nil {
+		return err
+	}
+	return out.Err()
 }
 
 // selectedInputs returns the flake-file.inputs declarations of the host's
@@ -157,18 +163,18 @@ func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 	return nix.InputDecls(files...)
 }
 
-func printAdopted(w io.Writer, changes []staging.Change) {
+func printAdopted(out *ui.Progress, changes []staging.Change) {
 	for _, c := range changes {
 		if c.Kind == staging.ChangeMoved {
-			fmt.Fprintf(w, "  moved: %s -> %s\n", c.Path, c.Dest)
+			out.Printf("  moved: %s -> %s\n", c.Path, c.Dest)
 		} else {
-			fmt.Fprintf(w, "  converted %s from a symlink to a real directory\n", c.Path)
+			out.Printf("  converted %s from a symlink to a real directory\n", c.Path)
 		}
 	}
 }
 
-func printGPUs(w io.Writer, gpus []hardware.GPU) {
+func printGPUs(out *ui.Progress, gpus []hardware.GPU) {
 	for _, g := range gpus {
-		fmt.Fprintf(w, "  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
+		out.Printf("  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}
 }

@@ -26,11 +26,6 @@ import (
 // host's selection.
 const entrypointName = "default.nix"
 
-// localLinkName is the reserved entry at Paths.Modules' own root: the link
-// to the active host's local modules directory. A missing link means
-// no local units for modules.Walk's purposes.
-const localLinkName = "local"
-
 // accountFileName is where a user module's account definition lives;
 // `edit` prefers it over entrypointName for a directory unit that has one.
 const accountFileName = "account.nix"
@@ -76,7 +71,6 @@ const bundleModulesDir = "modules"
 // nameSep separates a submodule's name from its bundle's.
 const nameSep = "/"
 
-const plainColumnSep = "\t"
 const plainInputsSep = " "
 
 func Module(args []string) error {
@@ -381,9 +375,11 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	sorted := append([]moduleRow(nil), rows...)
 	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
+	lines := make([][]string, 0, len(sorted))
 	for _, r := range sorted {
-		fmt.Fprintln(w, strings.Join([]string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep)}, plainColumnSep))
+		lines = append(lines, []string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep)})
 	}
+	ui.Plain(w, lines)
 }
 
 func moduleList(p paths.Paths, args []string) error {

@@ -51,8 +51,6 @@ const githubLockType = "github"
 
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
 
-const configDirEnv = "LUXOS_CONFIG_DIR"
-
 const backupDirEnv = "LUXOS_BACKUP_DIR"
 
 func printLogo() {

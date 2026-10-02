@@ -126,7 +126,7 @@ func (h *Host) Validate() ([]Violation, error) {
 		owner := Owner(root, file)
 		ownerModules := filepath.Join(owner, bundleModulesDir)
 		for _, p := range static {
-			if owner == "" || !(p == owner || strings.HasPrefix(p, owner+"/")) {
+			if owner == "" || (p != owner && !strings.HasPrefix(p, owner+"/")) {
 				violations = append(violations, Violation{File: rel, Message: fmt.Sprintf("references %s outside its module", p)})
 				continue
 			}

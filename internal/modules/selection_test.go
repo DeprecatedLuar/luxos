@@ -485,7 +485,7 @@ func TestRetargetPrefix_Remove(t *testing.T) {
 
 func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 	skipIfNoNix(t)
-	machinesDir, host1, host2 := bundleHosts(t)
+	machinesDir, _, host2 := bundleHosts(t)
 
 	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "host1", nil); err != nil {
 		t.Fatal(err)
@@ -495,7 +495,7 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 		t.Errorf("host2 touched by host-scoped call: %v", got2)
 	}
 
-	machinesDir, host1, host2 = bundleHosts(t)
+	machinesDir, host1, host2 := bundleHosts(t)
 	if _, err := RetargetPrefix(machinesDir, "users/luar", "", "", []string{"host2"}); err != nil {
 		t.Fatal(err)
 	}

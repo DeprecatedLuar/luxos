@@ -52,8 +52,6 @@ type primeResult struct {
 	} `json:"offload"`
 }
 
-func nothingSet() primeResult { return primeResult{} }
-
 // gpuResult mirrors the JSON shape of every value the defaults file sets,
 // using the stub options' defaults (empty lists, false, null) as the
 // "nothing set" baseline.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // plsDontTouchFile, MachineFile and SelectionFile are required regular files
@@ -118,7 +119,7 @@ func ProtectHost(hostDir string) (bool, error) {
 }
 
 // ensureMachineFile writes the host's machine.nix from the starter when it is missing.
-func ensureMachineFile(out *progress, hostDir string) error {
+func ensureMachineFile(out *ui.Progress, hostDir string) error {
 	tmpl, err := templates.File(machineTemplate)
 	if err != nil {
 		return err
@@ -129,7 +130,7 @@ func ensureMachineFile(out *progress, hostDir string) error {
 		return err
 	}
 	if created {
-		out.printf("  created: %s\n", path)
+		out.Printf("  created: %s\n", path)
 	}
 	return nil
 }
