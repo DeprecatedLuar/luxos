@@ -39,6 +39,8 @@ func run(args []string) error {
 	switch cmd {
 	case "help", "-h", "--help":
 		return help.Run(args)
+	case "version", "-v", "--version":
+		return commands.Version(rest)
 	case "rebuild":
 		return commands.Rebuild(rest)
 	case "flake":

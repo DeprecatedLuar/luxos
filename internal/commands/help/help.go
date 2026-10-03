@@ -22,6 +22,7 @@ func rootPage() *gohelp.Page {
 		Usage(binaryName+" <command> [args]").
 		Section("Commands",
 			gohelp.Item("help", "Show this message"),
+			gohelp.Item("version|-v|--version", "Print the commit this binary was built from"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),

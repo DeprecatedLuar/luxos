@@ -3,7 +3,7 @@
 {
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
-  outputs = { nixpkgs, ... }:
+  outputs = { self, nixpkgs, ... }:
     let
       system = "x86_64-linux";
       version = "0.1.0";
@@ -17,6 +17,7 @@
         inherit version vendorHash;
         src = ./.;
         subPackages = [ "cmd/luxos" ];
+        ldflags = [ "-X github.com/DeprecatedLuar/luxos/internal/commands.revision=${self.rev or self.dirtyRev or "unknown"}" ];
 
         # `lux` is a second name for the same binary, so every host that
         # installs this package gets both commands on PATH.
