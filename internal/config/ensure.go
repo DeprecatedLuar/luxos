@@ -84,7 +84,7 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		out.Printf("  protected: %s\n", filepath.Join(hostDir, plsDontTouchFile))
 	}
 
-	hwDir, err := ensureHardware(out, p)
+	hwDir, err := EnsureHardware(w, p)
 	if err != nil {
 		return err
 	}

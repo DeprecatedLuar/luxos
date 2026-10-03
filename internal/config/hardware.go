@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -40,9 +41,10 @@ func HardwareDir(sysDir, hardwareRoot string) (string, error) {
 	return filepath.Join(hardwareRoot, key), nil
 }
 
-// ensureHardware creates this computer's hardware folder and whichever of its
+// EnsureHardware creates this computer's hardware folder and whichever of its
 // files are missing, then validates it. Existing files are never rewritten.
-func ensureHardware(out *ui.Progress, p paths.Paths) (string, error) {
+func EnsureHardware(w io.Writer, p paths.Paths) (string, error) {
+	out := ui.NewProgress(w)
 	hwDir, err := HardwareDir(p.Sys, p.HardwareRoot)
 	if err != nil {
 		return "", err
@@ -91,7 +93,7 @@ func ensureHardware(out *ui.Progress, p paths.Paths) (string, error) {
 	if err := ValidateHardware(hwDir); err != nil {
 		return "", err
 	}
-	return hwDir, nil
+	return hwDir, out.Err()
 }
 
 // ensureHardwareConfig writes hardwareFile from nixos-generate-config when

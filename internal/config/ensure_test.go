@@ -215,7 +215,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	skipIfNoNix(t)
 	p := hardwareFixture(t)
 	var out bytes.Buffer
-	hw, err := ensureHardware(ui.NewProgress(&out), p)
+	hw, err := EnsureHardware(&out, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 
 	writeFile(t, def, "{ }\n")
 	out.Reset()
-	if _, err := ensureHardware(ui.NewProgress(&out), p); err != nil {
+	if _, err := EnsureHardware(&out, p); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, def); got != "{ }\n" {
