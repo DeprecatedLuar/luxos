@@ -19,3 +19,9 @@ func TestRun_EnvironmentTopicSucceeds(t *testing.T) {
 		t.Fatalf("Run([\"help\", \"environment\"]) = %v, want nil", err)
 	}
 }
+
+func TestRun_SettingsTopicSucceeds(t *testing.T) {
+	if err := Run([]string{"help", "settings"}); err != nil {
+		t.Fatalf("Run([\"help\", \"settings\"]) = %v, want nil", err)
+	}
+}

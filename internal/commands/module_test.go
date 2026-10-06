@@ -331,7 +331,7 @@ func TestModuleRenderPlainStateAndInputs(t *testing.T) {
 	}
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
-	want := "base\tstaged\t\tok\ndep\tpulled\t\tok\ndesktop/shells/ambxst\tactive\tambxst axctl\tok\nidle\toff\t\tok\nold\tleftover\t\tok\n"
+	want := "base\tstaged\t\tok\tnone\ndep\tpulled\t\tok\tnone\ndesktop/shells/ambxst\tactive\tambxst axctl\tok\tnone\nidle\toff\t\tok\tnone\nold\tleftover\t\tok\tnone\n"
 	if b.String() != want {
 		t.Errorf("got %q want %q", b.String(), want)
 	}
@@ -357,7 +357,8 @@ func TestModuleRenderJSON(t *testing.T) {
     "path": "base",
     "state": "staged",
     "inputs": [],
-    "ok": false
+    "ok": false,
+    "settings": "none"
   },
   {
     "path": "desktop/shells/ambxst",
@@ -366,7 +367,8 @@ func TestModuleRenderJSON(t *testing.T) {
       "ambxst",
       "axctl"
     ],
-    "ok": true
+    "ok": true,
+    "settings": "none"
   }
 ]
 `
@@ -391,7 +393,7 @@ func TestModuleRenderModified(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if want := "a\tmodified\t\tok\n"; plain.String() != want {
+	if want := "a\tmodified\t\tok\tnone\n"; plain.String() != want {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }
@@ -403,7 +405,7 @@ func TestModuleRenderRemoved(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if want := "local/debug\tremoved\t\tok\n"; plain.String() != want {
+	if want := "local/debug\tremoved\t\tok\tnone\n"; plain.String() != want {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 	if got := uiRows(rows)[0]; len(got.Marks) != 0 {
@@ -659,7 +661,7 @@ func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
 	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "")
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
-	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\tok\n") {
+	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\tok\tnone\n") {
 		t.Errorf("plain output:\n%s", b.String())
 	}
 	var j strings.Builder
@@ -795,7 +797,7 @@ func TestModuleBundleRowGlyphAndCount(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if !strings.Contains(plain.String(), "users/eduardo\tstaged\t\tok\n") {
+	if !strings.Contains(plain.String(), "users/eduardo\tstaged\t\tok\tnone\n") {
 		t.Errorf("plain keeps the state word:\n%s", plain.String())
 	}
 }
@@ -805,7 +807,7 @@ func TestModuleRowsCarryBroken(t *testing.T) {
 	rows := moduleRows(sts, "")
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if plain.String() != "a\toff\t\tbroken\n" {
+	if plain.String() != "a\toff\t\tbroken\tnone\n" {
 		t.Errorf("plain = %q", plain.String())
 	}
 }
@@ -867,5 +869,30 @@ func TestModuleRenameRemove_MoveSettings(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(p.Machines, h, "settings", "notebook.nix")); !os.IsNotExist(err) {
 			t.Errorf("%s: settings not removed: %v", h, err)
 		}
+	}
+}
+
+func TestModuleSettingsMark(t *testing.T) {
+	rows := []moduleRow{
+		{name: "ok", marker: markerEnabledBoth, settings: modules.SettingsOK},
+		{name: "bad", marker: markerEnabledOnly, settings: modules.SettingsBroken},
+		{name: "idle", marker: markerNeither, settings: modules.SettingsBroken},
+		{name: "none", marker: markerEnabledBoth, settings: modules.SettingsNone},
+	}
+	want := map[string][]ui.Mark{
+		"ok":   {{Glyph: settingsMark, Color: ui.ColorOff}},
+		"bad":  {{Glyph: settingsMark, Color: ui.ColorYellow}},
+		"idle": {{Glyph: settingsMark, Color: ui.ColorLine}},
+		"none": nil,
+	}
+	for _, r := range uiRows(rows) {
+		if !reflect.DeepEqual(r.Marks, want[r.Name]) {
+			t.Errorf("%s marks = %+v, want %+v", r.Name, r.Marks, want[r.Name])
+		}
+	}
+	var plain strings.Builder
+	moduleRenderPlain(&plain, rows[:2])
+	if want := "bad\tstaged\t\tok\tbroken\nok\tactive\t\tok\tok\n"; plain.String() != want {
+		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }

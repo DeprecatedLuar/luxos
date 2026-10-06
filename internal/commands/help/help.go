@@ -15,6 +15,7 @@ const (
 	shellDescription   = "exec nix-shell"
 
 	environmentDescription = "syntax of CONFIG_DIR/environment"
+	settingsDescription    = "module options and per-host settings files"
 )
 
 func rootPage() *gohelp.Page {
@@ -37,6 +38,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
+			gohelp.Item("help settings", "Module options and per-host settings files"),
 		)
 }
 
@@ -138,8 +140,26 @@ func environmentPage() *gohelp.Page {
 		Text("Applied to every host as environment.sessionVariables. A module setting the same key to a different value fails the build; lib.mkForce in a module overrides this file. Your shell rc runs later and overrides it in that shell. Delete the file and the next rebuild restores the template; empty it to set nothing.")
 }
 
+func settingsPage() *gohelp.Page {
+	return gohelp.NewPage("settings", settingsDescription).
+		Usage("<unit>/options.nix  and  .local/machines/<host>/settings/<unit>.nix").
+		Section("options.nix rules",
+			gohelp.Item("{ lib, ... }:", "Takes only lib"),
+			gohelp.Item("options.<unit>.<key>", "Declarations only, one level under the unit's name (eduardo/git: options.eduardo.git.<key>)"),
+			gohelp.Item("type, default", "Both on every option; the default is a plain value: null, bool, number, string, or a list or attrset of those"),
+			gohelp.Item("imports = [ ./options.nix ];", "The unit's default.nix imports it; without luxos the unit builds with its defaults"),
+		).
+		Section("Settings file",
+			gohelp.Item("created", "On enable or rebuild, for a selected unit, with every default"),
+			gohelp.Item("missing key", "Appended with its default; existing lines are never rewritten"),
+			gohelp.Item("undeclared key", "Commented out with a warning; delete it by hand"),
+			gohelp.Item("rename / remove", "The file moves or is deleted with the unit"),
+		).
+		Text("A broken options.nix or settings file fails the rebuild before anything is staged and shows ⚙ in yellow in module list. A missing settings file builds the unit with its defaults.")
+}
+
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
 }

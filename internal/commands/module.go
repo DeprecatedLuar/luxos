@@ -82,6 +82,8 @@ const (
 const (
 	flakeMark  = "❄" // declares flake inputs
 	brokenMark = "!" // a file fails to evaluate
+
+	settingsMark = "⚙" // declares options; yellow when its options or settings break a rule
 )
 
 // Words of the plain ok column.
@@ -182,6 +184,7 @@ type moduleRow struct {
 	shadow   bool
 	inputs   []string
 	broken   bool
+	settings modules.SettingsState
 	status   string
 	modified bool // files changed since the running build
 	removed  bool // imported by the running generation, no longer a unit in the config
@@ -245,6 +248,7 @@ func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 			removed:    st.State == modules.Removed,
 			inputs:     st.Inputs,
 			broken:     st.Broken,
+			settings:   st.Settings,
 			bundle:     subTotal[m.Name] > 0,
 			subEnabled: subEnabled[m.Name],
 		})
@@ -348,6 +352,12 @@ func marksOf(r moduleRow) []ui.Mark {
 	if r.broken {
 		marks = append(marks, ui.Mark{Glyph: brokenMark, Color: ui.ColorYellow})
 	}
+	switch r.settings {
+	case modules.SettingsOK:
+		marks = append(marks, ui.Mark{Glyph: settingsMark, Color: ui.ColorOff})
+	case modules.SettingsBroken:
+		marks = append(marks, ui.Mark{Glyph: settingsMark, Color: ui.ColorYellow})
+	}
 	if !inBuild(r.marker) {
 		for i := range marks {
 			marks[i].Color = ui.ColorLine
@@ -397,11 +407,20 @@ func okWord(r moduleRow) string {
 	return plainOK
 }
 
+// settingsWord is the plain settings column: none, ok or broken.
+func settingsWord(r moduleRow) string {
+	if r.settings == "" {
+		return string(modules.SettingsNone)
+	}
+	return string(r.settings)
+}
+
 type moduleJSONRow struct {
-	Path   string   `json:"path"`
-	State  string   `json:"state"`
-	Inputs []string `json:"inputs"`
-	OK     bool     `json:"ok"`
+	Path     string   `json:"path"`
+	State    string   `json:"state"`
+	Inputs   []string `json:"inputs"`
+	OK       bool     `json:"ok"`
+	Settings string   `json:"settings"`
 }
 
 func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
@@ -411,7 +430,7 @@ func moduleRenderJSON(w *strings.Builder, rows []moduleRow) error {
 		if inputs == nil {
 			inputs = []string{}
 		}
-		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs, OK: !r.broken})
+		out = append(out, moduleJSONRow{Path: rowPath(r), State: rowWord(r), Inputs: inputs, OK: !r.broken, Settings: settingsWord(r)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return ui.JSON(w, out)
@@ -422,7 +441,7 @@ func moduleRenderPlain(w *strings.Builder, rows []moduleRow) {
 	sort.Slice(sorted, func(i, j int) bool { return rowPath(sorted[i]) < rowPath(sorted[j]) })
 	lines := make([][]string, 0, len(sorted))
 	for _, r := range sorted {
-		lines = append(lines, []string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep), okWord(r)})
+		lines = append(lines, []string{rowPath(r), rowWord(r), strings.Join(r.inputs, plainInputsSep), okWord(r), settingsWord(r)})
 	}
 	ui.Plain(w, lines)
 }
