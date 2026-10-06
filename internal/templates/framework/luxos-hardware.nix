@@ -13,6 +13,19 @@
       };
     });
     default = [ ];
-    description = "PCI display-class devices detected by luxos; written to framework/gpu.nix on every rebuild. Read-only facts - do not set.";
+    description = "PCI display-class devices detected by luxos; written to framework/hardware-facts.nix on every rebuild. Read-only facts - do not set.";
+  };
+
+  options.luxos.hardware.vendor = lib.mkOption {
+    type = lib.types.str;
+    description = "System vendor as the firmware reports it (DMI sys_vendor); written to framework/hardware-facts.nix on every rebuild. Read-only fact - do not set.";
+  };
+  options.luxos.hardware.product = lib.mkOption {
+    type = lib.types.str;
+    description = "Product name as the firmware reports it (DMI product_name); written to framework/hardware-facts.nix on every rebuild. Read-only fact - do not set.";
+  };
+  options.luxos.hardware.chassisType = lib.mkOption {
+    type = lib.types.int;
+    description = "SMBIOS chassis type (DMI chassis_type): 3 desktop; 8, 9, 10, 14 portable/laptop/notebook; 31 convertible. Written to framework/hardware-facts.nix on every rebuild. Read-only fact - do not set.";
   };
 }

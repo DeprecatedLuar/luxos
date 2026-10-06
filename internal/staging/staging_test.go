@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
@@ -29,7 +30,7 @@ func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, en
 	if nixpkgsURL != "" {
 		inputs = []nix.InputDecl{{Name: "nixpkgs", URL: nixpkgsURL, Value: map[string]any{"url": nixpkgsURL}}}
 	}
-	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, nil)
+	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{})
 }
 
 func skipIfNoNix(t *testing.T) {
@@ -121,7 +122,7 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "luxos-hardware-defaults.nix"),
 		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
 		filepath.Join(stagingDir, "framework", "flake-file.nix"),
-		filepath.Join(stagingDir, "framework", "gpu.nix"),
+		filepath.Join(stagingDir, "framework", "hardware-facts.nix"),
 		filepath.Join(stagingDir, "framework", "configuration.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "hardware-support", "default.nix"),
 		filepath.Join(stagingDir, "config", "environment"),
@@ -886,7 +887,7 @@ func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
 
 	for _, name := range []string{
 		"system", "units", "overlay", "outputs", "environment", "luxos-hardware", "luxos-hardware-defaults",
-		"flake-file", "gpu", "configuration",
+		"flake-file", "hardware-facts", "configuration",
 	} {
 		if _, err := os.Stat(filepath.Join(stagingDir, "framework", name+".nix")); err != nil {
 			t.Errorf("framework/%s.nix: %v", name, err)

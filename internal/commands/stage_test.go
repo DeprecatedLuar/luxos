@@ -119,6 +119,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
+	writeDMIFixture(t, sysDir)
 	key, err := hardware.Key(sysDir)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +339,16 @@ func writeGPUDevice(t *testing.T, sysDir, addr, class, vendor string) {
 	write(t, filepath.Join(dir, "device"), "0x1234\n")
 }
 
-func TestRun_GPUsDetectedAndStaged(t *testing.T) {
+// writeDMIFixture writes the DMI files stage reads under the fake sysfs.
+func writeDMIFixture(t *testing.T, sysDir string) {
+	t.Helper()
+	dir := filepath.Join(sysDir, "class", "dmi", "id")
+	write(t, filepath.Join(dir, "sys_vendor"), "Vendor\n")
+	write(t, filepath.Join(dir, "product_name"), "Product\n")
+	write(t, filepath.Join(dir, "chassis_type"), "10\n")
+}
+
+func TestRun_HardwareFactsDetectedAndStaged(t *testing.T) {
 	skipIfNoNix(t)
 
 	p, host := fixture(t)
@@ -352,21 +362,27 @@ func TestRun_GPUsDetectedAndStaged(t *testing.T) {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
-	gpuFile := filepath.Join(p.Staging, "framework", "gpu.nix")
-	got := mustReadFile(t, gpuFile)
+	factsFile := filepath.Join(p.Staging, "framework", "hardware-facts.nix")
+	got := mustReadFile(t, factsFile)
 
-	want, err := hardware.RenderGPUs([]hardware.GPU{
-		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1234", Class: "3d", BootVGA: false},
+	want, err := hardware.Render(hardware.Facts{
+		GPUs: []hardware.GPU{
+			{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1234", Class: "3d", BootVGA: false},
+		},
+		DMI: hardware.DMI{Vendor: "Vendor", Product: "Product", ChassisType: 10},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != string(want) {
-		t.Errorf("staged framework/gpu.nix = %q, want %q", got, want)
+		t.Errorf("staged framework/hardware-facts.nix = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(p.Staging, "framework", "gpu.nix")); !os.IsNotExist(err) {
+		t.Errorf("framework/gpu.nix must not be staged, stat err = %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Detecting GPUs...") {
-		t.Errorf("output did not report GPU detection, got:\n%s", out.String())
+	if !strings.Contains(out.String(), "Detecting hardware...") {
+		t.Errorf("output did not report hardware detection, got:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "nvidia 3d: PCI:1@0:0:0") {
 		t.Errorf("output did not report the detected GPU, got:\n%s", out.String())
@@ -395,6 +411,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
+	writeDMIFixture(t, sysDir)
 	key, err := hardware.Key(sysDir)
 	if err != nil {
 		t.Fatal(err)

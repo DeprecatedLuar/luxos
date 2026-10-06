@@ -95,15 +95,15 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 		return err
 	}
 
-	out.Printf("Detecting GPUs...\n")
-	gpus, err := hardware.DetectGPUs(p.Sys)
+	out.Printf("Detecting hardware...\n")
+	facts, err := detectFacts(p.Sys)
 	if err != nil {
 		return err
 	}
-	printGPUs(out, gpus)
+	printFacts(out, facts)
 
 	out.Printf("Materializing %s for %s...\n", dir, host)
-	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, gpus); err != nil {
+	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts); err != nil {
 		return err
 	}
 
@@ -173,8 +173,22 @@ func printAdopted(out *ui.Progress, changes []staging.Change) {
 	}
 }
 
-func printGPUs(out *ui.Progress, gpus []hardware.GPU) {
-	for _, g := range gpus {
+// detectFacts reads every hardware fact the build gets.
+func detectFacts(sysDir string) (hardware.Facts, error) {
+	gpus, err := hardware.DetectGPUs(sysDir)
+	if err != nil {
+		return hardware.Facts{}, err
+	}
+	dmi, err := hardware.DetectDMI(sysDir)
+	if err != nil {
+		return hardware.Facts{}, err
+	}
+	return hardware.Facts{GPUs: gpus, DMI: dmi}, nil
+}
+
+func printFacts(out *ui.Progress, f hardware.Facts) {
+	out.Printf("  %s %s (chassis %d)\n", f.DMI.Vendor, f.DMI.Product, f.DMI.ChassisType)
+	for _, g := range f.GPUs {
 		out.Printf("  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}
 }

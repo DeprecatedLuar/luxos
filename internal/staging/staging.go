@@ -36,7 +36,7 @@ const (
 
 	flakeNix          = "flake.nix"
 	flakeFileNix      = "flake-file.nix"
-	gpuNix            = "gpu.nix"
+	hardwareFactsNix  = "hardware-facts.nix"
 	configurationNix  = "configuration.nix"
 	stagedEnvironment = "environment"
 
@@ -58,7 +58,7 @@ const (
 
 // Materialize regenerates every luxos-owned entry of stagingDir for h
 // (pruning them first): the framework files, flake.nix, framework/flake-file.nix,
-// framework/gpu.nix, framework/configuration.nix, config/ and the host's
+// framework/hardware-facts.nix, framework/configuration.nix, config/ and the host's
 // flake.lock. Every symlink under h.ModulesDir and h.HostDir is dereferenced; a
 // dangling one refuses the whole call, naming it, before anything is touched.
 // Nothing is read through modules/local or modules/default.nix, so the stage
@@ -74,7 +74,7 @@ const (
 // inputs are the flake-file.inputs declarations of the modules h builds plus
 // the host's machine.nix; they become flake.nix's `inputs = { ... };` block
 // beyond the flake-file pin.
-func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, gpus []hardware.GPU) error {
+func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts) error {
 	inputsNix := nix.RenderInputs(inputs)
 	if inputsNix == "" {
 		return errors.New("staging: flake inputs are required")
@@ -113,7 +113,7 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		render func() ([]byte, error)
 	}{
 		{flakeFileNix, func() ([]byte, error) { return flakeBootstrap(h.Name) }},
-		{gpuNix, func() ([]byte, error) { return hardware.RenderGPUs(gpus) }},
+		{hardwareFactsNix, func() ([]byte, error) { return hardware.Render(facts) }},
 		{configurationNix, func() ([]byte, error) { return configuration(h.Name) }},
 	}
 	for _, g := range generated {
