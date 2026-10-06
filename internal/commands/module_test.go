@@ -809,3 +809,63 @@ func TestModuleRowsCarryBroken(t *testing.T) {
 		t.Errorf("plain = %q", plain.String())
 	}
 }
+
+const settingsDefault = "{ ... }: { imports = [ ./options.nix ]; }\n"
+
+func TestModuleEnable_CreatesSettings(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), settingsDefault)
+	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
+	if err := moduleEnable(p, []string{"laptop"}); err != nil {
+		t.Fatalf("moduleEnable: %v", err)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Machines, "host1", "settings", "laptop.nix")); got != "{\n  laptop.a = 1;\n}\n" {
+		t.Errorf("settings file = %q", got)
+	}
+}
+
+func TestModuleEnable_BrokenOtherUnitDoesNotFail(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	write(t, filepath.Join(p.Modules, "bad", "default.nix"), settingsDefault)
+	write(t, filepath.Join(p.Modules, "bad", "options.nix"), "{ lib, ... }: { options.bad.a = lib.mkOption { type = lib.types.int; }; }\n")
+	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), settingsDefault)
+	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
+	if err := moduleEnable(p, []string{"bad"}); err != nil {
+		t.Fatalf("enable bad: %v", err)
+	}
+	if err := moduleEnable(p, []string{"laptop"}); err != nil {
+		t.Fatalf("enable laptop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Machines, "host1", "settings", "laptop.nix")); err != nil {
+		t.Errorf("healthy unit got no settings file: %v", err)
+	}
+}
+
+func TestModuleRenameRemove_MoveSettings(t *testing.T) {
+	skipIfNoNix(t)
+	p := bundleFixture(t)
+	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), settingsDefault)
+	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
+	write(t, filepath.Join(p.Machines, "host2", "settings", "laptop.nix"), "{ laptop.a = 2; }\n")
+	if err := moduleEnable(p, []string{"laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := moduleRename(p, []string{"laptop", "notebook", "-y"}); err != nil {
+		t.Fatalf("moduleRename: %v", err)
+	}
+	for _, h := range []string{"host1", "host2"} {
+		if _, err := os.Stat(filepath.Join(p.Machines, h, "settings", "notebook.nix")); err != nil {
+			t.Errorf("%s: settings not moved: %v", h, err)
+		}
+	}
+	if err := moduleRemove(p, []string{"notebook", "-y"}); err != nil {
+		t.Fatalf("moduleRemove: %v", err)
+	}
+	for _, h := range []string{"host1", "host2"} {
+		if _, err := os.Stat(filepath.Join(p.Machines, h, "settings", "notebook.nix")); !os.IsNotExist(err) {
+			t.Errorf("%s: settings not removed: %v", h, err)
+		}
+	}
+}

@@ -825,6 +825,15 @@ func moduleEnable(p paths.Paths, args []string) error {
 			return err
 		}
 	}
+	h, err := loadActive(p)
+	if err != nil {
+		return err
+	}
+	rep, err := modules.SyncSettings(h)
+	if err != nil {
+		return err
+	}
+	printSettingsReport(ui.NewProgress(os.Stdout), rep)
 	return nil
 }
 
@@ -1007,6 +1016,9 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
 		return err
 	}
+	if _, err := modules.MoveSettings(p.Machines, name, "", host, skipHosts); err != nil {
+		return err
+	}
 
 	fmt.Printf("Removed modules/%s\n", path)
 	return nil
@@ -1122,6 +1134,13 @@ func moduleRename(p paths.Paths, args []string) error {
 		if _, err := modules.RetargetPrefix(p.Machines, oldPath, newPath, host, skipHosts); err != nil {
 			return err
 		}
+	}
+	kept, err := modules.MoveSettings(p.Machines, oldName, newQualified, host, skipHosts)
+	if err != nil {
+		return err
+	}
+	for _, f := range kept {
+		fmt.Printf("Note: %s kept in place: settings for '%s' already exist there\n", f, newQualified)
 	}
 
 	if modules.Parent(oldName) == "" && underCategory(category, usersCategory) {

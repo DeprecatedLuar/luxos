@@ -228,6 +228,9 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := healAndValidate(os.Stdout, p, host, prune); err != nil {
 		return err
 	}
+	if err := syncSettings(os.Stdout, p, host); err != nil {
+		return err
+	}
 	if err := stage(os.Stdout, p, host, p.Staging, realFlakeSteps); err != nil {
 		return err
 	}

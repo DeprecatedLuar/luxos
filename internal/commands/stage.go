@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
@@ -57,6 +58,43 @@ func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error 
 		return fmt.Errorf("module boundary violations: %d", len(violations))
 	}
 	return out.Err()
+}
+
+// syncSettings brings host's settings files in line with its selected
+// units' options.nix, failing on any unit that breaks a settings rule.
+func syncSettings(w io.Writer, p paths.Paths, host string) error {
+	out := ui.NewProgress(w)
+	out.Printf("Syncing module settings...\n")
+	h, err := modules.Load(p.Modules, filepath.Join(p.Machines, host))
+	if err != nil {
+		return err
+	}
+	rep, err := modules.SyncSettings(h)
+	if err != nil {
+		return err
+	}
+	printSettingsReport(out, rep)
+	if len(rep.Broken) > 0 {
+		for _, u := range rep.Broken {
+			for _, problem := range u.Problems {
+				out.Printf("Error: %s\n", problem)
+			}
+		}
+		return fmt.Errorf("module settings: %d unit(s) break the settings rules", len(rep.Broken))
+	}
+	return out.Err()
+}
+
+func printSettingsReport(out *ui.Progress, rep modules.SettingsReport) {
+	for _, f := range rep.Created {
+		out.Printf("  created %s\n", f)
+	}
+	for _, c := range rep.Appended {
+		out.Printf("  %s: added %s\n", c.File, strings.Join(c.Keys, ", "))
+	}
+	for _, c := range rep.Commented {
+		out.Printf("Warning: %s: commented out %s (not declared by the unit)\n", c.File, strings.Join(c.Keys, ", "))
+	}
 }
 
 func formatImportChange(c modules.Change) string {

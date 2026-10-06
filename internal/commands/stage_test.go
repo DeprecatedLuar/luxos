@@ -14,6 +14,7 @@ import (
 	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
@@ -70,6 +71,9 @@ func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeStep
 		return err
 	}
 	if err := healAndValidate(w, p, host, prune); err != nil {
+		return err
+	}
+	if err := syncSettings(w, p, host); err != nil {
 		return err
 	}
 	return stage(w, p, host, p.Staging, steps)
@@ -731,5 +735,45 @@ func TestSelectedInputsIncludeHardwareOfHostWithoutLink(t *testing.T) {
 	}
 	if !slices.Contains(names, "nixos-hardware") {
 		t.Errorf("inputs = %v, want nixos-hardware from the hardware folder", names)
+	}
+}
+
+func TestRun_BrokenSettingsFailBeforeStaging(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
+	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; }; }\n")
+	if err := nix.AddImport(filepath.Join(p.Machines, host, "modules.nix"), "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := runAll(&out, p, host, false, steps)
+	if err == nil || !strings.Contains(out.String(), "has no default") {
+		t.Fatalf("err = %v, output:\n%s\nwant the rule named", err, out.String())
+	}
+	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
+		t.Errorf("staged despite broken settings: %v", statErr)
+	}
+}
+
+func TestRun_SettingsCreatedAndStaged(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
+	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
+	if err := nix.AddImport(filepath.Join(p.Machines, host, "modules.nix"), "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runAll(&out, p, host, false, steps); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if got := mustReadFile(t, filepath.Join(p.Machines, host, "settings", "laptop.nix")); got != "{\n  laptop.a = 1;\n}\n" {
+		t.Errorf("settings file = %q", got)
+	}
+	if got := mustReadFile(t, filepath.Join(p.Staging, "config", "settings", "laptop.nix")); !strings.Contains(got, "laptop.a = 1;") {
+		t.Errorf("staged settings = %q", got)
 	}
 }
