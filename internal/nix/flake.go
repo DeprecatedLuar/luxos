@@ -183,27 +183,51 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 // is left out and returned in broken, keyed by absolute path, with nix's
 // message; each one costs one more evaluation. Every file must exist.
 func ReadInputDecls(files ...string) ([]InputDecl, map[string]string, error) {
+	abs, err := absExisting("nix.InputDecls", files)
+	if err != nil {
+		return nil, nil, err
+	}
+	var decls []InputDecl
+	broken, err := evalEach(abs, func(batch []string) error {
+		d, err := evalInputDecls(batch)
+		decls = d
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return decls, broken, nil
+}
+
+// absExisting returns files as absolute paths, failing on one that does not exist.
+func absExisting(caller string, files []string) ([]string, error) {
 	abs := make([]string, len(files))
 	for i, f := range files {
 		a, err := filepath.Abs(f)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if _, err := os.Stat(a); err != nil {
-			return nil, nil, fmt.Errorf("nix.InputDecls: %w", err)
+			return nil, fmt.Errorf("%s: %w", caller, err)
 		}
 		abs[i] = a
 	}
+	return abs, nil
+}
 
+// evalEach runs eval over abs; each time nix names one of the files in its
+// failure, that file is dropped and eval runs again. It returns the dropped
+// files with nix's message. A failure naming none of abs is returned as is.
+func evalEach(abs []string, eval func(files []string) error) (map[string]string, error) {
 	broken := map[string]string{}
 	for {
-		decls, err := evalInputDecls(abs)
+		err := eval(abs)
 		if err == nil {
-			return decls, broken, nil
+			return broken, nil
 		}
 		file := failedFile(err, abs)
 		if file == "" {
-			return nil, nil, err
+			return nil, err
 		}
 		broken[file] = nixMessage(err)
 		abs = slices.DeleteFunc(abs, func(f string) bool { return f == file })
@@ -348,8 +372,8 @@ func nixAttrName(name string) string {
 	return String(name)
 }
 
-// renderNixValue renders a decoded JSON value (string, bool, float64 or
-// nested map[string]any, as builtins.toJSON produces from a Nix attrset) as
+// renderNixValue renders a decoded JSON value (string, bool, float64, []any
+// or nested map[string]any, as builtins.toJSON produces from a Nix value) as
 // Nix source, indented at depth levels of two spaces.
 func renderNixValue(v any, depth int) string {
 	switch val := v.(type) {
@@ -381,6 +405,18 @@ func renderNixValue(v any, depth int) string {
 		b.WriteString(pad)
 		b.WriteString("}")
 		return b.String()
+	case []any:
+		if len(val) == 0 {
+			return "[ ]"
+		}
+		items := make([]string, len(val))
+		for i, item := range val {
+			items[i] = renderNixValue(item, depth)
+			if n, ok := item.(float64); ok && n < 0 {
+				items[i] = "(" + items[i] + ")"
+			}
+		}
+		return "[ " + strings.Join(items, " ") + " ]"
 	default:
 		return "null"
 	}

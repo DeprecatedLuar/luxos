@@ -253,3 +253,20 @@ func TestFailedFileUnknownError(t *testing.T) {
 		t.Errorf("failedFile = %q, want none", got)
 	}
 }
+
+func TestRenderNixValue_Lists(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{[]any{}, "[ ]"},
+		{[]any{"a", float64(1), true, nil}, `[ "a" 1 true null ]`},
+		{[]any{float64(-1)}, "[ (-1) ]"},
+		{[]any{map[string]any{"a": "x"}}, "[ {\n  a = \"x\";\n} ]"},
+	}
+	for _, c := range cases {
+		if got := renderNixValue(c.in, 0); got != c.want {
+			t.Errorf("renderNixValue(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
