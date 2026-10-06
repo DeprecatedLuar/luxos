@@ -232,3 +232,32 @@ func TestResolveHostOldLayoutHint(t *testing.T) {
 		t.Fatalf("got %q, want %q", err.Error(), want)
 	}
 }
+
+func TestValidateHost_AllowsSettingsDir(t *testing.T) {
+	dir := t.TempDir()
+	writeRequiredFiles(t, dir)
+	if err := os.MkdirAll(filepath.Join(dir, "settings", "eduardo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateHost(dir); err != nil {
+		t.Errorf("ValidateHost: %v", err)
+	}
+}
+
+func TestValidateHost_SettingsMustBeDir(t *testing.T) {
+	dir := t.TempDir()
+	writeRequiredFiles(t, dir)
+	writeFile(t, filepath.Join(dir, "settings"), "{ }\n")
+	if err := ValidateHost(dir); err == nil || !strings.Contains(err.Error(), "settings does not belong here") {
+		t.Errorf("err = %v, want settings rejected", err)
+	}
+}
+
+func TestSettingsPath(t *testing.T) {
+	if got := SettingsPath("/h", "eduardo/git"); got != "/h/settings/eduardo/git.nix" {
+		t.Errorf("SettingsPath = %s", got)
+	}
+	if got := SettingsFolder("/h", "eduardo"); got != "/h/settings/eduardo" {
+		t.Errorf("SettingsFolder = %s", got)
+	}
+}

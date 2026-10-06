@@ -15,15 +15,18 @@ import (
 
 // plsDontTouchFile, MachineFile and SelectionFile are required regular files
 // (symlinks followed); lockFile is an optional regular file; localModulesDir
-// is an optional directory. Nothing else may live there. MachineFile is
-// exported so the caller that creates it from a template names it without
-// repeating the string.
+// and SettingsDir are optional directories. Nothing else may live there.
+// MachineFile is exported so the caller that creates it from a template names
+// it without repeating the string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
 	MachineFile      = "machine.nix"
 	SelectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"
+	// SettingsDir holds the host's values for its configurable units.
+	SettingsDir = "settings"
+	settingsExt = ".nix"
 
 	plsDontTouchMode = 0444
 
@@ -73,7 +76,7 @@ func ValidateHost(hostDir string) error {
 			if statErr != nil || info.IsDir() {
 				problems = append(problems, name+" does not belong here")
 			}
-		case localModulesDir:
+		case localModulesDir, SettingsDir:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || !info.IsDir() {
@@ -91,6 +94,16 @@ func ValidateHost(hostDir string) error {
 	}
 
 	return problemsError("invalid host folder "+hostDir, problems)
+}
+
+// SettingsPath is hostDir's settings file for unit ("eduardo/git" → settings/eduardo/git.nix).
+func SettingsPath(hostDir, unit string) string {
+	return SettingsFolder(hostDir, unit) + settingsExt
+}
+
+// SettingsFolder is where the settings of unit's submodules live when unit is a bundle.
+func SettingsFolder(hostDir, unit string) string {
+	return filepath.Join(hostDir, SettingsDir, filepath.FromSlash(unit))
 }
 
 // problemsError lists problems, sorted, under title; none is nil.
