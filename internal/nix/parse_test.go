@@ -48,7 +48,7 @@ func sortedJoin(ss []string) string {
 }
 
 //============================================================================
-// Suite: tests/parse.sh — refs.Paths / refs.DynamicPaths, what
+// Suite: Paths / PathsAndDynamic, what
 // nix-instantiate --parse exposes about paths.
 //============================================================================
 
@@ -161,9 +161,9 @@ func TestDynamicPaths_ParseSuite(t *testing.T) {
 	dyn := func(label, body string, wantDynamic bool) {
 		t.Run(label, func(t *testing.T) {
 			write(t, file, body)
-			got, err := DynamicPaths(file)
+			_, got, err := PathsAndDynamic(file)
 			if err != nil {
-				t.Fatalf("DynamicPaths: %v", err)
+				t.Fatalf("PathsAndDynamic: %v", err)
 			}
 			if wantDynamic && len(got) == 0 {
 				t.Errorf("expected dynamic paths, got none")

@@ -26,16 +26,7 @@ func Paths(file string) ([]string, error) {
 	return pathRe.FindAllString(stripStrings(parsed), -1), nil
 }
 
-// DynamicPaths returns every dynamic-path base ("/dir + expr") referenced by file.
-func DynamicPaths(file string) ([]string, error) {
-	parsed, err := parse(file)
-	if err != nil {
-		return nil, err
-	}
-	return extractDynamicPaths(stripStrings(parsed)), nil
-}
-
-// PathsAndDynamic returns Paths and DynamicPaths of file from one parse.
+// PathsAndDynamic returns Paths of file and every dynamic-path base ("/dir + expr") it references, from one parse.
 func PathsAndDynamic(file string) (paths, dynamic []string, err error) {
 	parsed, err := parse(file)
 	if err != nil {

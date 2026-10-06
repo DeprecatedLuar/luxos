@@ -21,7 +21,7 @@ const outputsFixtureFlakeFile = `{ modulesPath, ... }: {
 // and a flake-file module declaring only the options the fixture sets.
 const outputsFixtureExpr = `
 let
-  nixpkgs = { outPath = <nixpkgs>; lib = import <nixpkgs/lib>; };
+  nixpkgs = { outPath = toString <nixpkgs>; lib = import <nixpkgs/lib>; };
   flakeModule = { lib, ... }: {
     options.outputs = lib.mkOption { type = lib.types.raw; };
     options.hardware.enableRedistributableFirmware = lib.mkOption { type = lib.types.bool; };
