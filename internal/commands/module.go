@@ -118,6 +118,8 @@ func Module(args []string) error {
 		return moduleAdd(p, rest)
 	case "edit", "e":
 		return moduleEdit(p, rest)
+	case "configure", "config":
+		return moduleConfigure(p, rest)
 	case "enable", "1":
 		return moduleEnable(p, rest)
 	case "disable", "0":
@@ -134,7 +136,7 @@ func Module(args []string) error {
 		if m, found := h.Find(verb); found && modules.IsBundle(m.Abs) {
 			return moduleList(p, args)
 		}
-		return fmt.Errorf("unknown module command: %s (list|add|edit|enable|1|disable|0|remove|rename, or a bundle name)", verb)
+		return fmt.Errorf("unknown module command: %s (list|add|edit|configure|enable|1|disable|0|remove|rename, or a bundle name)", verb)
 	}
 }
 
@@ -737,6 +739,44 @@ func moduleEditTarget(h *modules.Host, name string) (string, error) {
 		return account, nil
 	}
 	return filepath.Join(target, entrypointName), nil
+}
+
+//──[configure]────────────────────────────────────────────────────────────
+
+// moduleConfigure syncs the active host's settings file of a unit and opens
+// it in $EDITOR. A broken unit's existing file is still opened, so it can be fixed.
+func moduleConfigure(p paths.Paths, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: luxos module configure <name>")
+	}
+	name := args[0]
+
+	h, err := loadActive(p)
+	if err != nil {
+		return err
+	}
+	m, found := h.Find(name)
+	if !found {
+		return fmt.Errorf("unknown module '%s'", name)
+	}
+	file, rep, err := modules.SyncUnitSettings(h, m)
+	if err != nil {
+		return err
+	}
+	out := ui.NewProgress(os.Stdout)
+	printSettingsReport(out, rep)
+	for _, u := range rep.Broken {
+		for _, problem := range u.Problems {
+			out.Printf("Warning: %s\n", problem)
+		}
+	}
+	if err := out.Err(); err != nil {
+		return err
+	}
+	if len(rep.Broken) > 0 && !fileExists(file) {
+		return fmt.Errorf("module '%s' breaks the settings rules; fix its %s first", name, modules.OptionsFile)
+	}
+	return editNixFileInPlace(file)
 }
 
 func fileExists(path string) bool {

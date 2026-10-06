@@ -51,7 +51,7 @@ func run(args []string) error {
 		return commands.Module(rest)
 	case "modules", "m":
 		return commands.Module(withDefaultVerb(rest, "list"))
-	case "list", "ls", "edit", "enable", "disable", "remove", "rm", "rename", "rn":
+	case "list", "ls", "edit", "configure", "config", "enable", "disable", "remove", "rm", "rename", "rn":
 		return commands.Module(args)
 	case "user":
 		return commands.User(rest)

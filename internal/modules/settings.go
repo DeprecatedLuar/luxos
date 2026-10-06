@@ -177,8 +177,21 @@ type SettingsReport struct {
 // assignment is commented out. A unit breaking a rule, or whose file cannot
 // be read or written, is skipped and returned in Broken.
 func SyncSettings(h *Host) (SettingsReport, error) {
+	return syncSettings(h, h.selected())
+}
+
+// SyncUnitSettings syncs h's settings file of m, selected or not, and returns its path.
+func SyncUnitSettings(h *Host, m Module) (string, SettingsReport, error) {
+	if _, ok := optionsOf(m); !ok {
+		return "", SettingsReport{}, fmt.Errorf("module '%s' has no settings", m.Name)
+	}
+	rep, err := syncSettings(h, []Module{m})
+	return config.SettingsPath(h.HostDir, m.Name), rep, err
+}
+
+func syncSettings(h *Host, ms []Module) (SettingsReport, error) {
 	var rep SettingsReport
-	us, err := h.Settings(h.selected())
+	us, err := h.Settings(ms)
 	if err != nil {
 		return rep, err
 	}

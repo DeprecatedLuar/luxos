@@ -261,3 +261,44 @@ func TestStagedSettings(t *testing.T) {
 		t.Errorf("StagedSettings = %v, want [laptop]", got)
 	}
 }
+
+func TestSyncUnitSettings_Unselected(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{
+		"laptop/default.nix": optionsDefault,
+		"laptop/options.nix": laptopOptions,
+		"other/default.nix":  optionsDefault,
+	}, "other")
+	m, ok := h.Find("laptop")
+	if !ok {
+		t.Fatal("laptop not found")
+	}
+	file, rep, err := SyncUnitSettings(h, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(h.HostDir, "settings", "laptop.nix"); file != want {
+		t.Errorf("file = %s, want %s", file, want)
+	}
+	if !reflect.DeepEqual(rep.Created, []string{file}) {
+		t.Errorf("Created = %v", rep.Created)
+	}
+	if got, want := readString(t, file), "{\n  laptop.limit = 80;\n  laptop.mode = \"balanced\";\n}\n"; got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+func TestSyncUnitSettings_NoOptions(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{"plain/default.nix": optionsDefault}, "plain")
+	m, ok := h.Find("plain")
+	if !ok {
+		t.Fatal("plain not found")
+	}
+	if _, _, err := SyncUnitSettings(h, m); err == nil || !strings.Contains(err.Error(), "has no settings") {
+		t.Errorf("err = %v, want 'has no settings'", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.HostDir, "settings", "plain.nix")); !os.IsNotExist(err) {
+		t.Errorf("settings file created: %v", err)
+	}
+}
