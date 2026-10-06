@@ -30,9 +30,10 @@ const (
 type Status struct {
 	Module   Module
 	State    State
-	PulledBy []string // set when State is Pulled
-	Inputs   []string // flake inputs the module declares
-	Broken   bool     // a file of the module fails to evaluate
+	PulledBy []string      // set when State is Pulled
+	Inputs   []string      // flake inputs the module declares
+	Broken   bool          // a file of the module fails to evaluate
+	Settings SettingsState // SettingsNone for a unit without options.nix
 }
 
 // StatusOf reports every module of h plus every running import that names no
@@ -77,6 +78,9 @@ func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
 	if err := readInputs(h.Modules, out); err != nil {
 		return nil, err
 	}
+	if err := readSettings(h, out); err != nil {
+		return nil, err
+	}
 
 	seen := map[string]bool{}
 	for _, path := range running {
@@ -86,7 +90,7 @@ func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
 		}
 		seen[name] = true
 		shown := strings.TrimSuffix(strings.TrimPrefix(path, "./"), "/"+entrypointName)
-		out = append(out, Status{Module: Module{Name: name, Path: shown}, State: Removed})
+		out = append(out, Status{Module: Module{Name: name, Path: shown}, State: Removed, Settings: SettingsNone})
 	}
 	return out, nil
 }
@@ -182,6 +186,30 @@ func readFiles(root, skipTop string) (map[string][]byte, error) {
 		return nil, err
 	}
 	return files, nil
+}
+
+// readSettings sets Settings on sts, whose first len(h.Modules) entries match
+// h.Modules by index.
+func readSettings(h *Host, sts []Status) error {
+	for i := range h.Modules {
+		sts[i].Settings = SettingsNone
+	}
+	us, err := h.Settings(h.Modules)
+	if err != nil {
+		return err
+	}
+	index := make(map[string]int, len(h.Modules))
+	for i, m := range h.Modules {
+		index[m.Name] = i
+	}
+	for _, u := range us {
+		state := SettingsOK
+		if len(u.Problems) > 0 {
+			state = SettingsBroken
+		}
+		sts[index[u.Module.Name]].Settings = state
+	}
+	return nil
 }
 
 // readInputs sets Inputs and Broken on sts, whose entries match mods by

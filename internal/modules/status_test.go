@@ -234,3 +234,24 @@ func TestStatusOfBroken(t *testing.T) {
 		t.Errorf("flaky inputs = %q, want zed despite a broken neighbour", inputs["flaky"])
 	}
 }
+
+func TestStatusOf_Settings(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{
+		"laptop/default.nix": optionsDefault,
+		"laptop/options.nix": `{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }`,
+		"bad/default.nix":    optionsDefault,
+		"bad/options.nix":    `{ lib, ... }: { options.bad.a = lib.mkOption { type = lib.types.int; }; }`,
+		"plain.nix":          "{ }\n",
+	}, "laptop")
+	sts, err := StatusOf(h, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]SettingsState{"laptop": SettingsOK, "bad": SettingsBroken, "plain": SettingsNone}
+	for _, st := range sts {
+		if st.Settings != want[st.Module.Name] {
+			t.Errorf("%s settings = %q, want %q", st.Module.Name, st.Settings, want[st.Module.Name])
+		}
+	}
+}
