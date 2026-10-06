@@ -150,6 +150,7 @@ func settingsPage() *gohelp.Page {
 			gohelp.Item("options.<unit>.<key>", "Declarations only, one level under the unit's name (eduardo/git: options.eduardo.git.<key>)"),
 			gohelp.Item("type, default", "Both on every option; the default is a plain value: null, bool, number, string, or a list or attrset of those"),
 			gohelp.Item("imports = [ ./options.nix ];", "The unit's default.nix imports it; without luxos the unit builds with its defaults"),
+			gohelp.Item("description", "Optional plain string; becomes the trailing comment of the key's line in the settings file (e.g. performance | balanced | power-saver)"),
 		).
 		Section("Settings file",
 			gohelp.Item("created", "On enable or rebuild, for a selected unit, with every default"),

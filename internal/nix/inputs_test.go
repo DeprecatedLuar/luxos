@@ -93,6 +93,25 @@ func TestInputDeclsBatchAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestInputDeclsThroughSymlink(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	writeNixFile(t, dir, "m.nix", "{ ... }:\n{\n  flake-file.inputs.a.url = \"github:x/a\";\n}\n")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(link, "m.nix")
+
+	got, err := InputDecls(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].File != file || got[0].Line != 3 {
+		t.Errorf("InputDecls = %+v, want a at %s:3", got, file)
+	}
+}
+
 // TestInputDeclsStubDependentFile covers a file that needs a real function
 // argument (a callPackage-style file, say): it must yield no declarations
 // rather than failing the whole batch.

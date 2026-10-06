@@ -29,6 +29,7 @@ let
         hasDefault = v ? default;
         plainDefault = v ? default && plain v.default;
         default = if v ? default && plain v.default then v.default else null;
+        description = if v ? description && builtins.isString v.description then v.description else null;
       } else { })) ]) (builtins.attrNames set);
   readFile = file:
     let
@@ -42,7 +43,8 @@ in builtins.listToAttrs (map (file: { name = file; value = readFile file; }) fil
 `
 
 // OptionLeaf is one entry under a file's options: a lib.mkOption (Option)
-// or a value where one was expected. Default is set only when PlainDefault.
+// or a value where one was expected. Default is set only when PlainDefault;
+// Description only when the option has a string one.
 type OptionLeaf struct {
 	Path         []string `json:"path"`
 	Option       bool     `json:"option"`
@@ -50,6 +52,7 @@ type OptionLeaf struct {
 	HasDefault   bool     `json:"hasDefault"`
 	PlainDefault bool     `json:"plainDefault"`
 	Default      any      `json:"default"`
+	Description  string   `json:"description"`
 }
 
 // OptionsFile is what an options.nix sets: its top-level names and every

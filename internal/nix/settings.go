@@ -3,6 +3,7 @@ package nix
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -25,7 +26,7 @@ let
     else [ { path = p; line = (builtins.unsafeGetAttrPos n set).line; } ]) (builtins.attrNames set);
   readFile = req:
     let
-      m = import req.file;
+      m = import req.path;
       r = if builtins.isFunction m
         then m (builtins.mapAttrs (n: _: throw "luxos-stub:${n}") (builtins.functionArgs m))
         else m;
@@ -34,16 +35,26 @@ in builtins.listToAttrs (map (req: { name = req.file; value = readFile req; }) r
 `
 
 const (
-	settingsIndent = "  "
-	commentPrefix  = "# "
-	closingLine    = "}"
-	attrPathSep    = "."
+	settingsIndent  = "  "
+	commentPrefix   = "# "
+	trailingComment = " # "
+	closingLine     = "}"
+	attrPathSep     = "."
 )
+
+// assignmentLineRe splits a whole single-line assignment into its statement,
+// up to the first ";" that only a comment follows, and that comment.
+var assignmentLineRe = regexp.MustCompile(`^(.*?;)\s*(#.*)?$`)
 
 // SettingsRequest asks for the assignments of File down to Depth attribute levels.
 type SettingsRequest struct {
 	File  string `json:"file"`
 	Depth int    `json:"depth"`
+}
+
+type settingsEval struct {
+	evalFile
+	Depth int `json:"depth"`
 }
 
 // SettingLeaf is one assignment of a settings file and the line it starts on.
@@ -52,10 +63,12 @@ type SettingLeaf struct {
 	Line int      `json:"line"`
 }
 
-// Setting is one value to write into a settings file.
+// Setting is one value to write into a settings file, with the comment
+// that ends its line.
 type Setting struct {
-	Path  []string
-	Value any
+	Path    []string
+	Value   any
+	Comment string
 }
 
 // ReadSettings returns each requested file's assignments sorted by line,
@@ -80,9 +93,13 @@ func ReadSettings(reqs []SettingsRequest) (map[string][]SettingLeaf, map[string]
 		if len(batch) == 0 {
 			return nil
 		}
-		batchReqs := make([]SettingsRequest, len(batch))
-		for i, f := range batch {
-			batchReqs[i] = SettingsRequest{File: f, Depth: depth[f]}
+		files, err := evalFiles(batch)
+		if err != nil {
+			return err
+		}
+		batchReqs := make([]settingsEval, len(files))
+		for i, f := range files {
+			batchReqs[i] = settingsEval{evalFile: f, Depth: depth[f.File]}
 		}
 		payload, err := json.Marshal(batchReqs)
 		if err != nil {
@@ -124,7 +141,20 @@ func settingLine(s Setting) string {
 	for i, n := range s.Path {
 		names[i] = nixAttrName(n)
 	}
-	return fmt.Sprintf("%s%s = %s;\n", settingsIndent, strings.Join(names, attrPathSep), renderNixValue(s.Value, 1))
+	line := fmt.Sprintf("%s%s = %s;", settingsIndent, strings.Join(names, attrPathSep), renderNixValue(s.Value, 1))
+	if !strings.Contains(line, "\n") {
+		line += lineComment(s.Comment)
+	}
+	return line + "\n"
+}
+
+// lineComment is comment as the tail of a line, on one line, or "" when empty.
+func lineComment(comment string) string {
+	words := strings.Fields(comment)
+	if len(words) == 0 {
+		return ""
+	}
+	return trailingComment + strings.Join(words, " ")
 }
 
 // AppendSettings adds settings before the last line of file that is only "}".
@@ -188,6 +218,33 @@ func CommentSettings(file string, depth int, drop [][]string) error {
 		for n := l.Line - 1; n < stop; n++ {
 			lines[n] = base + commentPrefix + strings.TrimPrefix(lines[n], base)
 		}
+	}
+	return writeLines(file, lines)
+}
+
+// CommentSettingLines sets the trailing comment of each single-line
+// assignment in leaves to comments[key], removing it when the key has none.
+// Multi-line assignments are left alone. The file is written only when a line
+// changes.
+func CommentSettingLines(file string, leaves []SettingLeaf, comments map[string]string) error {
+	lines, err := readLines(file)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, l := range leaves {
+		m := assignmentLineRe.FindStringSubmatch(lines[l.Line-1])
+		if m == nil || strings.Count(m[1], `"`)%2 != 0 {
+			continue
+		}
+		line := m[1] + lineComment(comments[strings.Join(l.Path, attrPathSep)])
+		if line != lines[l.Line-1] {
+			lines[l.Line-1] = line
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
 	}
 	return writeLines(file, lines)
 }

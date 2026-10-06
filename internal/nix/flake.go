@@ -118,7 +118,7 @@ let
     let
       ev = builtins.tryEval (
         let
-          m = import file;
+          m = import file.path;
           isFn = builtins.isFunction m;
           args = if isFn then
             builtins.mapAttrs (n: _: throw "luxos-stub:${n}") (builtins.functionArgs m)
@@ -134,7 +134,7 @@ let
         pos = builtins.unsafeGetAttrPos name inputs;
       }) inputs;
 in
-  builtins.listToAttrs (map (file: { name = file; value = readFile file; }) files)
+  builtins.listToAttrs (map (file: { name = file.file; value = readFile file; }) files)
 `
 
 type evalPos struct {
@@ -215,6 +215,26 @@ func absExisting(caller string, files []string) ([]string, error) {
 	return abs, nil
 }
 
+// evalFile is a file as a batch evaluation reads it: keyed by File and
+// imported from Path, the same file with every symlink resolved, since nix
+// reports every position in a file imported through a symlink as line 1.
+type evalFile struct {
+	File string `json:"file"`
+	Path string `json:"path"`
+}
+
+func evalFiles(abs []string) ([]evalFile, error) {
+	out := make([]evalFile, len(abs))
+	for i, f := range abs {
+		p, err := filepath.EvalSymlinks(f)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = evalFile{File: f, Path: p}
+	}
+	return out, nil
+}
+
 // evalEach runs eval over abs; each time nix names one of the files in its
 // failure, that file is dropped and eval runs again. It returns the dropped
 // files with nix's message. A failure naming none of abs is returned as is.
@@ -239,7 +259,11 @@ func evalInputDecls(abs []string) ([]InputDecl, error) {
 	if len(abs) == 0 {
 		return nil, nil
 	}
-	payload, err := json.Marshal(abs)
+	files, err := evalFiles(abs)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(files)
 	if err != nil {
 		return nil, err
 	}

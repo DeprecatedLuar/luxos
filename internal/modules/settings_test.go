@@ -302,3 +302,30 @@ func TestSyncUnitSettings_NoOptions(t *testing.T) {
 		t.Errorf("settings file created: %v", err)
 	}
 }
+
+const describedOptions = `{ lib, ... }: {
+  options.laptop.mode = lib.mkOption { type = lib.types.str; default = "a"; description = "a | b"; };
+  options.laptop.limit = lib.mkOption { type = lib.types.int; default = 80; };
+}
+`
+
+func TestSyncSettings_DescriptionCommentsCreateAppendRefresh(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{"laptop/default.nix": optionsDefault, "laptop/options.nix": describedOptions}, "laptop")
+	file := filepath.Join(h.HostDir, "settings", "laptop.nix")
+
+	if _, err := SyncSettings(h); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readString(t, file), "{\n  laptop.limit = 80;\n  laptop.mode = \"a\"; # a | b\n}\n"; got != want {
+		t.Errorf("created = %q, want %q", got, want)
+	}
+
+	mustWriteFile(t, file, "{\n  laptop.mode = \"b\"; # stale\n}\n")
+	if _, err := SyncSettings(h); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readString(t, file), "{\n  laptop.mode = \"b\"; # a | b\n  laptop.limit = 80;\n}\n"; got != want {
+		t.Errorf("healed = %q, want %q", got, want)
+	}
+}

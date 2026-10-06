@@ -109,3 +109,23 @@ func TestReadOptions_BrokenFiles(t *testing.T) {
 		t.Errorf("lib.nix broken = %q, want nix's missing-attribute message", broken[libCall])
 	}
 }
+
+func TestReadOptions_Description(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	f := writeNix(t, dir, "d.nix", `{ lib, ... }: {
+  options.laptop.mode = lib.mkOption { type = lib.types.str; default = "a"; description = "a | b"; };
+  options.laptop.limit = lib.mkOption { type = lib.types.int; default = 80; };
+}`)
+	got, broken, err := ReadOptions(f)
+	if err != nil || len(broken) > 0 {
+		t.Fatalf("ReadOptions: %v %v", err, broken)
+	}
+	desc := map[string]string{}
+	for _, o := range got[f].Options {
+		desc[strings.Join(o.Path, ".")] = o.Description
+	}
+	if desc["laptop.mode"] != "a | b" || desc["laptop.limit"] != "" {
+		t.Errorf("descriptions = %v", desc)
+	}
+}

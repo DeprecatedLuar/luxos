@@ -122,7 +122,7 @@ func checkOptions(file string, ns []string, f nix.OptionsFile) ([]nix.Setting, [
 		case !leaf.PlainDefault:
 			problems = append(problems, fmt.Sprintf("%s: options.%s default is not a plain value (null, bool, number, string, or a list or attrset of those)", file, path))
 		default:
-			declared = append(declared, nix.Setting{Path: leaf.Path, Value: leaf.Default})
+			declared = append(declared, nix.Setting{Path: leaf.Path, Value: leaf.Default, Comment: leaf.Description})
 		}
 	}
 	return declared, problems
@@ -239,6 +239,12 @@ func syncSettings(h *Host, ms []Module) (SettingsReport, error) {
 			continue
 		}
 		missing, drop := diffSettings(u.Declared, read[abs])
+		comments := settingComments(u.Declared)
+		if err := nix.CommentSettingLines(u.File, declaredLeaves(comments, read[abs]), comments); err != nil {
+			u.Problems = append(u.Problems, err.Error())
+			rep.Broken = append(rep.Broken, u)
+			continue
+		}
 		if len(drop) > 0 {
 			if err := nix.CommentSettings(u.File, reqs[i].Depth, drop); err != nil {
 				u.Problems = append(u.Problems, err.Error())
@@ -292,6 +298,26 @@ func diffSettings(declared []nix.Setting, have []nix.SettingLeaf) (missing []nix
 		}
 	}
 	return missing, drop
+}
+
+// declaredLeaves is the file's assignments whose key is in comments.
+func declaredLeaves(comments map[string]string, have []nix.SettingLeaf) []nix.SettingLeaf {
+	var out []nix.SettingLeaf
+	for _, l := range have {
+		if _, ok := comments[strings.Join(l.Path, attrSep)]; ok {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// settingComments maps each declared key to the comment its line carries.
+func settingComments(declared []nix.Setting) map[string]string {
+	out := map[string]string{}
+	for _, s := range declared {
+		out[strings.Join(s.Path, attrSep)] = s.Comment
+	}
+	return out
 }
 
 func joinPaths(paths [][]string) []string {
