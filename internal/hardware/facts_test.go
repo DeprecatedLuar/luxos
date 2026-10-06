@@ -40,6 +40,7 @@ func TestRender_DMI(t *testing.T) {
 		"  luxos.hardware.vendor = \"Example Corp.\";\n" +
 		"  luxos.hardware.product = \"Example Laptop 14\";\n" +
 		"  luxos.hardware.chassisType = 10;\n" +
+		"  luxos.hardware.platformProfiles = [ ];\n" +
 		"  luxos.hardware.gpus = [ ];\n" +
 		"}\n"
 	if string(out) != want {
@@ -54,5 +55,15 @@ func TestRender_EscapesStrings(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `luxos.hardware.vendor = "a\"b\\c\${d}";`) {
 		t.Errorf("vendor not escaped as a Nix string:\n%s", out)
+	}
+}
+
+func TestRender_PlatformProfilesKeepKernelOrder(t *testing.T) {
+	out, err := Render(Facts{PlatformProfiles: []string{"cool", "quiet", "balanced"}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), `luxos.hardware.platformProfiles = [ "cool" "quiet" "balanced" ];`) {
+		t.Errorf("profiles not rendered in order:\n%s", out)
 	}
 }

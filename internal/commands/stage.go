@@ -221,11 +221,18 @@ func detectFacts(sysDir string) (hardware.Facts, error) {
 	if err != nil {
 		return hardware.Facts{}, err
 	}
-	return hardware.Facts{GPUs: gpus, DMI: dmi}, nil
+	profiles, err := hardware.DetectPlatformProfiles(sysDir)
+	if err != nil {
+		return hardware.Facts{}, err
+	}
+	return hardware.Facts{GPUs: gpus, DMI: dmi, PlatformProfiles: profiles}, nil
 }
 
 func printFacts(out *ui.Progress, f hardware.Facts) {
 	out.Printf("  %s %s (chassis %d)\n", f.DMI.Vendor, f.DMI.Product, f.DMI.ChassisType)
+	if len(f.PlatformProfiles) > 0 {
+		out.Printf("  platform profiles: %s\n", strings.Join(f.PlatformProfiles, " "))
+	}
 	for _, g := range f.GPUs {
 		out.Printf("  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}

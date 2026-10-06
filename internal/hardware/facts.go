@@ -10,8 +10,9 @@ import (
 
 // Facts is everything luxos detects about the computer for the build.
 type Facts struct {
-	GPUs []GPU
-	DMI  DMI
+	GPUs             []GPU
+	DMI              DMI
+	PlatformProfiles []string
 }
 
 // Render renders f as framework/hardware-facts.nix, GPUs sorted by BusID
@@ -26,6 +27,11 @@ func Render(f Facts) ([]byte, error) {
 	fmt.Fprintf(&b, "  luxos.hardware.vendor = %s;\n", nix.String(f.DMI.Vendor))
 	fmt.Fprintf(&b, "  luxos.hardware.product = %s;\n", nix.String(f.DMI.Product))
 	fmt.Fprintf(&b, "  luxos.hardware.chassisType = %d;\n", f.DMI.ChassisType)
+	b.WriteString("  luxos.hardware.platformProfiles = [ ")
+	for _, p := range f.PlatformProfiles {
+		b.WriteString(nix.String(p) + " ")
+	}
+	b.WriteString("];\n")
 	if len(sorted) == 0 {
 		b.WriteString("  luxos.hardware.gpus = [ ];\n")
 	} else {

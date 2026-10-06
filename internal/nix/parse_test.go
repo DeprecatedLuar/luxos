@@ -235,6 +235,7 @@ func TestNames_CallShapeSuite(t *testing.T) {
 		ok("two separate calls", `{ luxos, ... }: { a = luxos.modules [ "x" ]; b = luxos.modules [ "y" ]; }`, "x\ny")
 		ok("formals with other args", `{ config, lib, luxos, ... }: { imports = luxos.modules [ "a" ]; }`, "a")
 		ok("luxos.modules not in imports", `{ luxos, ... }: { x = luxos.modules [ "a" ]; }`, "a")
+		ok("config.luxos option read", `{ config, ... }: { x = config.luxos.hardware.platformProfiles; }`, "")
 	})
 
 	t.Run("hard errors: any other use of luxos (#28)", func(t *testing.T) {

@@ -17,7 +17,7 @@ func TestHardwareFacts_EvaluateAgainstOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := Render(Facts{DMI: DMI{Vendor: "V", Product: "P", ChassisType: 10}})
+	facts, err := Render(Facts{DMI: DMI{Vendor: "V", Product: "P", ChassisType: 10}, PlatformProfiles: []string{"quiet", "balanced"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,11 +36,13 @@ func TestHardwareFacts_EvaluateAgainstOptions(t *testing.T) {
 		Vendor      string `json:"vendor"`
 		Product     string `json:"product"`
 		ChassisType int    `json:"chassisType"`
+
+		PlatformProfiles []string `json:"platformProfiles"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("decode %s: %v", out, err)
 	}
-	if got.Vendor != "V" || got.Product != "P" || got.ChassisType != 10 {
+	if got.Vendor != "V" || got.Product != "P" || got.ChassisType != 10 || len(got.PlatformProfiles) != 2 || got.PlatformProfiles[0] != "quiet" {
 		t.Errorf("evaluated facts = %+v", got)
 	}
 }

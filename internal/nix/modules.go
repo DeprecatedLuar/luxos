@@ -33,6 +33,10 @@ var (
 	sourceItemRe = regexp.MustCompile(`"([^"]*)"`)
 )
 
+// The framework's option namespace as parse output prints it; reading it is
+// not a use of the luxos specialArg.
+const configNamespace = "(config).luxos"
+
 // ModuleNames returns every name from a recognized luxos.modules call in file,
 // plus every call-shape violation found. err is a parse failure only.
 func ModuleNames(file string) (names, violations []string, err error) {
@@ -119,7 +123,8 @@ func stripFormals(parsed string) string {
 // literal found inside one (names) plus every call-shape or leftover-use
 // violation found (violations). Path literals are stripped from the
 // leftover-use check first — CONFIG_DIR can legitimately contain the
-// substring "luxos" in its own directory name.
+// substring "luxos" in its own directory name. Reads of the framework option
+// namespace (config.luxos) are stripped too.
 func scanLuxosUses(body string) (names []string, violations []string) {
 	matches := callSpanRe.FindAllStringSubmatchIndex(body, -1)
 	var rest strings.Builder
@@ -138,7 +143,7 @@ func scanLuxosUses(body string) (names []string, violations []string) {
 	}
 	rest.WriteString(body[last:])
 
-	remainder := pathRe.ReplaceAllString(rest.String(), "")
+	remainder := strings.ReplaceAll(pathRe.ReplaceAllString(rest.String(), ""), configNamespace, "")
 	if strings.Contains(remainder, "luxos") {
 		violations = append(violations, "uses 'luxos' outside a recognized 'luxos.modules [ ... ]' call")
 	}
