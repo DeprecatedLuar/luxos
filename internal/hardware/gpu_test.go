@@ -43,13 +43,13 @@ func device(t *testing.T, sysDir, addr, class, vendor, deviceID, bootVga string)
 
 func mustRenderContains(t *testing.T, gpus []GPU, substrs ...string) {
 	t.Helper()
-	out, err := RenderGPUs(gpus)
+	out, err := Render(Facts{GPUs: gpus})
 	if err != nil {
-		t.Fatalf("RenderGPUs: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	for _, s := range substrs {
 		if !strings.Contains(string(out), s) {
-			t.Errorf("RenderGPUs output missing %q; got:\n%s", s, out)
+			t.Errorf("Render output missing %q; got:\n%s", s, out)
 		}
 	}
 }
@@ -278,32 +278,6 @@ func TestDetectGPUs_MissingOrMalformedDeviceIsHardError(t *testing.T) {
 		if !strings.Contains(err.Error(), dir) {
 			t.Errorf("%s: error %q does not name device directory %q", name, err, dir)
 		}
-	}
-}
-
-func TestRenderGPUs_Empty(t *testing.T) {
-	out, err := RenderGPUs(nil)
-	if err != nil {
-		t.Fatalf("RenderGPUs: %v", err)
-	}
-	if !strings.Contains(string(out), "luxos.hardware.gpus = [ ];") {
-		t.Errorf("RenderGPUs(nil) = %q, want empty-list form", out)
-	}
-}
-
-func TestRenderGPUs_SortedByBusID(t *testing.T) {
-	gpus := []GPU{
-		{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", Class: "3d", BootVGA: false},
-		{BusID: "PCI:0@0:2:0", Vendor: "intel", VendorID: "0x8086", Class: "vga", BootVGA: true},
-	}
-	out, err := RenderGPUs(gpus)
-	if err != nil {
-		t.Fatalf("RenderGPUs: %v", err)
-	}
-	first := strings.Index(string(out), "PCI:0@0:2:0")
-	second := strings.Index(string(out), "PCI:1@0:0:0")
-	if first < 0 || second < 0 || first > second {
-		t.Errorf("RenderGPUs output not sorted by busId:\n%s", out)
 	}
 }
 

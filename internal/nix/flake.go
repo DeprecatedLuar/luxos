@@ -331,7 +331,7 @@ func RenderInputs(decls []InputDecl) string {
 	for _, name := range names {
 		v := values[name]
 		if url, ok := v["url"].(string); ok && len(v) == 1 {
-			fmt.Fprintf(&b, "    %s.url = %s;\n", nixAttrName(name), nixString(url))
+			fmt.Fprintf(&b, "    %s.url = %s;\n", nixAttrName(name), String(url))
 			continue
 		}
 		fmt.Fprintf(&b, "    %s = %s;\n", nixAttrName(name), renderNixValue(v, 2))
@@ -345,7 +345,7 @@ func nixAttrName(name string) string {
 	if nixIdentRe.MatchString(name) {
 		return name
 	}
-	return nixString(name)
+	return String(name)
 }
 
 // renderNixValue renders a decoded JSON value (string, bool, float64 or
@@ -354,7 +354,7 @@ func nixAttrName(name string) string {
 func renderNixValue(v any, depth int) string {
 	switch val := v.(type) {
 	case string:
-		return nixString(val)
+		return String(val)
 	case bool:
 		if val {
 			return "true"
@@ -386,7 +386,9 @@ func renderNixValue(v any, depth int) string {
 	}
 }
 
-func nixString(s string) string {
+// String renders s as a double-quoted Nix string literal; ", \ and $ are
+// escaped, so the literal never interpolates.
+func String(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
 	for _, r := range s {

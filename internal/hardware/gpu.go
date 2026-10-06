@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -184,26 +183,4 @@ func DetectGPUs(sysDir string) ([]GPU, error) {
 	}
 
 	return gpus, nil
-}
-
-// Sorted by BusID for stable output.
-func RenderGPUs(gpus []GPU) ([]byte, error) {
-	sorted := make([]GPU, len(gpus))
-	copy(sorted, gpus)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].BusID < sorted[j].BusID })
-
-	var b strings.Builder
-	b.WriteString("{ ... }:\n{\n")
-	if len(sorted) == 0 {
-		b.WriteString("  luxos.hardware.gpus = [ ];\n")
-	} else {
-		b.WriteString("  luxos.hardware.gpus = [\n")
-		for _, g := range sorted {
-			fmt.Fprintf(&b, "    { busId = %q; vendor = %q; vendorId = %q; deviceId = %q; class = %q; bootVga = %t; }\n",
-				g.BusID, g.Vendor, g.VendorID, g.DeviceID, g.Class, g.BootVGA)
-		}
-		b.WriteString("  ];\n")
-	}
-	b.WriteString("}\n")
-	return []byte(b.String()), nil
 }

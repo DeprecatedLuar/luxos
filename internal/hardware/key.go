@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	productUUIDRel = "class/dmi/id/product_uuid"
+	productUUIDFile = "product_uuid"
 	// Salts the hash so the key is not the plain hash of the UUID.
 	keyPrefix = "luxos-hardware:"
 	keyLen    = 16
@@ -23,7 +23,7 @@ var errEmptyUUID = errors.New("file is empty")
 // The raw UUID is a permanent identifier and never leaves this function. An
 // unreadable or empty UUID is an error; there is no fallback.
 func Key(sysDir string) (string, error) {
-	path := filepath.Join(sysDir, productUUIDRel)
+	path := filepath.Join(sysDir, dmiDir, productUUIDFile)
 	data, err := os.ReadFile(path)
 	uuid := strings.ToLower(strings.TrimSpace(string(data)))
 	if err == nil && uuid == "" {
