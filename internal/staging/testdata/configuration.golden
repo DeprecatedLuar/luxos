@@ -15,9 +15,15 @@
 
   imports = [
     ./system.nix
+    ./environment.nix
+    ./hardware-facts.nix
+    ./luxos-hardware.nix
+    ./luxos-hardware-defaults.nix
     ../config/modules
     ../config/.plsdonttouch.nix
     ../config/machine.nix
+    ../config/settings/laptop.nix
+    ../config/settings/eduardo/git.nix
   ];
 
   config.networking.hostName = "paraloid";

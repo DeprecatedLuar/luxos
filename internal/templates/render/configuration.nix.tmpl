@@ -15,9 +15,16 @@
 
   imports = [
     ./system.nix
+    ./environment.nix
+    ./hardware-facts.nix
+    ./luxos-hardware.nix
+    ./luxos-hardware-defaults.nix
     ../config/modules
     ../config/.plsdonttouch.nix
     ../config/machine.nix
+{{- range .Settings}}
+    {{.}}
+{{- end}}
   ];
 
   config.networking.hostName = "{{.Host}}";

@@ -30,7 +30,7 @@ func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, en
 	if nixpkgsURL != "" {
 		inputs = []nix.InputDecl{{Name: "nixpkgs", URL: nixpkgsURL, Value: map[string]any{"url": nixpkgsURL}}}
 	}
-	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{})
+	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, nil)
 }
 
 func skipIfNoNix(t *testing.T) {
@@ -941,5 +941,30 @@ func TestMaterializeIgnoresRootLinks(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(mods, "default.nix"))
 	if string(got) != "{ imports = [ ]; }" {
 		t.Errorf("default.nix = %q, want host2's selection", got)
+	}
+}
+
+func TestMaterialize_StagesSettings(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	settingsFile := filepath.Join(hostDir, "settings", "eduardo", "git.nix")
+	if err := os.MkdirAll(filepath.Dir(settingsFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsFile, []byte("{ eduardo.git.name = \"e\"; }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir}
+	inputs := []nix.InputDecl{{Name: "nixpkgs", URL: testNixpkgs, Value: map[string]any{"url": testNixpkgs}}}
+	if err := Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, []string{"eduardo/git"}); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+	staged, err := os.ReadFile(filepath.Join(stagingDir, "config", "settings", "eduardo", "git.nix"))
+	if err != nil || !strings.Contains(string(staged), "eduardo.git.name") {
+		t.Errorf("staged settings = %q, %v", staged, err)
+	}
+	conf, err := os.ReadFile(filepath.Join(stagingDir, "framework", "configuration.nix"))
+	if err != nil || !strings.Contains(string(conf), "../config/settings/eduardo/git.nix") {
+		t.Errorf("configuration.nix does not import the settings file:\n%s", conf)
 	}
 }

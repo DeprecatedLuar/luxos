@@ -74,7 +74,10 @@ const (
 // inputs are the flake-file.inputs declarations of the modules h builds plus
 // the host's machine.nix; they become flake.nix's `inputs = { ... };` block
 // beyond the flake-file pin.
-func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts) error {
+//
+// settings names the units whose settings files (config.SettingsPath) are
+// copied to config/settings/ and imported by framework/configuration.nix.
+func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts, settings []string) error {
 	inputsNix := nix.RenderInputs(inputs)
 	if inputsNix == "" {
 		return errors.New("staging: flake inputs are required")
@@ -114,7 +117,7 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 	}{
 		{flakeFileNix, func() ([]byte, error) { return flakeBootstrap(h.Name) }},
 		{hardwareFactsNix, func() ([]byte, error) { return hardware.Render(facts) }},
-		{configurationNix, func() ([]byte, error) { return configuration(h.Name) }},
+		{configurationNix, func() ([]byte, error) { return configuration(h.Name, settings) }},
 	}
 	for _, g := range generated {
 		content, err := g.render()
@@ -131,6 +134,13 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 	}
 	for _, name := range []string{stagedMachineNix, stagedPlsdonttouch} {
 		if err := copyFile(filepath.Join(h.HostDir, name), filepath.Join(cfgDir, name)); err != nil {
+			return err
+		}
+	}
+
+	for _, name := range settings {
+		dst := filepath.Join(cfgDir, config.SettingsDir, filepath.FromSlash(name)+".nix")
+		if err := copyFile(config.SettingsPath(h.HostDir, name), dst); err != nil {
 			return err
 		}
 	}

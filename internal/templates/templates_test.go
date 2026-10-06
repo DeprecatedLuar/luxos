@@ -25,12 +25,27 @@ func TestDir(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	out, err := Render("configuration.nix.tmpl", struct{ Host string }{"box"})
+	out, err := Render("configuration.nix.tmpl", struct {
+		Host     string
+		Settings []string
+	}{"box", []string{"../config/settings/laptop.nix"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "box") {
-		t.Errorf("host not rendered:\n%s", out)
+	for _, want := range []string{`"box"`, "./system.nix", "./hardware-facts.nix", "./luxos-hardware.nix", "../config/modules", "    ../config/settings/laptop.nix\n"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("configuration.nix missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestSystemNix_ImportsNothing(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sys), "imports") {
+		t.Error("system.nix must not import; configuration.nix holds every import")
 	}
 }
 

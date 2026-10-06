@@ -3,6 +3,7 @@ package staging
 import (
 	"errors"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
@@ -11,14 +12,25 @@ const (
 	bootstrapTemplate     = "bootstrap.nix.tmpl"
 )
 
+const stagedSettingsImport = "../" + configDir + "/" + config.SettingsDir + "/"
+
 type hostData struct {
 	Host string
 }
 
-// configuration renders framework/configuration.nix: the host's imports are
-// fixed by the host folder layout.
-func configuration(host string) ([]byte, error) {
-	return templates.Render(configurationTemplate, hostData{Host: host})
+type configurationData struct {
+	Host     string
+	Settings []string
+}
+
+// configuration renders framework/configuration.nix: every import of the
+// stage, ending with the staged settings files of the units in settings.
+func configuration(host string, settings []string) ([]byte, error) {
+	imports := make([]string, len(settings))
+	for i, name := range settings {
+		imports[i] = stagedSettingsImport + name + ".nix"
+	}
+	return templates.Render(configurationTemplate, configurationData{Host: host, Settings: imports})
 }
 
 // flakeBootstrap renders framework/flake-file.nix, the module flake-file

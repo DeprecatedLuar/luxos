@@ -5,7 +5,7 @@
 # overrides it with a plain assignment. What stays undefaulted is what breaks the
 # system if changed: list options that must merge (systemPackages carries luxos,
 # experimental-features carries flakes), the flake-pinned registry/nixPath, the
-# lockout assertion, and imports/etc plumbing.
+# lockout assertion, and etc plumbing.
 
 let
   # nixpkgs sets services.cron.enable itself with mkDefault (1000), so a second
@@ -13,8 +13,6 @@ let
   cronPriority = 900;
 in
 {
-  imports = [ ./environment.nix ./hardware-facts.nix ./luxos-hardware.nix ./luxos-hardware-defaults.nix ];
-
   #──[Packages]──────────────────────────────────────────────────────────────
 
   nixpkgs.config.allowUnfree = lib.mkDefault true;

@@ -53,7 +53,7 @@ func assertNixParses(t *testing.T, content []byte) {
 }
 
 func TestRenderConfiguration_Golden(t *testing.T) {
-	out, err := configuration("paraloid")
+	out, err := configuration("paraloid", []string{"laptop", "eduardo/git"})
 	if err != nil {
 		t.Fatalf("configuration: %v", err)
 	}
@@ -62,11 +62,11 @@ func TestRenderConfiguration_Golden(t *testing.T) {
 }
 
 func TestRenderConfiguration_Deterministic(t *testing.T) {
-	a, err := configuration("paraloid")
+	a, err := configuration("paraloid", nil)
 	if err != nil {
 		t.Fatalf("configuration: %v", err)
 	}
-	b, err := configuration("paraloid")
+	b, err := configuration("paraloid", nil)
 	if err != nil {
 		t.Fatalf("configuration: %v", err)
 	}

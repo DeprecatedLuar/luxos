@@ -103,7 +103,7 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 	printFacts(out, facts)
 
 	out.Printf("Materializing %s for %s...\n", dir, host)
-	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts); err != nil {
+	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts, h.StagedSettings()); err != nil {
 		return err
 	}
 
