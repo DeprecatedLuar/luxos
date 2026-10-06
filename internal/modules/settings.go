@@ -155,3 +155,201 @@ func (h *Host) selected() []Module {
 	}
 	return out
 }
+
+// SettingsChange is one settings file and the keys a sync wrote or commented out in it.
+type SettingsChange struct {
+	File string
+	Keys []string
+}
+
+// SettingsReport is what SyncSettings did, and the units it skipped for
+// breaking a rule (their Problems say why).
+type SettingsReport struct {
+	Created   []string
+	Appended  []SettingsChange
+	Commented []SettingsChange
+	Broken    []UnitSettings
+}
+
+// SyncSettings makes h's settings file of every selected unit with an
+// options.nix hold every declared key: a missing file is created with the
+// defaults, a missing key is appended with its default, and an undeclared
+// assignment is commented out. A unit breaking a rule, or whose file cannot
+// be read or written, is skipped and returned in Broken.
+func SyncSettings(h *Host) (SettingsReport, error) {
+	var rep SettingsReport
+	us, err := h.Settings(h.selected())
+	if err != nil {
+		return rep, err
+	}
+	var existing []UnitSettings
+	for _, u := range us {
+		if len(u.Problems) > 0 {
+			rep.Broken = append(rep.Broken, u)
+			continue
+		}
+		_, err := os.Stat(u.File)
+		switch {
+		case os.IsNotExist(err):
+			if err := createSettings(u); err != nil {
+				u.Problems = append(u.Problems, err.Error())
+				rep.Broken = append(rep.Broken, u)
+				continue
+			}
+			rep.Created = append(rep.Created, u.File)
+		case err != nil:
+			return rep, err
+		default:
+			existing = append(existing, u)
+		}
+	}
+	if len(existing) == 0 {
+		return rep, nil
+	}
+
+	reqs := make([]nix.SettingsRequest, len(existing))
+	for i, u := range existing {
+		reqs[i] = nix.SettingsRequest{File: u.File, Depth: len(Namespace(u.Module.Name)) + 1}
+	}
+	read, broken, err := nix.ReadSettings(reqs)
+	if err != nil {
+		return rep, err
+	}
+	for i, u := range existing {
+		abs, err := filepath.Abs(u.File)
+		if err != nil {
+			return rep, err
+		}
+		if msg, bad := broken[abs]; bad {
+			u.Problems = append(u.Problems, fmt.Sprintf("%s: %s", u.File, msg))
+			rep.Broken = append(rep.Broken, u)
+			continue
+		}
+		missing, drop := diffSettings(u.Declared, read[abs])
+		if len(drop) > 0 {
+			if err := nix.CommentSettings(u.File, reqs[i].Depth, drop); err != nil {
+				u.Problems = append(u.Problems, err.Error())
+				rep.Broken = append(rep.Broken, u)
+				continue
+			}
+			rep.Commented = append(rep.Commented, SettingsChange{File: u.File, Keys: joinPaths(drop)})
+		}
+		if len(missing) > 0 {
+			if err := nix.AppendSettings(u.File, missing); err != nil {
+				u.Problems = append(u.Problems, err.Error())
+				rep.Broken = append(rep.Broken, u)
+				continue
+			}
+			paths := make([][]string, len(missing))
+			for j, s := range missing {
+				paths[j] = s.Path
+			}
+			rep.Appended = append(rep.Appended, SettingsChange{File: u.File, Keys: joinPaths(paths)})
+		}
+	}
+	return rep, nil
+}
+
+func createSettings(u UnitSettings) error {
+	if err := config.MkdirAll(filepath.Dir(u.File)); err != nil {
+		return err
+	}
+	_, err := config.CreateFile(u.File, nix.RenderSettings(u.Declared))
+	return err
+}
+
+// diffSettings returns the declared settings a file lacks and the file's
+// assignments that are not declared.
+func diffSettings(declared []nix.Setting, have []nix.SettingLeaf) (missing []nix.Setting, drop [][]string) {
+	declaredKeys := map[string]bool{}
+	for _, s := range declared {
+		declaredKeys[strings.Join(s.Path, attrSep)] = true
+	}
+	haveKeys := map[string]bool{}
+	for _, l := range have {
+		key := strings.Join(l.Path, attrSep)
+		haveKeys[key] = true
+		if !declaredKeys[key] {
+			drop = append(drop, l.Path)
+		}
+	}
+	for _, s := range declared {
+		if !haveKeys[strings.Join(s.Path, attrSep)] {
+			missing = append(missing, s)
+		}
+	}
+	return missing, drop
+}
+
+func joinPaths(paths [][]string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = strings.Join(p, attrSep)
+	}
+	return out
+}
+
+// MoveSettings renames unit name's settings file, and the folder of its
+// submodules' settings when it is a bundle, to newName in every host in
+// scope (host and skipHosts as for RetargetSelections); newName "" deletes
+// them. A missing entry is skipped. An entry whose target already exists is
+// left in place and returned in kept.
+func MoveSettings(machinesDir, name, newName, host string, skipHosts []string) (kept []string, err error) {
+	entrypoints, err := scopedEntrypoints(machinesDir, host, skipHosts)
+	if err != nil {
+		return nil, err
+	}
+	for _, ep := range entrypoints {
+		hostDir := filepath.Dir(ep)
+		pairs := [][2]string{
+			{config.SettingsPath(hostDir, name), ""},
+			{config.SettingsFolder(hostDir, name), ""},
+		}
+		if newName != "" {
+			pairs[0][1] = config.SettingsPath(hostDir, newName)
+			pairs[1][1] = config.SettingsFolder(hostDir, newName)
+		}
+		for _, pair := range pairs {
+			from, to := pair[0], pair[1]
+			if _, err := os.Lstat(from); os.IsNotExist(err) {
+				continue
+			} else if err != nil {
+				return kept, err
+			}
+			if to == "" {
+				if err := os.RemoveAll(from); err != nil {
+					return kept, err
+				}
+				continue
+			}
+			if _, err := os.Lstat(to); err == nil {
+				kept = append(kept, from)
+				continue
+			} else if !os.IsNotExist(err) {
+				return kept, err
+			}
+			if err := config.MkdirAll(filepath.Dir(to)); err != nil {
+				return kept, err
+			}
+			if err := os.Rename(from, to); err != nil {
+				return kept, err
+			}
+		}
+	}
+	return kept, nil
+}
+
+// StagedSettings returns the names of h's selected units that have an
+// options.nix and a settings file, in selection order.
+func (h *Host) StagedSettings() []string {
+	var out []string
+	for _, m := range h.selected() {
+		if _, ok := optionsOf(m); !ok {
+			continue
+		}
+		if isFile(config.SettingsPath(h.HostDir, m.Name)) {
+			out = append(out, m.Name)
+		}
+	}
+	return out
+}

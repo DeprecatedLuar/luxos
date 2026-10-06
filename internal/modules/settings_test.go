@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -104,5 +105,159 @@ func TestSettings_UnparsableSettingsFile(t *testing.T) {
 	}
 	if len(us) != 1 || !strings.Contains(strings.Join(us[0].Problems, "\n"), "does not parse") {
 		t.Errorf("Problems = %+v", us)
+	}
+}
+
+const laptopOptions = `{ lib, ... }: {
+  options.laptop.limit = lib.mkOption { type = lib.types.int; default = 80; };
+  options.laptop.mode = lib.mkOption { type = lib.types.str; default = "balanced"; };
+}`
+
+func readString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestSyncSettings_CreatesForSelectedOnly(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{
+		"laptop/default.nix": optionsDefault,
+		"laptop/options.nix": laptopOptions,
+		"other/default.nix":  optionsDefault,
+		"other/options.nix":  `{ lib, ... }: { options.other.a = lib.mkOption { type = lib.types.int; default = 1; }; }`,
+	}, "laptop")
+	rep, err := SyncSettings(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(h.HostDir, "settings", "laptop.nix")
+	if !reflect.DeepEqual(rep.Created, []string{file}) {
+		t.Errorf("Created = %v", rep.Created)
+	}
+	if got, want := readString(t, file), "{\n  laptop.limit = 80;\n  laptop.mode = \"balanced\";\n}\n"; got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(h.HostDir, "settings", "other.nix")); !os.IsNotExist(err) {
+		t.Errorf("unselected unit got a settings file: %v", err)
+	}
+
+	again, err := SyncSettings(h)
+	if err != nil || len(again.Created)+len(again.Appended)+len(again.Commented) != 0 {
+		t.Errorf("second sync = %+v, %v; want nothing to do", again, err)
+	}
+}
+
+func TestSyncSettings_AppendsAndComments(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{"laptop/default.nix": optionsDefault, "laptop/options.nix": laptopOptions}, "laptop")
+	file := filepath.Join(h.HostDir, "settings", "laptop.nix")
+	mustWriteFile(t, file, "{\n  laptop.mode = \"performance\";\n  laptop.gone = 1;\n}\n")
+	rep, err := SyncSettings(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  laptop.mode = \"performance\";\n  # laptop.gone = 1;\n  laptop.limit = 80;\n}\n"
+	if got := readString(t, file); got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(rep.Appended, []SettingsChange{{File: file, Keys: []string{"laptop.limit"}}}) {
+		t.Errorf("Appended = %+v", rep.Appended)
+	}
+	if !reflect.DeepEqual(rep.Commented, []SettingsChange{{File: file, Keys: []string{"laptop.gone"}}}) {
+		t.Errorf("Commented = %+v", rep.Commented)
+	}
+}
+
+func TestSyncSettings_RedeclaredKeyKeepsComment(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{"laptop/default.nix": optionsDefault, "laptop/options.nix": laptopOptions}, "laptop")
+	file := filepath.Join(h.HostDir, "settings", "laptop.nix")
+	mustWriteFile(t, file, "{\n  # laptop.limit = 90;\n  laptop.mode = \"a\";\n}\n")
+	if _, err := SyncSettings(h); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readString(t, file), "{\n  # laptop.limit = 90;\n  laptop.mode = \"a\";\n  laptop.limit = 80;\n}\n"; got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+func TestSyncSettings_BrokenUnitSkipped(t *testing.T) {
+	skipIfNoNix(t)
+	h := settingsHost(t, map[string]string{
+		"laptop/default.nix": optionsDefault,
+		"laptop/options.nix": laptopOptions,
+		"bad/default.nix":    optionsDefault,
+		"bad/options.nix":    `{ lib, ... }: { options.bad.a = lib.mkOption { type = lib.types.int; }; }`,
+	}, "laptop", "bad")
+	rep, err := SyncSettings(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Broken) != 1 || rep.Broken[0].Module.Name != "bad" {
+		t.Errorf("Broken = %+v", rep.Broken)
+	}
+	if len(rep.Created) != 1 {
+		t.Errorf("Created = %v, want the healthy unit's file", rep.Created)
+	}
+}
+
+func TestMoveSettings_BundleFolderMoves(t *testing.T) {
+	root := t.TempDir()
+	machines := filepath.Join(root, "machines")
+	for _, host := range []string{"host1", "host2"} {
+		mustWriteFile(t, filepath.Join(machines, host, "modules.nix"), "{ imports = [ ]; }\n")
+		mustWriteFile(t, filepath.Join(machines, host, "settings", "eduardo.nix"), "{ }\n")
+		mustWriteFile(t, filepath.Join(machines, host, "settings", "eduardo", "git.nix"), "{ }\n")
+	}
+	kept, err := MoveSettings(machines, "eduardo", "luar", "", []string{"host2"})
+	if err != nil || len(kept) > 0 {
+		t.Fatalf("MoveSettings: %v %v", kept, err)
+	}
+	for _, p := range []string{"host1/settings/luar.nix", "host1/settings/luar/git.nix", "host2/settings/eduardo.nix", "host2/settings/eduardo/git.nix"} {
+		if _, err := os.Stat(filepath.Join(machines, p)); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(machines, "host1/settings/eduardo.nix")); !os.IsNotExist(err) {
+		t.Errorf("old file still on host1: %v", err)
+	}
+}
+
+func TestMoveSettings_RemoveAndKept(t *testing.T) {
+	root := t.TempDir()
+	machines := filepath.Join(root, "machines")
+	mustWriteFile(t, filepath.Join(machines, "host1", "modules.nix"), "{ imports = [ ]; }\n")
+	mustWriteFile(t, filepath.Join(machines, "host1", "settings", "a.nix"), "{ }\n")
+	mustWriteFile(t, filepath.Join(machines, "host1", "settings", "b.nix"), "{ }\n")
+
+	kept, err := MoveSettings(machines, "a", "b", "host1", nil)
+	if err != nil || !reflect.DeepEqual(kept, []string{filepath.Join(machines, "host1", "settings", "a.nix")}) {
+		t.Errorf("rename onto an existing file: kept = %v, err = %v", kept, err)
+	}
+	if _, err := MoveSettings(machines, "a", "", "host1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(machines, "host1", "settings", "a.nix")); !os.IsNotExist(err) {
+		t.Errorf("remove left the file: %v", err)
+	}
+}
+
+func TestStagedSettings(t *testing.T) {
+	h := settingsHost(t, map[string]string{
+		"laptop/default.nix": optionsDefault,
+		"laptop/options.nix": laptopOptions,
+		"nofile/default.nix": optionsDefault,
+		"nofile/options.nix": laptopOptions,
+		"off/default.nix":    optionsDefault,
+		"off/options.nix":    laptopOptions,
+	}, "laptop", "nofile")
+	mustWriteFile(t, filepath.Join(h.HostDir, "settings", "laptop.nix"), "{ }\n")
+	mustWriteFile(t, filepath.Join(h.HostDir, "settings", "off.nix"), "{ }\n")
+	if got := h.StagedSettings(); !reflect.DeepEqual(got, []string{"laptop"}) {
+		t.Errorf("StagedSettings = %v, want [laptop]", got)
 	}
 }
