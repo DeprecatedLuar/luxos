@@ -227,3 +227,24 @@ func TestPrompter_EmptyLineIsNotEOF(t *testing.T) {
 		t.Fatalf("Ask = %q, %v; want empty, nil", got, err)
 	}
 }
+
+func TestTree_RowWithoutMarkerIsANode(t *testing.T) {
+	rows := []Row{{
+		Category: []string{"desktop"},
+		Name:     "hyprland.nix",
+		Children: []Row{{Name: "neovim", Marker: "◉"}},
+	}}
+
+	var b strings.Builder
+	Tree(&b, rows, "packages/", Palette{})
+	want := "packages/\n└── desktop/\n    └── hyprland.nix\n        └── ◉ neovim\n\n"
+	if b.String() != want {
+		t.Errorf("tree:\n%q\nwant:\n%q", b.String(), want)
+	}
+
+	var c strings.Builder
+	Tree(&c, rows, "packages/", Colored)
+	if !strings.Contains(c.String(), codeTitle+"hyprland.nix"+codeReset) {
+		t.Errorf("colored tree does not draw the node in the title color:\n%q", c.String())
+	}
+}
