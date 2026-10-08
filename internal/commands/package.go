@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,14 @@ const packageListFlagSpec = packageFlagSpec + " flat:bool"
 const packageTmpPattern = "luxos-packages-"
 
 const (
+	packageViewSep     = "\n"
+	packageViewListSep = " "
+
+	packageMissingName = "missing package name\n  usage: luxos package <name>... [--machine <name>] [--config|-C <dir>] [--raw|--json]"
+	packageUnknownName = "no package '%s' for %s\n  list them with: luxos packages"
+)
+
+const (
 	packagesLabel    = "packages/"
 	packagesEmpty    = "(no packages)\n"
 	packageBaseInput = "nixpkgs" // the base channel, by convention
@@ -42,7 +51,10 @@ func Package(args []string) error {
 	case "list", "ls":
 		return packageList(args[1:])
 	default:
-		return help.Run([]string{"help", "package"})
+		if strings.HasPrefix(args[0], "-") {
+			return help.Run([]string{"help", "package"})
+		}
+		return packageShow(args)
 	}
 }
 
@@ -277,4 +289,119 @@ func packageRenderListJSON(w *strings.Builder, pkgs []packages.Package) error {
 		})
 	}
 	return ui.JSON(w, rows)
+}
+
+//──[show]─────────────────────────────────────────────────────────────────
+
+func packageShow(args []string) error {
+	opts, names, err := shared.Parse(packageFlagSpec, args)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return errors.New(packageMissingName)
+	}
+	if opts["json"] != "" && opts["raw"] != "" {
+		return ui.ErrJSONConflict("--raw")
+	}
+
+	pkgs, host, err := packagesOf(opts)
+	if err != nil {
+		return err
+	}
+	views, err := packageViews(pkgs, names, host)
+	if err != nil {
+		return err
+	}
+
+	var out strings.Builder
+	if opts["json"] != "" {
+		if err := packageRenderViewsJSON(&out, views); err != nil {
+			return err
+		}
+		fmt.Print(out.String())
+		return nil
+	}
+
+	tty := ui.IsTerminal(os.Stdout) && opts["raw"] == ""
+	pal := ui.PaletteFor(os.Stdout)
+	for i, v := range views {
+		if i > 0 {
+			out.WriteString(packageViewSep)
+		}
+		if tty {
+			packageRenderView(&out, v, pal)
+		} else {
+			packageRenderViewPlain(&out, v)
+		}
+	}
+	fmt.Print(out.String())
+	return nil
+}
+
+// packageViews returns the packages each name labels, in argument order.
+func packageViews(pkgs []packages.Package, names []string, host string) ([]packages.Package, error) {
+	var views []packages.Package
+	for _, name := range names {
+		found := packages.Named(pkgs, name)
+		if len(found) == 0 {
+			return nil, fmt.Errorf(packageUnknownName, name, host)
+		}
+		views = append(views, found...)
+	}
+	return views, nil
+}
+
+func packageRenderView(w *strings.Builder, pkg packages.Package, pal ui.Palette) {
+	declared := ui.Line{Label: "declared"}
+	if len(pkg.Files) == 1 {
+		declared.Value = pkg.Files[0]
+	} else {
+		for _, f := range pkg.Files {
+			declared.Children = append(declared.Children, ui.Line{Value: f})
+		}
+	}
+	marker := packageMarker(pkg.State)
+	ui.RenderView(w, ui.View{
+		Marker: marker, Color: markerColor(marker), Name: pkg.Label(),
+		Lines: []ui.Line{
+			{Label: "source", Value: packageUnknownOr(pkg.Source)},
+			declared,
+			{Label: "version", Value: packageUnknownOr(pkg.Version)},
+		},
+	}, pal)
+}
+
+func packageRenderViewPlain(w *strings.Builder, pkg packages.Package) {
+	for _, kv := range [][2]string{
+		{"name", pkg.Label()}, {"state", markerWord(packageMarker(pkg.State))},
+		{"source", packageUnknownOr(pkg.Source)}, {"declared", strings.Join(pkg.Files, packageViewListSep)},
+		{"version", packageUnknownOr(pkg.Version)},
+	} {
+		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
+	}
+}
+
+type packageViewJSON struct {
+	Name     string   `json:"name"`
+	State    string   `json:"state"`
+	Source   *string  `json:"source"`
+	Declared []string `json:"declared"`
+	Version  *string  `json:"version"`
+}
+
+// packageRenderViewsJSON writes one object for one view, an array for several.
+func packageRenderViewsJSON(w *strings.Builder, views []packages.Package) error {
+	objs := make([]packageViewJSON, 0, len(views))
+	for _, pkg := range views {
+		objs = append(objs, packageViewJSON{
+			Name: pkg.Label(), State: markerWord(packageMarker(pkg.State)),
+			Source: packageNullable(pkg.Source), Declared: append([]string{}, pkg.Files...),
+			Version: packageNullable(pkg.Version),
+		})
+	}
+	if len(objs) == 1 {
+		return ui.JSON(w, objs[0])
+	}
+	return ui.JSON(w, objs)
 }
