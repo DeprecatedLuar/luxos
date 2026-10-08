@@ -23,6 +23,14 @@ const flakeFlagSpec = "machine:value config|C:value"
 
 const flakeUpdateTmpPattern = "luxos-flake-update-"
 
+const (
+	updateFlagSpec      = flakeFlagSpec + " yes|y:bool"
+	updateDefaultInput  = "luxos"
+	updateDefaultPrompt = "Update luxos? [y/N] "
+)
+
+var errUpdateAborted = errors.New("aborted: nothing updated\n  confirm with: luxos update --yes")
+
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
 const gitLockType = "git"
@@ -66,12 +74,42 @@ func Flake(args []string) error {
 	}
 }
 
+// Update is `flake update`; with no inputs it updates luxos after a confirmation.
+func Update(args []string) error {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+		return help.Run([]string{"help", "update"})
+	}
+
+	opts, names, err := shared.Parse(updateFlagSpec, args)
+	if err != nil {
+		return err
+	}
+
+	if len(names) == 0 {
+		if opts["yes"] == "" {
+			reply, err := ui.Ask(os.Stderr, updateDefaultPrompt)
+			if err != nil {
+				return err
+			}
+			if !ui.IsYes(reply) {
+				return errUpdateAborted
+			}
+		}
+		names = []string{updateDefaultInput}
+	}
+
+	return updateInputs(opts, names)
+}
+
 func flakeUpdate(args []string) error {
 	opts, names, err := shared.Parse(flakeFlagSpec, args)
 	if err != nil {
 		return err
 	}
+	return updateInputs(opts, names)
+}
 
+func updateInputs(opts map[string]string, names []string) error {
 	p, host, hostDir, err := shared.ResolveHost(opts)
 	if err != nil {
 		return err

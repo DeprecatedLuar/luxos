@@ -11,6 +11,7 @@ const (
 	rebuildDescription = "rebuild the system from CONFIG_DIR"
 	setupDescription   = "create a luxos config on this computer, or add it as a machine"
 	flakeDescription   = "list, inspect and update the host's flake inputs"
+	updateDescription  = "update luxos or the host's flake inputs"
 	packageDescription = "list the packages the config installs and the files declaring them"
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
@@ -31,11 +32,12 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
+			gohelp.Item("update [inputs...] [-y]", "Short for 'flake update'; bare 'update' updates luxos after a confirmation"),
 			gohelp.Item("packages|package list|ls", "List the packages the config installs under the files declaring them; bare 'packages' is a shortcut for this"),
 			gohelp.Item("package <name>...", "Show where a package comes from and which files declare it"),
 			gohelp.Item("module|modules|m list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
 			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
-			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit' is a shortcut for this"),
+			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit'/'e' is a shortcut for this"),
 			gohelp.Item("module|modules|m configure|config <name>", "Open this host's settings for a module in $EDITOR, creating or updating them first; top-level 'configure'/'config' is a shortcut for this"),
 			gohelp.Item("module|modules|m enable|1 <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
 			gohelp.Item("module|modules|m disable|0 <name>... [-y]", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
@@ -95,6 +97,17 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("?", "after a name: upstream could not be checked (unsupported source or request failed)"),
 		).
 		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, unstable. The base channel, nixpkgs, is declared in the host's machine.nix as flake-file.inputs.nixpkgs.url = \"<url>\"; and is required. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
+}
+
+func updatePage() *gohelp.Page {
+	return gohelp.NewPage("update", updateDescription).
+		Usage(binaryName+" update [inputs...] [flags]").
+		Section("Flags",
+			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
+			gohelp.Item("-y, --yes", "Update luxos without asking"),
+		).
+		Text("With inputs, the same as 'luxos flake update <inputs...>'. With none, asks, then updates only the luxos input; the new luxos runs from the next rebuild. To update every input, use 'luxos flake update'.")
 }
 
 func packagePage() *gohelp.Page {
@@ -202,5 +215,5 @@ func settingsPage() *gohelp.Page {
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), packagePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), updatePage(), packagePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
 }
