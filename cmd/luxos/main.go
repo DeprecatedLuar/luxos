@@ -2,14 +2,16 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands"
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
+
+var errUnknownCommand = errors.New("unknown command")
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -17,7 +19,7 @@ func main() {
 		if errors.As(err, &code) {
 			os.Exit(int(code))
 		}
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		ui.Error(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -60,7 +62,7 @@ func run(args []string) error {
 	case "shell":
 		return commands.Shell(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: unknown command")
+		ui.Error(os.Stderr, errUnknownCommand)
 		_ = help.Run(nil)
 		return shared.ExitCode(1)
 	}

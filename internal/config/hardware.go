@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -43,8 +42,7 @@ func HardwareDir(sysDir, hardwareRoot string) (string, error) {
 
 // EnsureHardware creates this computer's hardware folder and whichever of its
 // files are missing, then validates it. Existing files are never rewritten.
-func EnsureHardware(w io.Writer, p paths.Paths) (string, error) {
-	out := ui.NewProgress(w)
+func EnsureHardware(out *ui.Progress, p paths.Paths) (string, error) {
 	hwDir, err := HardwareDir(p.Sys, p.HardwareRoot)
 	if err != nil {
 		return "", err
@@ -60,7 +58,7 @@ func EnsureHardware(w io.Writer, p paths.Paths) (string, error) {
 		return "", err
 	}
 	if created {
-		out.Printf("  created: %s%s\n", hwConfig, hardwareConfigNote)
+		out.Changef("  created: %s%s", hwConfig, hardwareConfigNote)
 	}
 
 	bootPath := filepath.Join(hwDir, BootFile)
@@ -69,7 +67,7 @@ func EnsureHardware(w io.Writer, p paths.Paths) (string, error) {
 		return "", err
 	}
 	if created {
-		out.Printf("  created: %s%s\n", bootPath, bootNote)
+		out.Changef("  created: %s%s", bootPath, bootNote)
 	}
 
 	for _, f := range []struct{ name, template string }{
@@ -86,7 +84,7 @@ func EnsureHardware(w io.Writer, p paths.Paths) (string, error) {
 			return "", err
 		}
 		if created {
-			out.Printf("  created: %s\n", path)
+			out.Changef("  created: %s", path)
 		}
 	}
 

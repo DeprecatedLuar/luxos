@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -27,9 +26,8 @@ var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modul
 // folder (validated and protected), this computer's hardware folder and the
 // host's link to it, the mirror and local-module links, the machine.nix
 // checks and the local link.
-func Ensure(w io.Writer, p paths.Paths, host string) error {
+func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	hostDir := filepath.Join(p.Machines, host)
-	out := ui.NewProgress(w)
 
 	out.Printf("Ensuring .gitignore...\n")
 	added, err := ensureGitignore(filepath.Join(p.Config, gitignoreFile), gitignoreLines)
@@ -37,7 +35,7 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	for _, line := range added {
-		out.Printf("  added: %s\n", line)
+		out.Changef("  added: %s", line)
 	}
 
 	out.Printf("Ensuring environment file...\n")
@@ -51,7 +49,7 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	if created {
-		out.Printf("  created: %s\n", envPath)
+		out.Changef("  created: %s", envPath)
 	}
 
 	out.Printf("Syncing framework modules...\n")
@@ -62,9 +60,9 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 	for _, c := range changes {
 		line := fmt.Sprintf("%s: %s", c.Action, c.Path)
 		if c.Action == ActionCreated {
-			out.Printf("%s\n", line)
+			out.Changef("%s", line)
 		} else {
-			out.Printf("Warning: %s\n", line)
+			out.Warnf("%s", line)
 		}
 	}
 
@@ -81,10 +79,10 @@ func Ensure(w io.Writer, p paths.Paths, host string) error {
 		return err
 	}
 	if protected {
-		out.Printf("  protected: %s\n", filepath.Join(hostDir, plsDontTouchFile))
+		out.Changef("  protected: %s", filepath.Join(hostDir, plsDontTouchFile))
 	}
 
-	hwDir, err := EnsureHardware(w, p)
+	hwDir, err := EnsureHardware(out, p)
 	if err != nil {
 		return err
 	}

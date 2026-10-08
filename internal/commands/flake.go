@@ -88,12 +88,12 @@ func flakeUpdate(args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
 
-	if _, err := config.EnsureHardware(os.Stdout, p); err != nil {
+	if _, err := config.EnsureHardware(ui.NewProgress(os.Stdout), p); err != nil {
 		return err
 	}
 
 	// Staging progress is rebuild's output; failures come back as errors.
-	if err := stage(io.Discard, p, host, tmp, realFlakeSteps); err != nil {
+	if err := stage(ui.NewProgress(io.Discard), p, host, tmp, realFlakeSteps); err != nil {
 		return err
 	}
 

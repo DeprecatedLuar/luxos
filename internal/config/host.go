@@ -143,7 +143,7 @@ func ensureMachineFile(out *ui.Progress, hostDir string) error {
 		return err
 	}
 	if created {
-		out.Printf("  created: %s\n", path)
+		out.Changef("  created: %s", path)
 	}
 	return nil
 }

@@ -767,7 +767,7 @@ func moduleConfigure(p paths.Paths, args []string) error {
 	printSettingsReport(out, rep)
 	for _, u := range rep.Broken {
 		for _, problem := range u.Problems {
-			out.Printf("Warning: %s\n", problem)
+			out.Warnf("%s", problem)
 		}
 	}
 	if err := out.Err(); err != nil {

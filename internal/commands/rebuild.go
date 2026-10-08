@@ -34,6 +34,9 @@ const goodbyeFarewell = "SEE YOU NIX COWBOY..."
 
 const flakeLockName = "flake.lock"
 
+// What the spinner line becomes once staging succeeds.
+const preflightLabel = "preflight"
+
 // By convention, the flake input that provides this binary.
 const luxosInputName = "luxos"
 
@@ -222,21 +225,25 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 }
 
 func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-chan os.Signal) error {
-	if err := config.Ensure(os.Stdout, p, host); err != nil {
+	out := ui.NewProgress(os.Stderr)
+	out.Start()
+	defer out.Stop()
+	if err := config.Ensure(out, p, host); err != nil {
 		return err
 	}
-	if err := healAndValidate(os.Stdout, p, host, prune); err != nil {
+	if err := healAndValidate(out, p, host, prune); err != nil {
 		return err
 	}
-	if err := syncSettings(os.Stdout, p, host); err != nil {
+	if err := syncSettings(out, p, host); err != nil {
 		return err
 	}
-	if err := stage(os.Stdout, p, host, p.Staging, realFlakeSteps); err != nil {
+	if err := stage(out, p, host, p.Staging, realFlakeSteps); err != nil {
 		return err
 	}
 	if err := interrupted(sigs); err != nil {
 		return err
 	}
+	out.Done(preflightLabel)
 
 	rebuildBin, err := nix.RebuildFromFlake(p.Staging, host)
 	if err != nil {

@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 
@@ -28,15 +27,14 @@ var realFlakeSteps = flakeSteps{write: nix.WriteFlake, lock: nix.FlakeLock}
 // healAndValidate rewrites broken lines of the hosts' selections, then checks
 // the active host's module boundaries. prune removes unresolvable lines from
 // the active host's selection instead of failing.
-func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error {
-	out := ui.NewProgress(w)
+func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) error {
 	out.Printf("Healing modules imports...\n")
 	changes, warnings, err := modules.Heal(p.Machines, p.Modules, host, prune)
 	for _, c := range changes {
-		out.Printf("%s\n", formatImportChange(c))
+		out.Changef("%s", formatImportChange(c))
 	}
 	for _, wm := range warnings {
-		out.Printf("Warning: %s\n", wm)
+		out.Warnf("%s", wm)
 	}
 	if err != nil {
 		return err
@@ -53,7 +51,7 @@ func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error 
 	}
 	if len(violations) > 0 {
 		for _, v := range violations {
-			out.Printf("Error: %s: %s\n", v.File, v.Message)
+			out.Errf("%s: %s", v.File, v.Message)
 		}
 		return fmt.Errorf("module boundary violations: %d", len(violations))
 	}
@@ -62,8 +60,7 @@ func healAndValidate(w io.Writer, p paths.Paths, host string, prune bool) error 
 
 // syncSettings brings host's settings files in line with its selected
 // units' options.nix, failing on any unit that breaks a settings rule.
-func syncSettings(w io.Writer, p paths.Paths, host string) error {
-	out := ui.NewProgress(w)
+func syncSettings(out *ui.Progress, p paths.Paths, host string) error {
 	out.Printf("Syncing module settings...\n")
 	h, err := modules.Load(p.Modules, filepath.Join(p.Machines, host))
 	if err != nil {
@@ -77,7 +74,7 @@ func syncSettings(w io.Writer, p paths.Paths, host string) error {
 	if len(rep.Broken) > 0 {
 		for _, u := range rep.Broken {
 			for _, problem := range u.Problems {
-				out.Printf("Error: %s\n", problem)
+				out.Errf("%s", problem)
 			}
 		}
 		return fmt.Errorf("module settings: %d unit(s) break the settings rules", len(rep.Broken))
@@ -87,13 +84,13 @@ func syncSettings(w io.Writer, p paths.Paths, host string) error {
 
 func printSettingsReport(out *ui.Progress, rep modules.SettingsReport) {
 	for _, f := range rep.Created {
-		out.Printf("  created %s\n", f)
+		out.Changef("  created %s", f)
 	}
 	for _, c := range rep.Appended {
-		out.Printf("  %s: added %s\n", c.File, strings.Join(c.Keys, ", "))
+		out.Changef("  %s: added %s", c.File, strings.Join(c.Keys, ", "))
 	}
 	for _, c := range rep.Commented {
-		out.Printf("Warning: %s: commented out %s (not declared by the unit)\n", c.File, strings.Join(c.Keys, ", "))
+		out.Warnf("%s: commented out %s (not declared by the unit)", c.File, strings.Join(c.Keys, ", "))
 	}
 }
 
@@ -106,9 +103,8 @@ func formatImportChange(c modules.Change) string {
 
 // stage writes host's stage into dir from CONFIG_DIR, which it only reads
 // (apart from the host's flake.lock, when staging locked something new).
-func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error {
+func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) error {
 	hostDir := filepath.Join(p.Machines, host)
-	out := ui.NewProgress(w)
 
 	out.Printf("Adopting %s...\n", dir)
 	adopted, err := staging.Adopt(dir, p.Backup)
@@ -158,7 +154,7 @@ func stage(w io.Writer, p paths.Paths, host, dir string, steps flakeSteps) error
 		return err
 	}
 	if changed {
-		out.Printf("  locked new inputs: %s\n", hostLock)
+		out.Changef("  locked new inputs: %s", hostLock)
 	}
 
 	out.Printf("Sealing %s...\n", dir)
@@ -204,9 +200,9 @@ func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 func printAdopted(out *ui.Progress, changes []staging.Change) {
 	for _, c := range changes {
 		if c.Kind == staging.ChangeMoved {
-			out.Printf("  moved: %s -> %s\n", c.Path, c.Dest)
+			out.Changef("  moved: %s -> %s", c.Path, c.Dest)
 		} else {
-			out.Printf("  converted %s from a symlink to a real directory\n", c.Path)
+			out.Changef("  converted %s from a symlink to a real directory", c.Path)
 		}
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // hostFlakeLock is the content written to .local/machines/<host>/flake.lock in
@@ -67,16 +68,17 @@ func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 
 // runAll is a whole rebuild's preparation: config, heal and validate, stage.
 func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
-	if err := config_.Ensure(w, p, host); err != nil {
+	out := ui.NewProgress(w)
+	if err := config_.Ensure(out, p, host); err != nil {
 		return err
 	}
-	if err := healAndValidate(w, p, host, prune); err != nil {
+	if err := healAndValidate(out, p, host, prune); err != nil {
 		return err
 	}
-	if err := syncSettings(w, p, host); err != nil {
+	if err := syncSettings(out, p, host); err != nil {
 		return err
 	}
-	return stage(w, p, host, p.Staging, steps)
+	return stage(out, p, host, p.Staging, steps)
 }
 
 // fixture builds a config tree at root with two hosts: host1 (active),
@@ -633,13 +635,14 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
-	if err := config_.Ensure(io.Discard, p, host); err != nil {
+	discard := ui.NewProgress(io.Discard)
+	if err := config_.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, p.Config)
 
 	out := t.TempDir()
-	if err := stage(io.Discard, p, host, out, steps); err != nil {
+	if err := stage(discard, p, host, out, steps); err != nil {
 		t.Fatal(err)
 	}
 
