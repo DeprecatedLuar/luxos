@@ -52,6 +52,10 @@ func run(args []string) error {
 		return commands.Flake(rest)
 	case "flakes":
 		return commands.Flake(withDefaultVerb(rest, "list"))
+	case "package":
+		return commands.Package(rest)
+	case "packages":
+		return commands.Package(withDefaultVerb(rest, "list"))
 	case "module":
 		return commands.Module(rest)
 	case "modules", "m":

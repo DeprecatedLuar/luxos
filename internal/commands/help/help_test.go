@@ -31,3 +31,9 @@ func TestRun_SetupTopicSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRun_PackageTopicSucceeds(t *testing.T) {
+	if err := Run([]string{"help", "package"}); err != nil {
+		t.Fatalf("Run([\"help\", \"package\"]) = %v, want nil", err)
+	}
+}

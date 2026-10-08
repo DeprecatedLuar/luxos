@@ -11,6 +11,7 @@ const (
 	rebuildDescription = "rebuild the system from CONFIG_DIR"
 	setupDescription   = "create a luxos config on this computer, or add it as a machine"
 	flakeDescription   = "list, inspect and update the host's flake inputs"
+	packageDescription = "list the packages the config installs and the files declaring them"
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
@@ -30,6 +31,8 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
+			gohelp.Item("packages|package list|ls", "List the packages the config installs under the files declaring them; bare 'packages' is a shortcut for this"),
+			gohelp.Item("package <name>...", "Show where a package comes from and which files declare it"),
 			gohelp.Item("module|modules|m list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
 			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
 			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit' is a shortcut for this"),
@@ -92,6 +95,29 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("?", "after a name: upstream could not be checked (unsupported source or request failed)"),
 		).
 		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, unstable. The base channel, nixpkgs, is declared in the host's machine.nix as flake-file.inputs.nixpkgs.url = \"<url>\"; and is required. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
+}
+
+func packagePage() *gohelp.Page {
+	return gohelp.NewPage("package", packageDescription).
+		Usage(binaryName+" package <list|ls|name> ...").
+		Section("Commands",
+			gohelp.Item("list|ls", "List the packages the config declares under the files declaring them; 'luxos packages' is a shortcut for this"),
+			gohelp.Item("<name>...", "Show a package: source input, declaring files, version"),
+		).
+		Section("Flags",
+			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
+			gohelp.Item("--flat", "list: each package once, its files after it"),
+			gohelp.Item("--raw", "list, <name>: plain output even on a terminal"),
+			gohelp.Item("--json", "list, <name>: JSON on stdout; field names match the plain output"),
+		).
+		Section("Markers",
+			gohelp.Item("◉", "in the running system and in the config"),
+			gohelp.Item("⊕", "only in the config; the next switch adds it"),
+			gohelp.Item("⊘", "only in the running system; the next switch removes it"),
+			gohelp.Item("❄", "after a name: comes from an input other than nixpkgs"),
+		).
+		Text("Packages are read by evaluating the config: every environment.systemPackages definition made by a file in it, including ones under mkIf or built by a function. A package is its source input plus its full name: one declared in two files is listed under both, and nixpkgs' neovim and unstable's neovim are two packages. <name> matches the name without its version (pname), or the full name of a package that has none. The running system is /etc/nixos; for another host (--machine), or before the first rebuild, there is nothing to compare against and every package shows ⊕. An input not locked yet is fetched and its pin added to the host's flake.lock, as the next rebuild would. Piped, or with --raw, the list prints file, name, state (active, staged, leftover), source and version, tab-separated, one line per file and package; <name> prints key=value lines (name, state, source, declared, version). Unknown values print as unknown, and as null in --json, which cannot be combined with --raw or --flat. A package named like a verb (list, ls) cannot be shown by name.")
 }
 
 func modulePage() *gohelp.Page {
@@ -176,5 +202,5 @@ func settingsPage() *gohelp.Page {
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), packagePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
 }
