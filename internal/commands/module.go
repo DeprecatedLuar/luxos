@@ -788,7 +788,7 @@ func fileExists(path string) bool {
 
 // loadActive loads the active host's modules and selection.
 func loadActive(p paths.Paths) (*modules.Host, error) {
-	host, err := config.ActiveHost(p.Modules)
+	host, err := shared.ActiveHost(p)
 	if err != nil {
 		return nil, err
 	}
