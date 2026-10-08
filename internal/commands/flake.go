@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,7 +66,7 @@ func Flake(args []string) error {
 	}
 }
 
-func flakeUpdate(args []string) (err error) {
+func flakeUpdate(args []string) error {
 	opts, names, err := shared.Parse(flakeFlagSpec, args)
 	if err != nil {
 		return err
@@ -78,28 +77,17 @@ func flakeUpdate(args []string) (err error) {
 		return err
 	}
 
-	tmp, err := os.MkdirTemp("", flakeUpdateTmpPattern)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
-
-	// Staging progress is rebuild's output; failures come back as errors.
-	if err := stage(ui.NewProgress(io.Discard), p, host, tmp, realFlakeSteps); err != nil {
-		return err
-	}
-
-	if err := nix.FlakeUpdate(tmp, names...); err != nil {
-		return err
-	}
-
-	hostLock := filepath.Join(hostDir, flakeLockName)
-	if _, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock); err != nil {
-		return err
-	}
-
-	fmt.Printf("  updated: %s\n", hostLock)
-	return nil
+	return withTempStage(p, host, flakeUpdateTmpPattern, func(tmp string) error {
+		if err := nix.FlakeUpdate(tmp, names...); err != nil {
+			return err
+		}
+		hostLock := filepath.Join(hostDir, flakeLockName)
+		if _, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock); err != nil {
+			return err
+		}
+		fmt.Printf("  updated: %s\n", hostLock)
+		return nil
+	})
 }
 
 //──[list]─────────────────────────────────────────────────────────────────

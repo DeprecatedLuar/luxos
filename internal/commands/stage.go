@@ -1,7 +1,10 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -212,4 +215,20 @@ func printFacts(out *ui.Progress, f hardware.Facts) {
 	for _, g := range f.GPUs {
 		out.Printf("  %s %s: %s\n", g.Vendor, g.Class, g.BusID)
 	}
+}
+
+// withTempStage stages host into a new temporary directory named by pattern,
+// calls fn with it and removes it. Staging progress is rebuild's output;
+// failures come back as errors.
+func withTempStage(p paths.Paths, host, pattern string, fn func(dir string) error) (err error) {
+	tmp, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
+
+	if err := stage(ui.NewProgress(io.Discard), p, host, tmp, realFlakeSteps); err != nil {
+		return err
+	}
+	return fn(tmp)
 }
