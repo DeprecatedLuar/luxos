@@ -68,10 +68,6 @@ func Flake(args []string) error {
 }
 
 func flakeUpdate(args []string) (err error) {
-	if err := shared.EnsureRoot(append([]string{"flake", "update"}, args...)); err != nil {
-		return err
-	}
-
 	opts, names, err := shared.Parse(flakeFlagSpec, args)
 	if err != nil {
 		return err
@@ -87,10 +83,6 @@ func flakeUpdate(args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
-
-	if _, err := config.EnsureHardware(ui.NewProgress(os.Stdout), p); err != nil {
-		return err
-	}
 
 	// Staging progress is rebuild's output; failures come back as errors.
 	if err := stage(ui.NewProgress(io.Discard), p, host, tmp, realFlakeSteps); err != nil {
