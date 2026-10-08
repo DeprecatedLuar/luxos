@@ -55,7 +55,8 @@ func rebuildPage() *gohelp.Page {
 			gohelp.Item("--backup-dir <dir>", "Move unrecognized /etc/nixos entries here (sets LUXOS_BACKUP_DIR)"),
 			gohelp.Item("--goodbye-luxos <dir>", "Replace /etc/nixos with <dir> as is and build it without luxos"),
 			gohelp.Item("-y, --yes", "Answer yes to luxos' own confirmations"),
-		)
+		).
+		Text("With no config at CONFIG_DIR, runs the setup wizard first and builds the machine it picks.")
 }
 
 func setupPage() *gohelp.Page {
