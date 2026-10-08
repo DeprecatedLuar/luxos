@@ -223,7 +223,7 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 	}
 }
 
-func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
+func TestHeal_UnresolvedOtherHostSilent(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
 	machinesDir := filepath.Join(root, "local")
@@ -243,8 +243,8 @@ func TestHeal_UnresolvedOtherHostWarns(t *testing.T) {
 	if len(changes) != 0 {
 		t.Errorf("changes = %v, want none", changes)
 	}
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want 1", warnings)
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none", warnings)
 	}
 
 	got, err := ReadSelection(otherFile)
@@ -358,8 +358,8 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 	if len(changes) != 0 {
 		t.Errorf("changes = %v, want none (active-host's line already exists)", changes)
 	}
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want 1 (other-host's local/foo.nix does not resolve for it)", warnings)
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none (other hosts are not reported)", warnings)
 	}
 
 	got, err := ReadSelection(otherFile)

@@ -160,13 +160,14 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 //     it (once per name).
 //   - name resolves to nothing, active host: error (collecting every such
 //     line into one), or with prune: remove and report as a Change.
-//   - name resolves to nothing, other host: warning, untouched.
+//   - name resolves to nothing, other host: untouched, unreported.
 //   - path is config.HardwareUnitPath on a non-active host: skipped, since
 //     the hardware link exists only in the active host's modules.
 //
 // A host whose own Walk fails errors the whole call when it's
-// activeHost, otherwise adds a warning ("<host>: <err>") and skips that
-// host entirely. Heal is idempotent.
+// activeHost, otherwise that host is skipped. Only the active host's
+// problems are reported; other hosts report theirs when they build.
+// Heal is idempotent.
 func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
 	files, err := hostEntrypoints(machinesDir)
 	if err != nil {
@@ -184,13 +185,13 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 
 	for _, file := range files {
 		host := filepath.Base(filepath.Dir(file))
+		isActive := host == activeHost
 
 		us, err := Walk(modulesDir, filepath.Join(machinesDir, host, localModulesDirName))
 		if err != nil {
-			if host == activeHost {
+			if isActive {
 				return nil, nil, err
 			}
-			warnings = append(warnings, fmt.Sprintf("%s: %s", host, err))
 			continue
 		}
 
@@ -199,11 +200,11 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 			return nil, nil, err
 		}
 		if !ok {
-			warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping heal", file))
+			if isActive {
+				warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping heal", file))
+			}
 			continue
 		}
-
-		isActive := host == activeHost
 
 		for _, itPath := range paths {
 			if !isActive && itPath == config.HardwareUnitPath {
@@ -238,17 +239,16 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 				continue
 			}
 
-			if isActive {
-				if prune {
-					if err := nix.RemoveImport(file, itPath); err != nil {
-						return nil, nil, err
-					}
-					changes = append(changes, Change{File: file, Old: itPath, New: ""})
-				} else {
-					unresolved = append(unresolved, fmt.Sprintf("%s: ./%s does not exist and '%s' does not resolve to any module", file, itPath, name))
+			if !isActive {
+				continue
+			}
+			if prune {
+				if err := nix.RemoveImport(file, itPath); err != nil {
+					return nil, nil, err
 				}
+				changes = append(changes, Change{File: file, Old: itPath, New: ""})
 			} else {
-				warnings = append(warnings, fmt.Sprintf("%s: ./%s does not exist and '%s' does not resolve to any module — left untouched", file, itPath, name))
+				unresolved = append(unresolved, fmt.Sprintf("%s: ./%s does not exist and '%s' does not resolve to any module", file, itPath, name))
 			}
 		}
 	}
