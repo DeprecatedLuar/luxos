@@ -198,3 +198,41 @@ func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
 		t.Errorf("ensureBoot: boot.nix was written despite the error")
 	}
 }
+
+func TestLinkedHardwareDir(t *testing.T) {
+	root := t.TempDir()
+	machines := filepath.Join(root, ".local", "machines")
+	modulesDir := filepath.Join(root, "modules")
+	hwRoot := filepath.Join(root, ".local", "hardware")
+	if err := os.MkdirAll(filepath.Join(hwRoot, "k1"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(modulesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// No modules/local link at all.
+	if _, err := LinkedHardwareDir(modulesDir); err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
+		t.Fatalf("without modules/local: err = %v, want the missing-link message", err)
+	}
+
+	// modules/local exists, hardware-support does not.
+	if err := EnsureLocalModules(machines, modulesDir, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LinkedHardwareDir(modulesDir); err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
+		t.Fatalf("without hardware-support: err = %v, want the missing-link message", err)
+	}
+
+	if err := ensureHardwareLink(machines, hwRoot, "a", "k1"); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(hwRoot, "k1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := LinkedHardwareDir(modulesDir)
+	if err != nil || got != want {
+		t.Errorf("LinkedHardwareDir = %q, %v; want %q", got, err, want)
+	}
+}

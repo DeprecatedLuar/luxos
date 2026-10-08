@@ -120,7 +120,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	if err != nil {
 		return err
 	}
-	hwDir, err := config.HardwareDir(p.Sys, p.HardwareRoot)
+	hwDir, err := config.LinkedHardwareDir(p.Modules)
 	if err != nil {
 		return err
 	}

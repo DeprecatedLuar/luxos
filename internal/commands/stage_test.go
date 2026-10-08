@@ -780,3 +780,13 @@ func TestRun_SettingsCreatedAndStaged(t *testing.T) {
 		t.Errorf("staged settings = %q", got)
 	}
 }
+
+func TestStageWithoutHardwareLinkFails(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	err := stage(ui.NewProgress(io.Discard), p, host, t.TempDir(), steps)
+	if err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
+		t.Fatalf("err = %v, want the missing-link message", err)
+	}
+}
