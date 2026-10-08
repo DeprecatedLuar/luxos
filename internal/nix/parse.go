@@ -21,6 +21,11 @@ const instantiateBin = "nix-instantiate"
 
 const tempPattern = "luxos-nix-*.nix"
 
+// Available reports whether nix-instantiate is on PATH.
+func Available() bool {
+	return shell.Has(instantiateBin)
+}
+
 // Parse runs `nix-instantiate --parse <absPath>` and returns its stdout.
 // absPath must be an absolute path; the binary must be on PATH. On failure
 // the returned error includes the command's stderr.

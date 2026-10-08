@@ -66,6 +66,12 @@ func OutputLive(c Cmd) ([]byte, error) {
 	return out, nil
 }
 
+// Has reports whether bin is on PATH.
+func Has(bin string) bool {
+	_, err := exec.LookPath(bin)
+	return err == nil
+}
+
 // Exec replaces this process with bin, looked up on PATH.
 func Exec(bin string, args []string) error {
 	path, err := exec.LookPath(bin)
