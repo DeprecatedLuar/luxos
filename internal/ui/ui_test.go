@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -194,5 +197,33 @@ func TestLogo(t *testing.T) {
 	}
 	if got := Italic(f, "bye"); got != "bye" {
 		t.Errorf("Italic on a non-terminal = %q", got)
+	}
+}
+
+func TestPrompter_ReadsLinesThenEOF(t *testing.T) {
+	var out bytes.Buffer
+	p := NewPrompter(strings.NewReader(" first \nsecond"), &out)
+
+	got, err := p.Ask("a? ")
+	if err != nil || got != "first" {
+		t.Fatalf("Ask = %q, %v; want first", got, err)
+	}
+	got, err = p.Ask("b? ")
+	if err != nil || got != "second" {
+		t.Fatalf("Ask = %q, %v; want second (last line without newline)", got, err)
+	}
+	if _, err = p.Ask("c? "); !errors.Is(err, io.EOF) {
+		t.Fatalf("Ask at end of input = %v, want io.EOF", err)
+	}
+	if out.String() != "a? b? c? " {
+		t.Errorf("prompts written = %q", out.String())
+	}
+}
+
+func TestPrompter_EmptyLineIsNotEOF(t *testing.T) {
+	p := NewPrompter(strings.NewReader("\n"), io.Discard)
+	got, err := p.Ask("? ")
+	if err != nil || got != "" {
+		t.Fatalf("Ask = %q, %v; want empty, nil", got, err)
 	}
 }

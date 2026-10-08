@@ -37,3 +37,30 @@ func Confirm(prompt string, defYes bool) (bool, error) {
 	}
 	return IsYes(reply), nil
 }
+
+// Prompter asks questions over one buffered reader, so lines typed ahead are
+// not lost between prompts.
+type Prompter struct {
+	in  *bufio.Reader
+	out io.Writer
+}
+
+func NewPrompter(in io.Reader, out io.Writer) *Prompter {
+	return &Prompter{in: bufio.NewReader(in), out: out}
+}
+
+// Ask prints prompt and returns the next line, trimmed. Input that ends with
+// nothing typed returns io.EOF.
+func (p *Prompter) Ask(prompt string) (string, error) {
+	if _, err := fmt.Fprint(p.out, prompt); err != nil {
+		return "", err
+	}
+	line, err := p.in.ReadString('\n')
+	if err == io.EOF && line == "" {
+		return "", io.EOF
+	}
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
+}
