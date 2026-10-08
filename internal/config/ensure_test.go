@@ -114,7 +114,7 @@ func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
 	if err := ensureMachineFile(ui.NewProgress(&out), hostDir); err != nil {
 		t.Fatal(err)
 	}
-	want, err := templates.File(machineTemplate)
+	want, err := RenderMachine(MachineDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
 
 func TestMachineTemplate_Parses(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := templates.File(machineTemplate)
+	tmpl, err := RenderMachine(MachineDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestMachineTemplate_Parses(t *testing.T) {
 }
 
 func TestMachineTemplate_NoGC(t *testing.T) {
-	tmpl, err := templates.File(machineTemplate)
+	tmpl, err := RenderMachine(MachineDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestHardwareTemplate_Parses(t *testing.T) {
 
 func TestCheckMachineFile(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := templates.File(machineTemplate)
+	tmpl, err := RenderMachine(MachineDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,5 +241,23 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "created: "+def) {
 		t.Errorf("second run reported creating default.nix:\n%s", out.String())
+	}
+}
+
+func TestRenderMachine_FillsValues(t *testing.T) {
+	out, err := RenderMachine(MachineValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`flake-file.inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";`,
+		`time.timeZone = "Europe/Lisbon";`,
+		`i18n.defaultLocale = "pt_PT.UTF-8";`,
+		`services.xserver.xkb.layout = "pt";`,
+		`console.useXkbConfig = true;`,
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("machine.nix missing %q:\n%s", want, out)
+		}
 	}
 }

@@ -1,0 +1,16 @@
+# Per-machine settings for this host. Hand-owned: luxos creates this file
+# once when it is missing and never edits it again. Machine-specific values
+# only - no imports and no paths, those belong in a module.
+{ ... }:
+
+{
+  # Base channel (pkgs.nixpkgs), required.
+  flake-file.inputs.nixpkgs.url = "github:NixOS/nixpkgs/{{.Channel}}";
+
+  time.timeZone = "{{.Timezone}}";
+  i18n.defaultLocale = "{{.Locale}}";
+
+  # The console follows the graphical keyboard layout.
+  services.xserver.xkb.layout = "{{.Keyboard}}";
+  console.useXkbConfig = true;
+}

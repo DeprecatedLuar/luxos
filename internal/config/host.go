@@ -30,8 +30,21 @@ const (
 
 	plsDontTouchMode = 0444
 
-	machineTemplate = "starters/machine.nix"
+	machineTemplate = "machine.nix.tmpl"
 )
+
+// MachineValues fill the machine.nix template.
+type MachineValues struct {
+	Channel, Timezone, Locale, Keyboard string
+}
+
+// MachineDefaults fill a machine.nix rebuild creates, and stand in for values
+// setup cannot detect.
+var MachineDefaults = MachineValues{Channel: "nixos-25.11", Timezone: "UTC", Locale: "en_US.UTF-8", Keyboard: "us"}
+
+func RenderMachine(v MachineValues) ([]byte, error) {
+	return templates.Render(machineTemplate, v)
+}
 
 // ErrNoMachine is a host folder without modules.nix.
 var ErrNoMachine = errors.New("no " + SelectionFile)
@@ -136,7 +149,7 @@ func ProtectHost(hostDir string) (bool, error) {
 
 // ensureMachineFile writes the host's machine.nix from the starter when it is missing.
 func ensureMachineFile(out *ui.Progress, hostDir string) error {
-	tmpl, err := templates.File(machineTemplate)
+	tmpl, err := RenderMachine(MachineDefaults)
 	if err != nil {
 		return err
 	}
@@ -160,7 +173,7 @@ func readBaseChannel(path string) (string, error) {
 }
 
 func baseChannelHint() string {
-	tmpl, err := templates.File(machineTemplate)
+	tmpl, err := RenderMachine(MachineDefaults)
 	if err == nil {
 		for _, line := range strings.Split(string(tmpl), "\n") {
 			if strings.Contains(line, nix.BaseChannelInput+".url") {
