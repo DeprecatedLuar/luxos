@@ -149,11 +149,6 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	if changed {
 		out.Changef("  locked new inputs: %s", hostLock)
 	}
-
-	out.Printf("Sealing %s...\n", dir)
-	if err := staging.Seal(dir); err != nil {
-		return err
-	}
 	return out.Err()
 }
 

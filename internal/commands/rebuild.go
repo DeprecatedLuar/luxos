@@ -293,6 +293,10 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {
 		return err
 	}
+	out.Printf("Sealing %s...\n", p.NewStage)
+	if err := staging.Seal(p.NewStage); err != nil {
+		return err
+	}
 	if err := interrupted(sigs); err != nil {
 		return err
 	}

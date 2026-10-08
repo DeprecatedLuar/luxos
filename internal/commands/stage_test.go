@@ -16,6 +16,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
+	"github.com/DeprecatedLuar/luxos/internal/staging"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -66,7 +67,7 @@ func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 	}, calls
 }
 
-// runAll is a whole rebuild's preparation: config, heal and validate, stage.
+// runAll is a whole rebuild's preparation: config, heal and validate, stage, seal.
 func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
 	out := ui.NewProgress(w)
 	if err := config_.Ensure(out, p, host); err != nil {
@@ -78,7 +79,10 @@ func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeStep
 	if err := syncSettings(out, p, host); err != nil {
 		return err
 	}
-	return stage(out, p, host, p.Staging, steps)
+	if err := stage(out, p, host, p.Staging, steps); err != nil {
+		return err
+	}
+	return staging.Seal(p.Staging)
 }
 
 // fixture builds a config tree at root with two hosts: host1 (active),
@@ -675,6 +679,31 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	delete(after, lock)
 	if !maps.Equal(before, after) {
 		t.Errorf("stage changed CONFIG_DIR:\n%s", diffKeys(before, after))
+	}
+}
+
+// A temporary stage gets its lock rewritten by `nix flake update` as the
+// invoking user, so stage must leave it writable.
+func TestStageLeavesLockWritable(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	discard := ui.NewProgress(io.Discard)
+	if err := config_.Ensure(discard, p, host); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if err := stage(discard, p, host, dir, steps); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(dir, flakeLockName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0200 == 0 {
+		t.Errorf("flake.lock mode = %v, want owner-writable", info.Mode().Perm())
 	}
 }
 
