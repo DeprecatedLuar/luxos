@@ -62,14 +62,9 @@ func CopyStarterModules(modulesDir string) error {
 // is created.
 func CreateMachine(machinesDir string, m Machine) error {
 	hostDir := filepath.Join(machinesDir, m.Name)
-	files, err := machineFiles(m)
+	files, err := checkedMachineFiles(m)
 	if err != nil {
 		return err
-	}
-	for _, f := range files {
-		if err := checkParses(f.name, f.data); err != nil {
-			return err
-		}
 	}
 
 	if err := MkdirAll(machinesDir); err != nil {
@@ -88,6 +83,26 @@ func CreateMachine(machinesDir string, m Machine) error {
 	}
 	_, err = ProtectHost(hostDir)
 	return err
+}
+
+// CheckMachine renders m and, when nix-instantiate is available, parses every
+// file, so a caller can refuse a machine before writing anything else.
+func CheckMachine(m Machine) error {
+	_, err := checkedMachineFiles(m)
+	return err
+}
+
+func checkedMachineFiles(m Machine) ([]machineFile, error) {
+	files, err := machineFiles(m)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range files {
+		if err := checkParses(f.name, f.data); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
 }
 
 type machineFile struct {

@@ -216,3 +216,31 @@ func TestMachineScreen_NewMachine(t *testing.T) {
 		t.Errorf("selection = %q", got)
 	}
 }
+
+func TestFresh_UnparsableValueWritesNothing(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	// no repo, name, console, change timezone to a bad value, write
+	w, out := newWizard(t, p, "n\ncathode\n4\n1\nEurope/\"Lisbon\ny\n", noClone)
+	if _, err := w.Fresh(); err == nil || !strings.Contains(err.Error(), "machine.nix") {
+		t.Fatalf("err = %v, want a parse error naming machine.nix\n%s", err, out)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config folder written although the machine was refused: %v", err)
+	}
+}
+
+func TestMachineScreen_UnparsableValueWritesNothing(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	if err := cloneConfig(t, false)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	w, out := newWizard(t, p, "n\ncathode\n1\nEurope/\"Lisbon\ny\n", noClone)
+	if _, err := w.MachineScreen(); err == nil {
+		t.Fatalf("want a parse error\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana")); !os.IsNotExist(err) {
+		t.Errorf("user unit written although the machine was refused: %v", err)
+	}
+}

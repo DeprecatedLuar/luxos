@@ -125,6 +125,12 @@ func (w *Wizard) freshConfig() (string, error) {
 		return "", err
 	}
 
+	sel := append([]string{hardwareSelection, localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
+	m := w.machine(name, values, sel)
+	if err := config.CheckMachine(m); err != nil {
+		return "", err
+	}
+
 	if err := config.MkdirAll(w.Paths.Config); err != nil {
 		return "", err
 	}
@@ -134,8 +140,7 @@ func (w *Wizard) freshConfig() (string, error) {
 	if err := w.writeUser(); err != nil {
 		return "", err
 	}
-	sel := append([]string{hardwareSelection, localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
-	if err := config.CreateMachine(w.Paths.Machines, w.machine(name, values, sel)); err != nil {
+	if err := config.CreateMachine(w.Paths.Machines, m); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(w.Out, freshDone, w.Paths.Config)
@@ -149,6 +154,10 @@ func (w *Wizard) newMachine(existing []string) (string, error) {
 	}
 	values := w.System.Values
 	if err := w.review(&values, nil); err != nil {
+		return "", err
+	}
+
+	if err := config.CheckMachine(w.machine(name, values, []string{hardwareSelection, localPackagesSelection, w.userPath()})); err != nil {
 		return "", err
 	}
 
