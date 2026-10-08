@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
+	"github.com/DeprecatedLuar/luxos/internal/commands/setup"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
@@ -27,6 +28,9 @@ const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:valu
 
 // Appended when a prompt was already answered, so the root process does not ask again.
 const yesFlag = "--yes"
+
+// Appended when setup picked the machine, so the root process builds it.
+const machineFlag = "--machine"
 
 // A replacement configuration folder must contain at least one entry with this extension.
 const goodbyeNixExt = ".nix"
@@ -160,6 +164,22 @@ func Rebuild(args []string) error {
 			return err
 		}
 		return goodbye(opts["goodbye-luxos"], rest)
+	}
+
+	target, host, err := shared.Target(opts)
+	if err != nil {
+		return err
+	}
+	state, err := config.ConfigState(target.Config, target.Machines, host)
+	if err != nil {
+		return err
+	}
+	if state == config.StateNoConfig && opts["machine"] == "" {
+		name, err := setup.Launch(ui.NewPrompter(os.Stdin, os.Stdout), os.Stdout, target, host, state)
+		if err != nil {
+			return err
+		}
+		args = withMachine(opts, args, name)
 	}
 
 	p, host, hostDir, err := shared.ResolveHost(opts)
@@ -307,6 +327,12 @@ func interrupted(sigs <-chan os.Signal) error {
 
 // The rebuild command line handed to the root process, with --yes appended
 // when a prompt was already answered yes.
+// withMachine makes the rest of the run, and its sudo re-exec, build name.
+func withMachine(opts map[string]string, args []string, name string) []string {
+	opts["machine"] = name
+	return append(args, machineFlag, name)
+}
+
 func escalationArgs(args []string, answered bool) []string {
 	out := append([]string{"rebuild"}, args...)
 	if answered {
