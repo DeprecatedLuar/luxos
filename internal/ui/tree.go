@@ -30,7 +30,7 @@ type Row struct {
 	Name      string // sorted and addressed by this
 	Marks     []Mark // drawn after Name and one space, outside its underline or strike
 	Count     string // drawn right after Marks in the connector color
-	Marker    string
+	Marker    string // empty: the row is a node, its name drawn in the title color
 	Color     Color
 	Rank      int // sorts before Name
 	Underline bool
@@ -160,7 +160,12 @@ func connectors(prefix string, last bool) (connector, childPrefix string) {
 }
 
 func renderRow(w *strings.Builder, r Row, prefix, connector, childPrefix string, pal Palette) {
-	fmt.Fprintf(w, "%s%s%s%s%s%s %s%s", pal.line, prefix, connector, pal.reset, pal.Tint(r.Color), r.Marker, r.name(pal), pal.reset)
+	fmt.Fprintf(w, "%s%s%s%s", pal.line, prefix, connector, pal.reset)
+	if r.Marker == "" {
+		fmt.Fprintf(w, "%s%s%s", pal.title, r.name(pal), pal.reset)
+	} else {
+		fmt.Fprintf(w, "%s%s %s%s", pal.Tint(r.Color), r.Marker, r.name(pal), pal.reset)
+	}
 	if r.Note != "" {
 		fmt.Fprintf(w, " %s%s%s", pal.Tint(r.NoteColor), r.Note, pal.reset)
 	}
