@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -103,18 +102,9 @@ func formatImportChange(c modules.Change) string {
 
 // stage writes host's stage into dir from CONFIG_DIR, which it only reads
 // (apart from the host's flake.lock, when staging locked something new).
+// It touches nothing in dir but the entries luxos owns.
 func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) error {
 	hostDir := filepath.Join(p.Machines, host)
-
-	out.Printf("Adopting %s...\n", dir)
-	adopted, err := staging.Adopt(dir, p.Backup)
-	if errors.Is(err, staging.ErrNoBackupDir) {
-		return fmt.Errorf("%s holds entries luxos does not own and there is no user to move them to; choose a directory with:\n  luxos rebuild --backup-dir <path>", dir)
-	}
-	if err != nil {
-		return err
-	}
-	printAdopted(out, adopted)
 
 	h, err := modules.Load(p.Modules, hostDir)
 	if err != nil {
@@ -195,16 +185,6 @@ func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 		}
 	}
 	return nix.InputDecls(files...)
-}
-
-func printAdopted(out *ui.Progress, changes []staging.Change) {
-	for _, c := range changes {
-		if c.Kind == staging.ChangeMoved {
-			out.Changef("  moved: %s -> %s", c.Path, c.Dest)
-		} else {
-			out.Changef("  converted %s from a symlink to a real directory", c.Path)
-		}
-	}
 }
 
 // detectFacts reads every hardware fact the build gets.

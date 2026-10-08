@@ -30,7 +30,8 @@ const (
 	sysDir         = "/sys"
 	mountsFile     = "/proc/mounts"
 	runningModules = "/run/current-system/luxos/modules.nix"
-	previousStage  = "/var/lib/luxos/previous-stage"
+	newStage       = "/etc/.nixos-luxos-new"
+	oldStage       = "/etc/.nixos-luxos-old"
 )
 
 type Paths struct {
@@ -45,7 +46,8 @@ type Paths struct {
 	Sys            string // /sys
 	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/luxos/modules.nix
-	PreviousStage  string // /var/lib/luxos/previous-stage, the stage saved while a rebuild is in flight
+	NewStage       string // /etc/.nixos-luxos-new, where rebuild builds a stage before promoting it to Staging
+	OldStage       string // /etc/.nixos-luxos-old, Staging while a promotion swaps it out
 }
 
 func Resolve() (Paths, error) {
@@ -82,7 +84,8 @@ func Resolve() (Paths, error) {
 		Sys:            sysDir,
 		Mounts:         mountsFile,
 		RunningModules: runningModules,
-		PreviousStage:  previousStage,
+		NewStage:       newStage,
+		OldStage:       oldStage,
 	}, nil
 }
 

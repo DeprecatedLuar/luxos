@@ -504,7 +504,7 @@ func moduleList(p paths.Paths, args []string) error {
 		}
 	}
 
-	baseline, err := staging.Baseline(p.Staging, p.PreviousStage)
+	baseline, err := staging.Baseline(p.Staging)
 	if err != nil {
 		return err
 	}

@@ -541,16 +541,13 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	}
 }
 
-func TestRun_StrangerMovedToBackup(t *testing.T) {
-	skipIfNoNix(t)
-
-	p, host := fixture(t)
-	steps, _ := fakeNix(t)
+func TestAdoptStaging_StrangerMovedToBackup(t *testing.T) {
+	p, _ := fixture(t)
 	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
 
 	var out bytes.Buffer
-	if err := runAll(&out, p, host, false, steps); err != nil {
-		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	if err := adoptStaging(ui.NewProgress(&out), p); err != nil {
+		t.Fatalf("adoptStaging: %v\noutput:\n%s", err, out.String())
 	}
 	if _, err := os.Lstat(filepath.Join(p.Staging, "old-config.nix")); !os.IsNotExist(err) {
 		t.Errorf("stranger should have left the staging root, err=%v", err)
@@ -562,28 +559,54 @@ func TestRun_StrangerMovedToBackup(t *testing.T) {
 	if !strings.Contains(out.String(), "moved: "+filepath.Join(p.Staging, "old-config.nix")+" -> "+moved[0]) {
 		t.Errorf("output did not report the move, got:\n%s", out.String())
 	}
+}
 
-	// The hardware folder is not in /etc/nixos, so a second run leaves it be.
-	if err := runAll(&out, p, host, false, steps); err != nil {
-		t.Fatalf("second Run: %v", err)
+func TestAdoptStaging_NoBackupDirNamesFlag(t *testing.T) {
+	p, _ := fixture(t)
+	p.Backup = ""
+	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
+
+	err := adoptStaging(ui.NewProgress(io.Discard), p)
+	if err == nil || !strings.Contains(err.Error(), "luxos rebuild --backup-dir <path>") {
+		t.Fatalf("err = %v, want the --backup-dir recovery line", err)
+	}
+}
+
+func TestRun_SecondRunLeavesHardwareFolder(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+
+	var out bytes.Buffer
+	for i := range 2 {
+		if err := runAll(&out, p, host, false, steps); err != nil {
+			t.Fatalf("run %d: %v\noutput:\n%s", i+1, err, out.String())
+		}
 	}
 	if got := mustReadFile(t, filepath.Join(hardwareDir(t, p), "hardware-configuration.nix")); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q after second run, want %q", got, hardwareConfigContent)
 	}
 }
 
-func TestRun_NoBackupDirNamesFlag(t *testing.T) {
+func TestStageDoesNotAdopt(t *testing.T) {
 	skipIfNoNix(t)
-
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
-	p.Backup = ""
-	write(t, filepath.Join(p.Staging, "old-config.nix"), "{ }\n")
+	discard := ui.NewProgress(io.Discard)
+	if err := config_.Ensure(discard, p, host); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "old-config.nix"), "{ }\n")
 
-	var out bytes.Buffer
-	err := runAll(&out, p, host, false, steps)
-	if err == nil || !strings.Contains(err.Error(), "luxos rebuild --backup-dir <path>") {
-		t.Fatalf("err = %v, want the --backup-dir recovery line", err)
+	if err := stage(discard, p, host, dir, steps); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old-config.nix")); err != nil {
+		t.Errorf("stage moved an entry it does not own: %v", err)
+	}
+	if _, err := os.Stat(p.Backup); !os.IsNotExist(err) {
+		t.Errorf("stage created the backup dir (err %v)", err)
 	}
 }
 

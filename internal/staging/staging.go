@@ -362,60 +362,10 @@ func Seal(stagingDir string) error {
 	return nil
 }
 
-// SavePrevious copies every existing owned entry of stagingDir into prevDir.
-// An existing prevDir is left alone.
-func SavePrevious(stagingDir, prevDir string) error {
-	if _, err := os.Lstat(prevDir); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.MkdirAll(prevDir, dirMode); err != nil {
-		return err
-	}
-	for _, name := range owned {
-		src := filepath.Join(stagingDir, name)
-		if _, err := os.Lstat(src); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		if err := copyDeref(src, filepath.Join(prevDir, name)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func RestorePrevious(stagingDir, prevDir string) error {
-	if _, err := os.Lstat(prevDir); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	if err := Replace(prevDir, stagingDir); err != nil {
-		return err
-	}
-	if err := Seal(stagingDir); err != nil {
-		return err
-	}
-	return os.RemoveAll(prevDir)
-}
-
-func DropPrevious(prevDir string) error {
-	return os.RemoveAll(prevDir)
-}
-
-// Baseline returns the tree running modules are compared against: the saved
-// previous stage's modules when it exists, else the staging directory's, else
-// "" when neither holds one.
-func Baseline(stagingDir, prevDir string) (string, error) {
+// Baseline returns the modules tree of the stage in stagingDir, the last one
+// that built and activated, or "" when it holds none.
+func Baseline(stagingDir string) (string, error) {
 	base := filepath.Join(stagingDir, configDir, stagedModulesDir)
-	if _, err := os.Stat(prevDir); err == nil {
-		base = filepath.Join(prevDir, configDir, stagedModulesDir)
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
 	if _, err := os.Stat(base); err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

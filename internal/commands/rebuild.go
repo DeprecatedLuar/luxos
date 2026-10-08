@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -194,15 +195,13 @@ func rebuildAction(rest []string) string {
 	return ""
 }
 
-// Runs heal and nixos-rebuild while /etc/nixos may change. The stage from before
-// is saved in p.PreviousStage and put back unless an activating action succeeded,
-// so /etc/nixos always matches the running system.
+// Builds host's stage in p.NewStage and promotes it to p.Staging only after an
+// activating action succeeds, so /etc/nixos only ever holds a stage that
+// built and activated. Signals stay caught until it returns, so an interrupt
+// cannot land between the two renames of a promotion.
 func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error {
-	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
-		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
-	}
-	if err := staging.SavePrevious(p.Staging, p.PreviousStage); err != nil {
-		return fmt.Errorf("save %s: %w", p.PreviousStage, err)
+	if err := staging.Recover(p.Staging, p.NewStage, p.OldStage); err != nil {
+		return fmt.Errorf("recover %s: %w", p.Staging, err)
 	}
 
 	// Catch, never ignore: an ignored disposition is inherited by the child.
@@ -213,15 +212,49 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	runErr := runStaged(p, host, prune, rest, sigs)
 
 	if runErr == nil && rebuildActivatingActions[rebuildAction(rest)] {
-		if err := staging.DropPrevious(p.PreviousStage); err != nil {
-			return fmt.Errorf("drop %s: %w", p.PreviousStage, err)
-		}
-		return nil
+		return promote(p)
 	}
-	if err := staging.RestorePrevious(p.Staging, p.PreviousStage); err != nil {
-		return fmt.Errorf("restore %s: %w", p.PreviousStage, err)
+	if err := os.RemoveAll(p.NewStage); err != nil {
+		return errors.Join(runErr, fmt.Errorf("remove %s: %w", p.NewStage, err))
 	}
 	return runErr
+}
+
+// promote moves the entries luxos does not own out of p.Staging, then swaps
+// p.NewStage in for it.
+func promote(p paths.Paths) error {
+	out := ui.NewProgress(os.Stderr)
+	if err := adoptStaging(out, p); err != nil {
+		return err
+	}
+	if err := staging.Promote(p.NewStage, p.Staging, p.OldStage); err != nil {
+		return fmt.Errorf("promote %s to %s: %w", p.NewStage, p.Staging, err)
+	}
+	return out.Err()
+}
+
+// adoptStaging moves every entry of p.Staging luxos does not own into p.Backup.
+func adoptStaging(out *ui.Progress, p paths.Paths) error {
+	out.Printf("Adopting %s...\n", p.Staging)
+	adopted, err := staging.Adopt(p.Staging, p.Backup)
+	if errors.Is(err, staging.ErrNoBackupDir) {
+		return fmt.Errorf("%s holds entries luxos does not own and there is no user to move them to; choose a directory with:\n  luxos rebuild --backup-dir <path>", p.Staging)
+	}
+	if err != nil {
+		return err
+	}
+	printAdopted(out, adopted)
+	return out.Err()
+}
+
+func printAdopted(out *ui.Progress, changes []staging.Change) {
+	for _, c := range changes {
+		if c.Kind == staging.ChangeMoved {
+			out.Changef("  moved: %s -> %s", c.Path, c.Dest)
+		} else {
+			out.Changef("  converted %s from a symlink to a real directory", c.Path)
+		}
+	}
 }
 
 func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-chan os.Signal) error {
@@ -237,7 +270,7 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := syncSettings(out, p, host); err != nil {
 		return err
 	}
-	if err := stage(out, p, host, p.Staging, realFlakeSteps); err != nil {
+	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {
 		return err
 	}
 	if err := interrupted(sigs); err != nil {
@@ -245,12 +278,12 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	}
 	out.Done(prebuildLabel)
 
-	rebuildBin, err := nix.RebuildFromFlake(p.Staging, host)
+	rebuildBin, err := nix.RebuildFromFlake(p.NewStage, host)
 	if err != nil {
 		return err
 	}
 
-	flakeArgs := []string{"--flake", p.Staging + "#" + host, "--no-write-lock-file"}
+	flakeArgs := []string{"--flake", p.NewStage + "#" + host, "--no-write-lock-file"}
 	flakeArgs = append(flakeArgs, rest...)
 
 	// Only nixos-rebuild's own exit status becomes the command's: it has
@@ -266,7 +299,7 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 func interrupted(sigs <-chan os.Signal) error {
 	select {
 	case s := <-sigs:
-		return fmt.Errorf("interrupted (%s) before nixos-rebuild started; the previous stage is restored", s)
+		return fmt.Errorf("interrupted (%s) before nixos-rebuild started; nothing was promoted", s)
 	default:
 		return nil
 	}
