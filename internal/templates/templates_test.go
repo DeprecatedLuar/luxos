@@ -7,7 +7,7 @@ import (
 )
 
 func TestFile(t *testing.T) {
-	for _, name := range []string{"framework/system.nix", "starters/environment", "starters/user/account.nix", "modules/desktop.nix"} {
+	for _, name := range []string{"framework/system.nix", "starters/environment", "starters/user/default.nix", "modules/desktop.nix"} {
 		if _, err := File(name); err != nil {
 			t.Errorf("File(%q): %v", name, err)
 		}

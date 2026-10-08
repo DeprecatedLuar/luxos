@@ -18,7 +18,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
-	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -36,21 +35,12 @@ const editScratchPattern = "luxos-edit-*.nix"
 // non-user module.
 const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 
-// moduleUserPlaceholder is the literal replaced with the real account name
-// in the embedded user template's account.nix.
-const moduleUserPlaceholder = "users.users.user ="
-
 // moduleFrameworkCategory is the reserved top-level category `remove`/`rename`
 // refuse to touch: modules/system is owned by the binary.
 const moduleFrameworkCategory = "system"
 
 // usersCategory holds user modules, scaffolded from the user starter.
 const usersCategory = "users"
-
-const (
-	userStarterAccount = "starters/user/account.nix"
-	userStarterDefault = "starters/user/default.nix"
-)
 
 // moduleListFlagSpec is the flag spec of the list verbs.
 const moduleListFlagSpec = "flat:bool raw:bool json:bool"
@@ -592,43 +582,24 @@ func editNixFileInPlace(path string) error {
 
 //──[add]──────────────────────────────────────────────────────────────────
 
-// moduleAddUser scaffolds modules/<target> from the embedded user template,
-// filling in the literal account name. account.nix is opened in $EDITOR as
-// a scratch file before anything is written.
+// moduleAddUser scaffolds modules/<target> as a user unit. account.nix is
+// opened in $EDITOR as a scratch file before anything is written.
 func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
-	dest := filepath.Join(modulesRoot, target)
 
-	account, err := templates.File(userStarterAccount)
+	account, err := config.UserAccount(name, false)
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(account), moduleUserPlaceholder) {
-		return fmt.Errorf("embedded %s has no '%s' to fill in", userStarterAccount, moduleUserPlaceholder)
-	}
-	filled := strings.ReplaceAll(string(account), moduleUserPlaceholder, "users.users."+name+" =")
-
-	edited, err := editScratch([]byte(filled))
+	edited, err := editScratch(account)
 	if err != nil {
 		return err
 	}
-
-	if err := os.MkdirAll(dest, 0755); err != nil {
+	if err := config.WriteUser(filepath.Join(modulesRoot, target), name, edited); err != nil {
 		return err
 	}
 
-	defaultNix, err := templates.File(userStarterDefault)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dest, entrypointName), defaultNix, 0644); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dest, accountFileName), edited, 0644); err != nil {
-		return err
-	}
-
-	fmt.Printf("Created modules/%s/{default.nix,account.nix}\n", target)
+	fmt.Printf("Created modules/%s/{default.nix,account.nix,packages.nix}\n", target)
 	return nil
 }
 
