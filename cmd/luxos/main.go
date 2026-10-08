@@ -7,6 +7,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/commands"
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
+	"github.com/DeprecatedLuar/luxos/internal/commands/setup"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -45,6 +46,8 @@ func run(args []string) error {
 		return commands.Version(rest)
 	case "rebuild":
 		return commands.Rebuild(rest)
+	case "setup":
+		return setup.Run(rest)
 	case "flake":
 		return commands.Flake(rest)
 	case "flakes":

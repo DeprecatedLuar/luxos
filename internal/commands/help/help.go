@@ -9,6 +9,7 @@ const binaryName = "luxos"
 const (
 	rootDescription    = "manages NixOS machine configuration"
 	rebuildDescription = "rebuild the system from CONFIG_DIR"
+	setupDescription   = "create a luxos config on this computer, or add it as a machine"
 	flakeDescription   = "list, inspect and update the host's flake inputs"
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
@@ -25,6 +26,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("version|-v|--version", "Print the commit this binary was built from"),
 			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
+			gohelp.Item("setup [--config|-C <dir>]", "Create a luxos config, or add this computer to one; rebuild runs it when there is no config"),
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),
 			gohelp.Item("flake update [inputs...]", "Update the host's flake inputs"),
@@ -54,6 +56,15 @@ func rebuildPage() *gohelp.Page {
 			gohelp.Item("--goodbye-luxos <dir>", "Replace /etc/nixos with <dir> as is and build it without luxos"),
 			gohelp.Item("-y, --yes", "Answer yes to luxos' own confirmations"),
 		)
+}
+
+func setupPage() *gohelp.Page {
+	return gohelp.NewPage("setup", setupDescription).
+		Usage(binaryName+" setup [--config|-C <dir>]").
+		Section("Flags",
+			gohelp.Item("--config|-C <dir>", "Create or use the config in <dir> (sets LUXOS_CONFIG_DIR)"),
+		).
+		Text("With no config, asks for a git repo to clone or creates a fresh config with a desktop. With a config but no machine for this hostname, picks or creates one. Runs as your user and writes only new files. `luxos rebuild` runs the same wizard when there is no config.")
 }
 
 func flakePage() *gohelp.Page {
@@ -164,5 +175,5 @@ func settingsPage() *gohelp.Page {
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
 }
