@@ -33,6 +33,9 @@ const (
 	machineTemplate = "starters/machine.nix"
 )
 
+// ErrNoMachine is a host folder without modules.nix.
+var ErrNoMachine = errors.New("no " + SelectionFile)
+
 // A host is a directory there holding modules.nix.
 func ResolveHost(machinesDir, name string) (string, error) {
 	dir := filepath.Join(machinesDir, name)
@@ -43,7 +46,7 @@ func ResolveHost(machinesDir, name string) (string, error) {
 		if _, oldErr := os.Stat(filepath.Join(old, SelectionFile)); oldErr == nil {
 			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
 		}
-		return "", fmt.Errorf("no %s under %s\n  pass --machine <name> if this host was renamed or isn't named after $(hostname)", SelectionFile, dir)
+		return "", fmt.Errorf("%w under %s", ErrNoMachine, dir)
 	}
 
 	return dir, nil

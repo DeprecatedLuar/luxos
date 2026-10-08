@@ -49,9 +49,6 @@ func TestResolveHost_NotFound(t *testing.T) {
 	if !strings.Contains(err.Error(), "no modules.nix under "+wantDir) {
 		t.Errorf("error %q missing dir mention", err.Error())
 	}
-	if !strings.Contains(err.Error(), "pass --machine <name> if this host was renamed or isn't named after $(hostname)") {
-		t.Errorf("error %q missing hint", err.Error())
-	}
 }
 
 func TestValidateHost_Valid(t *testing.T) {
