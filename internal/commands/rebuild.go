@@ -35,7 +35,7 @@ const goodbyeFarewell = "SEE YOU NIX COWBOY..."
 const flakeLockName = "flake.lock"
 
 // What the spinner line becomes once staging succeeds.
-const preflightLabel = "preflight"
+const prebuildLabel = "prebuild"
 
 // By convention, the flake input that provides this binary.
 const luxosInputName = "luxos"
@@ -243,7 +243,7 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := interrupted(sigs); err != nil {
 		return err
 	}
-	out.Done(preflightLabel)
+	out.Done(prebuildLabel)
 
 	rebuildBin, err := nix.RebuildFromFlake(p.Staging, host)
 	if err != nil {
