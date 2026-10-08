@@ -116,21 +116,10 @@ func TestPackageRenderListJSON(t *testing.T) {
 }
 
 func TestPackageBaseline(t *testing.T) {
+	skipIfNoNix(t)
 	root := t.TempDir()
-	mkdir := func(dir string) {
-		t.Helper()
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	modulesDir := filepath.Join(root, "modules")
-	mkdir(filepath.Join(root, ".local/machines/alpha/modules"))
-	mkdir(modulesDir)
-	if err := os.Symlink("../.local/machines/alpha/modules", filepath.Join(modulesDir, "local")); err != nil {
-		t.Fatal(err)
-	}
 	stagingDir := filepath.Join(root, "etc-nixos")
-	p := paths.Paths{Modules: modulesDir, Staging: stagingDir}
+	p := paths.Paths{Staging: stagingDir}
 
 	check := func(host, want string) {
 		t.Helper()
@@ -144,9 +133,15 @@ func TestPackageBaseline(t *testing.T) {
 	}
 
 	check("alpha", "") // no luxos stage yet
-	mkdir(filepath.Join(stagingDir, "config", "modules"))
+	if err := os.MkdirAll(filepath.Join(stagingDir, "config", "modules"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	flake := `{ outputs = _: { nixosConfigurations.alpha = { }; }; }`
+	if err := os.WriteFile(filepath.Join(stagingDir, "flake.nix"), []byte(flake), 0644); err != nil {
+		t.Fatal(err)
+	}
 	check("alpha", stagingDir)
-	check("beta", "") // the stage holds only the active host
+	check("beta", "") // the stage holds only the host it was built for
 }
 
 func TestPackageViews(t *testing.T) {

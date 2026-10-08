@@ -72,3 +72,26 @@ func decodePackages(data []byte) ([]PackageDefs, error) {
 	}
 	return defs, nil
 }
+
+// hostsAttrFormat addresses the host configurations of a flake directory.
+const hostsAttrFormat = "path:%s#nixosConfigurations"
+
+// hostsApply lists the attribute names without evaluating any configuration.
+const hostsApply = "builtins.attrNames"
+
+// Hosts returns the host names the flake at flakeDir defines.
+func Hosts(flakeDir string) ([]string, error) {
+	out, err := shell.Output(shell.Cmd{
+		Bin:  flakeBin,
+		Args: []string{"eval", "--json", fmt.Sprintf(hostsAttrFormat, flakeDir), "--apply", hostsApply},
+		Env:  flakeEnv(os.Environ()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var hosts []string
+	if err := json.Unmarshal(out, &hosts); err != nil {
+		return nil, fmt.Errorf("decoding host names: %w", err)
+	}
+	return hosts, nil
+}

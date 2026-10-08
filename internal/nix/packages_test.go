@@ -1,6 +1,8 @@
 package nix
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -54,5 +56,21 @@ func TestPackagesExpr(t *testing.T) {
 func TestDecodePackages_RejectsBadJSON(t *testing.T) {
 	if _, err := decodePackages([]byte("{")); err == nil {
 		t.Fatal("decodePackages: want error for malformed JSON")
+	}
+}
+
+func TestHosts(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	flake := `{ outputs = _: { nixosConfigurations.alpha = { }; nixosConfigurations.beta = { }; }; }`
+	if err := os.WriteFile(filepath.Join(dir, "flake.nix"), []byte(flake), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Hosts(dir)
+	if err != nil {
+		t.Fatalf("Hosts: %v", err)
+	}
+	if want := []string{"alpha", "beta"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Hosts = %v, want %v", got, want)
 	}
 }

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
-	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/packages"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
@@ -91,19 +91,19 @@ func packagesOf(opts map[string]string) ([]packages.Package, string, error) {
 }
 
 // packageBaseline returns the staging root holding host's running system, or
-// "" when there is nothing to compare against: host is not the active one
-// (the staging root only holds the active host) or no luxos stage is there.
+// "" when there is nothing to compare against: no luxos stage is there, or it
+// was built for another host (a stage defines exactly one).
 func packageBaseline(p paths.Paths, host string) (string, error) {
-	active, err := config.ActiveHost(p.Modules)
-	if err != nil {
-		return "", err
-	}
-	if host != active {
-		return "", nil
-	}
 	base, err := staging.Baseline(p.Staging)
 	if err != nil || base == "" {
 		return "", err
+	}
+	hosts, err := nix.Hosts(p.Staging)
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(hosts, host) {
+		return "", nil
 	}
 	return p.Staging, nil
 }
