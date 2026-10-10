@@ -42,20 +42,13 @@ func hardwareDir(t *testing.T, p paths.Paths) string {
 // hardwareConfigContent is the pre-written hardware-configuration.nix.
 const hardwareConfigContent = "{ }\n"
 
-// fakeNix returns flake steps that need neither network nor flake-file, and
+// fakeNix returns flake steps that need no network, and
 // the calls made, in order. The fake lock step writes a staged flake.lock when
 // Materialize had none to copy, as `nix flake lock` would.
 func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 	t.Helper()
 	calls := &[]string{}
 	return flakeSteps{
-		write: func(stagingDir string) error {
-			*calls = append(*calls, "write-flake")
-			if _, err := os.Stat(filepath.Join(stagingDir, "framework", "flake-file.nix")); err != nil {
-				t.Errorf("write-flake ran before flake-file.nix was installed: %v", err)
-			}
-			return nil
-		},
 		lock: func(stagingDir string) error {
 			*calls = append(*calls, "flake-lock")
 			lock := filepath.Join(stagingDir, "flake.lock")
@@ -112,7 +105,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host1", "machine.nix"),
-		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 	write(t, filepath.Join(local, "host1", "flake.lock"), hostFlakeLock)
 
 	// A flake.lock at the config root, which must be ignored: only the
@@ -125,7 +118,7 @@ func fixture(t *testing.T) (paths.Paths, string) {
 	write(t, filepath.Join(local, "host2", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host2", "machine.nix"),
-		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
@@ -165,13 +158,12 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
-	if got := strings.Join(*calls, ","); got != "write-flake,flake-lock" {
-		t.Errorf("nix calls = %q, want write-flake then flake-lock", got)
+	if got := strings.Join(*calls, ","); got != "flake-lock" {
+		t.Errorf("nix calls = %q, want flake-lock", got)
 	}
 
 	mustExist := []string{
 		filepath.Join(p.Staging, "flake.nix"),
-		filepath.Join(p.Staging, "framework", "flake-file.nix"),
 		filepath.Join(p.Staging, "framework", "configuration.nix"),
 		filepath.Join(p.Staging, "framework", "system.nix"),
 		filepath.Join(p.Staging, "config", "modules", "system", "desktop.nix"),
@@ -181,7 +173,7 @@ func TestRun_EndToEnd(t *testing.T) {
 			t.Errorf("expected %s to exist: %v", f, err)
 		}
 	}
-	for _, name := range []string{"flake-file.nix", "configuration.nix"} {
+	for _, name := range []string{"configuration.nix"} {
 		if _, err := os.Stat(filepath.Join(p.Staging, name)); err == nil {
 			t.Errorf("%s must not exist at the staging root", name)
 		}
@@ -417,7 +409,7 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
 	write(t, filepath.Join(local, "host1", "machine.nix"),
-		"{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
+		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
 	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
@@ -465,11 +457,9 @@ func TestRun_LocalModuleSelected(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", stagedFoo, err)
 	}
 
-	flakeFile := mustReadFile(t, filepath.Join(staging, "framework", "flake-file.nix"))
-	for _, want := range []string{"import ./overlay.nix", "nixosConfigurations.host1"} {
-		if !strings.Contains(flakeFile, want) {
-			t.Errorf("flake-file.nix missing %q, got:\n%s", want, flakeFile)
-		}
+	flakeNix := mustReadFile(t, filepath.Join(staging, "flake.nix"))
+	if want := `import ./framework/outputs.nix inputs "host1"`; !strings.Contains(flakeNix, want) {
+		t.Errorf("flake.nix missing %q, got:\n%s", want, flakeNix)
 	}
 
 	// No lock existed for the host: the fake lock step created one, so the
@@ -635,7 +625,7 @@ func TestRun_MissingBaseChannelStopsBeforeStaging(t *testing.T) {
 
 	var out bytes.Buffer
 	err := runAll(&out, p, host, false, steps)
-	if err == nil || !strings.Contains(err.Error(), "missing base channel") || !strings.Contains(err.Error(), "flake-file.inputs.nixpkgs.url") {
+	if err == nil || !strings.Contains(err.Error(), "missing base channel") || !strings.Contains(err.Error(), "luxos.inputs.nixpkgs.url") {
 		t.Fatalf("err = %v, want missing base channel error naming the line", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
@@ -772,9 +762,9 @@ func TestSelectedInputsIncludeHardwareOfHostWithoutLink(t *testing.T) {
 	hostDir := filepath.Join(root, "machines", "other")
 	hwDir := filepath.Join(root, "hardware")
 	write(t, filepath.Join(modulesDir, "a.nix"), "{ ... }: { }\n")
-	write(t, filepath.Join(hostDir, "machine.nix"), "{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
+	write(t, filepath.Join(hostDir, "machine.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
 	write(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n")
-	write(t, filepath.Join(hwDir, "default.nix"), "{ ... }: {\n  flake-file.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
+	write(t, filepath.Join(hwDir, "default.nix"), "{ ... }: {\n  luxos.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
 
 	h, err := modules.Load(modulesDir, hostDir)
 	if err != nil {

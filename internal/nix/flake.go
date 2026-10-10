@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -16,11 +17,6 @@ import (
 )
 
 const flakeBin = "nix"
-
-// writeFlakeArgs runs flake-file's write-flake app. --no-write-lock-file
-// keeps the bootstrap's default nixpkgs from moving a lock pinned to another
-// one; flakeLockArgs then fills in whatever is missing.
-var writeFlakeArgs = []string{"run", "--no-write-lock-file", ".#write-flake"}
 
 // flakeLockArgs locks missing inputs without moving existing pins.
 var flakeLockArgs = []string{"flake", "lock"}
@@ -66,12 +62,6 @@ func buildFlakeRef(ref string, offline bool) (string, error) {
 	return storePath(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
 }
 
-// WriteFlake runs flake-file's write-flake app in stagingDir, regenerating
-// flake.nix from the input declarations in the staged modules.
-func WriteFlake(stagingDir string) error {
-	return runIn(stagingDir, writeFlakeArgs)
-}
-
 // FlakeLock runs `nix flake lock` in stagingDir: missing inputs are locked,
 // existing pins stay where they are.
 func FlakeLock(stagingDir string) error {
@@ -101,38 +91,34 @@ func flakeEnv(env []string) []string {
 	return append(out, prefix+value)
 }
 
-// evalInputsExpr reads flake-file.inputs from each file in a batch by
-// evaluating it, not parsing it: a module's value can be either the flat
-// `flake-file.inputs.name.url = "..."` form or the nested
-// `flake-file.inputs.name = { url = ...; inputs.nixpkgs.follows = ...; }`
-// form, and both desugar to the same attribute set, so one reader covers
-// both. Every function argument is stubbed to throw, so a file needing a
-// real one (a callPackage file, say) yields no declarations instead of
-// failing the batch; deepSeq forces that throw to fire inside tryEval even
-// when it is nested inside a declared value.
+// evalInputsExpr reads luxos.inputs from each file in a batch by evaluating
+// it, not parsing it: a module's value can be either the flat
+// `luxos.inputs.name.url = "..."` form or the nested
+// `luxos.inputs.name = { url = ...; inputs.nixpkgs.follows = ...; }` form, and
+// both desugar to the same attribute set, so one reader covers both. Every
+// function argument is stubbed to throw. The only tolerated failure is a
+// top level that is not an attribute set (a callPackage file, say), which is
+// not a module and is skipped; a declaration that needs an argument throws
+// out of deepSeq and fails the batch naming the file.
 const evalInputsExpr = `
 { filesJson }:
 let
   files = builtins.fromJSON filesJson;
   readFile = file:
     let
-      ev = builtins.tryEval (
-        let
-          m = import file.path;
-          isFn = builtins.isFunction m;
-          args = if isFn then
-            builtins.mapAttrs (n: _: throw "luxos-stub:${n}") (builtins.functionArgs m)
-          else {};
-          r = if isFn then m args else m;
-          decls = if builtins.isAttrs r then (r.flake-file.inputs or {}) else {};
-        in builtins.deepSeq decls decls
-      );
-      inputs = if ev.success then ev.value else {};
+      m = import file.path;
+      isFn = builtins.isFunction m;
+      args = if isFn then
+        builtins.mapAttrs (n: _: throw "luxos.inputs cannot depend on the module argument '${n}'") (builtins.functionArgs m)
+      else {};
+      r = if isFn then m args else m;
+      topLevel = builtins.tryEval (builtins.isAttrs r);
+      inputs = if topLevel.success && topLevel.value then (r.luxos.inputs or {}) else {};
     in
-      builtins.mapAttrs (name: value: {
+      builtins.deepSeq inputs (builtins.mapAttrs (name: value: {
         inherit value;
         pos = builtins.unsafeGetAttrPos name inputs;
-      }) inputs;
+      }) inputs);
 in
   builtins.listToAttrs (map (file: { name = file.file; value = readFile file; }) files)
 `
@@ -157,7 +143,7 @@ type InputDecl struct {
 	Value map[string]any
 }
 
-// InputDecls returns the flake-file.inputs declarations across files, in
+// InputDecls returns the luxos.inputs declarations across files, in
 // file-then-name order. A file that nix cannot evaluate is an error naming
 // it; see ReadInputDecls. Every file must exist.
 func InputDecls(files ...string) ([]InputDecl, error) {
@@ -176,10 +162,11 @@ func InputDecls(files ...string) ([]InputDecl, error) {
 	return decls, nil
 }
 
-// ReadInputDecls returns the flake-file.inputs declarations across files, in
+// ReadInputDecls returns the luxos.inputs declarations across files, in
 // file-then-name order, evaluating each file so a value built at runtime (not
-// a plain literal) is read like any other. A file that needs a real argument
-// contributes none. A file nix cannot evaluate at all (syntax or type error)
+// a plain literal) is read like any other. A file whose top level is not an
+// attribute set contributes none; a declaration needing a module argument is
+// an error. A file nix cannot evaluate at all (syntax or type error)
 // is left out and returned in broken, keyed by absolute path, with nix's
 // message; each one costs one more evaluation. Every file must exist.
 func ReadInputDecls(files ...string) ([]InputDecl, map[string]string, error) {
@@ -358,18 +345,12 @@ func BaseChannel(file string) (url string, line int, err error) {
 var nixIdentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_'-]*$`)
 
 // RenderInputs renders decls as the body of a flake.nix `inputs = { ... };`
-// block, one line per name (a name declared more than once keeps its first
-// declaration; flake-file's own evaluation judges any real conflict),
-// sorted by name for a stable, diff-friendly file.
+// block, one line per name, sorted by name for a stable, diff-friendly file.
+// decls hold one declaration per name; see MergeInputs.
 func RenderInputs(decls []InputDecl) string {
-	seen := map[string]bool{}
-	var names []string
+	names := make([]string, 0, len(decls))
 	values := map[string]map[string]any{}
 	for _, d := range decls {
-		if seen[d.Name] {
-			continue
-		}
-		seen[d.Name] = true
 		names = append(names, d.Name)
 		values[d.Name] = d.Value
 	}
@@ -460,4 +441,77 @@ func String(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// MergeInputs merges the declarations of each input name into one, field by
+// field as the module system merges option definitions: a field set to the
+// same value twice merges, complementary fields combine, and one field set
+// to different values is an error naming both declarations. The result keeps
+// the order in which names first appear.
+func MergeInputs(decls []InputDecl) ([]InputDecl, error) {
+	var order []string
+	merged := map[string]*InputDecl{}
+	origins := map[string]map[string]InputDecl{}
+	for _, d := range decls {
+		cur, ok := merged[d.Name]
+		if !ok {
+			order = append(order, d.Name)
+			cur = &InputDecl{File: d.File, Name: d.Name, Line: d.Line, Value: map[string]any{}}
+			merged[d.Name] = cur
+			origins[d.Name] = map[string]InputDecl{}
+		}
+		if err := mergeFields(cur.Value, d.Value, "", d, origins[d.Name]); err != nil {
+			return nil, fmt.Errorf("input '%s': %w", d.Name, err)
+		}
+		cur.URL, _ = cur.Value["url"].(string)
+	}
+	out := make([]InputDecl, len(order))
+	for i, name := range order {
+		out[i] = *merged[name]
+	}
+	return out, nil
+}
+
+// mergeFields folds src into dst. origins remembers the declaration that set
+// each leaf (keyed by dotted path) so a conflict names both sides.
+func mergeFields(dst, src map[string]any, prefix string, from InputDecl, origins map[string]InputDecl) error {
+	for key, v := range src {
+		path := prefix + key
+		existing, ok := dst[key]
+		if !ok {
+			dst[key] = cloneValue(v, path, from, origins)
+			continue
+		}
+		em, eIsMap := existing.(map[string]any)
+		vm, vIsMap := v.(map[string]any)
+		if eIsMap && vIsMap {
+			if err := mergeFields(em, vm, path+".", from, origins); err != nil {
+				return err
+			}
+			continue
+		}
+		if !reflect.DeepEqual(existing, v) {
+			first := origins[path]
+			return fmt.Errorf("'%s' is %s in %s:%d and %s in %s:%d", path, nixValue(existing), first.File, first.Line, nixValue(v), from.File, from.Line)
+		}
+	}
+	return nil
+}
+
+// cloneValue copies v, recording from as the origin of every leaf under path.
+func cloneValue(v any, path string, from InputDecl, origins map[string]InputDecl) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		origins[path] = from
+		return v
+	}
+	out := make(map[string]any, len(m))
+	for k, child := range m {
+		out[k] = cloneValue(child, path+"."+k, from, origins)
+	}
+	return out
+}
+
+func nixValue(v any) string {
+	return renderNixValue(v, 0)
 }

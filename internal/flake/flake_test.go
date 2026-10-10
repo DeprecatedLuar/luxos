@@ -51,17 +51,13 @@ func node(rev string) nix.LockNode {
 func TestNotesUnsupportedIsUnknown(t *testing.T) {
 	lock := nix.Lock{
 		Nodes: map[string]nix.LockNode{
-			nix.LockRootNode: {Inputs: map[string]string{"a": "a", "flake-file": "ff"}},
+			nix.LockRootNode: {Inputs: map[string]string{"a": "a"}},
 			"a":              {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Type: "path", Rev: "abc"}},
-			"ff":             {Original: nix.LockRef{Type: "path"}, Locked: nix.LockRef{Rev: "abc"}},
 		},
 	}
 	notes := Notes(GitHub{}, lock)
 	if notes["a"] != NoteUnknown {
 		t.Errorf("a = %q, want %q", notes["a"], NoteUnknown)
-	}
-	if _, ok := notes["ff"]; ok {
-		t.Error("flake-file must not be checked")
 	}
 }
 
@@ -171,11 +167,10 @@ func TestStatusOf(t *testing.T) {
 func TestNestedPaths(t *testing.T) {
 	lock := nix.Lock{
 		Nodes: map[string]nix.LockNode{
-			nix.LockRootNode: {Inputs: map[string]string{"a": "a", "b": "b", "flake-file": "ff"}},
+			nix.LockRootNode: {Inputs: map[string]string{"a": "a", "b": "b"}},
 			"a":              {Inputs: map[string]string{"nixpkgs": "np1"}},
 			"b":              {Inputs: map[string]string{"nixpkgs": "np2", "x": "x"}},
 			"x":              {Inputs: map[string]string{"nixpkgs": "np3"}},
-			"ff":             {Inputs: map[string]string{"nixpkgs": "np4"}},
 		},
 	}
 	got := NestedPaths(lock, "nixpkgs")
@@ -202,9 +197,9 @@ func TestDeclarations(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
 	hostDir := filepath.Join(root, ".local", "machines", "box")
-	writeFile(t, filepath.Join(modulesDir, "apps", "shell.nix"), "{ ... }: {\n  flake-file.inputs.ambxst.url = \"github:o/ambxst\";\n}\n")
-	writeFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ ... }: {\n  flake-file.inputs.wg.url = \"github:o/wg\";\n}\n")
-	writeFile(t, filepath.Join(hostDir, "machine.nix"), "{\n  flake-file.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
+	writeFile(t, filepath.Join(modulesDir, "apps", "shell.nix"), "{ ... }: {\n  luxos.inputs.ambxst.url = \"github:o/ambxst\";\n}\n")
+	writeFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ ... }: {\n  luxos.inputs.wg.url = \"github:o/wg\";\n}\n")
+	writeFile(t, filepath.Join(hostDir, "machine.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
 	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./apps/shell.nix\n    ./local/vpn.nix\n  ];\n}\n")
 
 	h, err := modules.Load(modulesDir, hostDir)

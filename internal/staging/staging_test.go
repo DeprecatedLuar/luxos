@@ -121,7 +121,6 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "environment.nix"),
 		filepath.Join(stagingDir, "framework", "luxos-hardware-defaults.nix"),
 		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
-		filepath.Join(stagingDir, "framework", "flake-file.nix"),
 		filepath.Join(stagingDir, "framework", "hardware-facts.nix"),
 		filepath.Join(stagingDir, "framework", "configuration.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "hardware-support", "default.nix"),
@@ -416,7 +415,6 @@ func adoptedFiles() map[string]string {
 		"framework/system.nix":        testHeader + "{ }",
 		"config/x.nix":                "{ }",
 		"flake.nix":                   "{ }",
-		"framework/flake-file.nix":    "{ }",
 		"framework/configuration.nix": "{ }",
 		"flake.lock":                  "{ }",
 	}
@@ -762,10 +760,33 @@ func TestMaterializeRendersFlakeNix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`nixpkgs.url = "` + url + `";`, "github:denful/flake-file/"} {
+	for _, want := range []string{
+		`nixpkgs.url = "` + url + `";`,
+		`luxos = {`, `url = "github:DeprecatedLuar/luxos/main";`, `follows = "nixpkgs";`,
+		`import ./framework/outputs.nix inputs "` + filepath.Base(hostDir) + `"`,
+	} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("flake.nix lacks %q:\n%s", want, data)
 		}
+	}
+	if strings.Contains(string(data), "flake-file") {
+		t.Errorf("flake.nix mentions flake-file:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(stagingDir, "framework", "flake-file.nix")); !os.IsNotExist(err) {
+		t.Errorf("framework/flake-file.nix staged (err=%v)", err)
+	}
+}
+
+func TestMaterializeRejectsConflictingLuxosInput(t *testing.T) {
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir}
+	inputs := []nix.InputDecl{
+		{File: "machine.nix", Name: "nixpkgs", URL: testNixpkgs, Line: 1, Value: map[string]any{"url": testNixpkgs}},
+		{File: "mod.nix", Name: "luxos", URL: "github:fork/luxos", Line: 3, Value: map[string]any{"url": "github:fork/luxos"}},
+	}
+	err := Materialize(t.TempDir(), h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "mod.nix") || !strings.Contains(err.Error(), "luxos built-in") {
+		t.Fatalf("err = %v, want a conflict naming mod.nix and the built-in", err)
 	}
 }
 
@@ -802,7 +823,7 @@ func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
 
 	for _, name := range []string{
 		"system", "units", "overlay", "outputs", "environment", "luxos-hardware", "luxos-hardware-defaults",
-		"flake-file", "hardware-facts", "configuration",
+		"hardware-facts", "configuration",
 	} {
 		if _, err := os.Stat(filepath.Join(stagingDir, "framework", name+".nix")); err != nil {
 			t.Errorf("framework/%s.nix: %v", name, err)

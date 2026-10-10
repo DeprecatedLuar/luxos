@@ -1,27 +1,22 @@
-# The flake's outputs function: evaluates flake-file.nix (and, through it,
-# the host's selected modules) as flake-file modules. Shared by the static
-# flake.nix and by the flake.nix write-flake regenerates (flake-file.outputs),
-# so the two can never drift. luxos.modules must be a specialArg because
-# modules use it in `imports`, which cannot depend on _module.args.
-# modulesPath is a specialArg for the same reason: generated
-# hardware-configuration.nix imports through it, as NixOS provides it.
-inputs:
+# The flake's outputs function: the one host this stage holds. luxos.modules
+# and modulesPath-using imports resolve as specialArgs, since modules use
+# luxos.modules in `imports`, which cannot depend on _module.args.
+inputs: hostName:
 let
   inherit (inputs.nixpkgs) lib;
-in
-(lib.evalModules {
-  specialArgs = {
-    inherit inputs;
-    inherit (inputs) self;
-    modulesPath = "${inputs.nixpkgs}/nixos/modules";
-    luxos.modules = import ./units.nix {
-      inherit lib;
-      root = ../config/modules;
-    };
+  system = "x86_64-linux";
+  luxos.modules = import ./units.nix {
+    inherit lib;
+    root = ../config/modules;
   };
-  modules = [
-    inputs.flake-file.flakeModules.flake
-    ./flake-file.nix
-  ];
-}).config.outputs
-  inputs
+  channelOverlay = import ./overlay.nix { inherit lib inputs system; };
+in
+{
+  nixosConfigurations.${hostName} = lib.nixosSystem {
+    specialArgs = { inherit inputs luxos hostName; };
+    modules = [
+      ./configuration.nix
+      { nixpkgs.hostPlatform = system; nixpkgs.overlays = [ channelOverlay ]; }
+    ];
+  };
+}

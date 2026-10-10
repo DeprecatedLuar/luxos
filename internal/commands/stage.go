@@ -18,13 +18,12 @@ import (
 )
 
 // flakeSteps are the Nix invocations of a stage, replaceable so tests need
-// neither network nor flake-file.
+// no network.
 type flakeSteps struct {
-	write func(stagingDir string) error // flake-file writes flake.nix
-	lock  func(stagingDir string) error // locks missing inputs
+	lock func(stagingDir string) error // locks missing inputs
 }
 
-var realFlakeSteps = flakeSteps{write: nix.WriteFlake, lock: nix.FlakeLock}
+var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
 // healAndValidate rewrites broken lines of the hosts' selections, then checks
 // the active host's module boundaries. prune removes unresolvable lines from
@@ -134,10 +133,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 		return err
 	}
 
-	out.Printf("Generating flake.nix with flake-file...\n")
-	if err := steps.write(dir); err != nil {
-		return err
-	}
+	out.Printf("Locking flake inputs...\n")
 	if err := steps.lock(dir); err != nil {
 		return err
 	}
@@ -152,10 +148,10 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	return out.Err()
 }
 
-// selectedInputs returns the flake-file.inputs declarations of the host's
+// selectedInputs returns the luxos.inputs declarations of the host's
 // machine.nix and of every module it builds. They become the bootstrap flake's
 // inputs, so a module that imports from its own input (a nixos-hardware
-// module, say) already has that input when write-flake evaluates it. hwDir
+// module, say) already has that input on its first build. hwDir
 // stands in for the hardware-support module on a host without its link.
 func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 	built, err := h.Built()

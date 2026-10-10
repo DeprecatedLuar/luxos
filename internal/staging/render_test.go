@@ -75,35 +75,6 @@ func TestRenderConfiguration_Deterministic(t *testing.T) {
 	}
 }
 
-func TestRenderFlakeBootstrap_Golden(t *testing.T) {
-	out, err := flakeBootstrap("paraloid")
-	if err != nil {
-		t.Fatalf("flakeBootstrap: %v", err)
-	}
-	assertGolden(t, "bootstrap", out)
-	assertNixParses(t, out)
-}
-
-func TestRenderFlakeBootstrap_Deterministic(t *testing.T) {
-	a, err := flakeBootstrap("paraloid")
-	if err != nil {
-		t.Fatalf("flakeBootstrap: %v", err)
-	}
-	b, err := flakeBootstrap("paraloid")
-	if err != nil {
-		t.Fatalf("flakeBootstrap: %v", err)
-	}
-	if string(a) != string(b) {
-		t.Errorf("FlakeBootstrap is not deterministic")
-	}
-}
-
-func TestRenderFlakeBootstrap_EmptyHostErrors(t *testing.T) {
-	if _, err := flakeBootstrap(""); err == nil {
-		t.Fatalf("FlakeBootstrap: want error for empty host")
-	}
-}
-
 func TestStaticFlakeNix_Parses(t *testing.T) {
 	raw, err := templates.File("render/flake.nix.tmpl")
 	if err != nil {
@@ -114,7 +85,7 @@ func TestStaticFlakeNix_Parses(t *testing.T) {
 		t.Fatalf("parse template: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, struct{ Inputs string }{Inputs: "    nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n"}); err != nil {
+	if err := tmpl.Execute(&buf, struct{ Host, Inputs string }{Host: "paraloid", Inputs: "    nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n"}); err != nil {
 		t.Fatalf("execute template: %v", err)
 	}
 	assertNixParses(t, buf.Bytes())

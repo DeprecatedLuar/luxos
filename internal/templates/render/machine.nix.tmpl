@@ -5,7 +5,7 @@
 
 {
   # Base channel (pkgs.nixpkgs), required.
-  flake-file.inputs.nixpkgs.url = "github:NixOS/nixpkgs/{{.Channel}}";
+  luxos.inputs.nixpkgs.url = "github:NixOS/nixpkgs/{{.Channel}}";
 
   time.timeZone = "{{.Timezone}}";
   i18n.defaultLocale = "{{.Locale}}";

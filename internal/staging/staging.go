@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -35,7 +36,6 @@ const (
 	configDir    = "config"
 
 	flakeNix          = "flake.nix"
-	flakeFileNix      = "flake-file.nix"
 	hardwareFactsNix  = "hardware-facts.nix"
 	configurationNix  = "configuration.nix"
 	stagedEnvironment = "environment"
@@ -54,10 +54,14 @@ const (
 
 	frameworkTemplateDir = "framework/"
 	flakeTemplate        = "flake.nix.tmpl"
+
+	luxosInputName   = "luxos"
+	luxosInputURL    = "github:DeprecatedLuar/luxos/main"
+	luxosInputSource = "luxos built-in"
 )
 
 // Materialize regenerates every luxos-owned entry of stagingDir for h
-// (pruning them first): the framework files, flake.nix, framework/flake-file.nix,
+// (pruning them first): the framework files, flake.nix,
 // framework/hardware-facts.nix, framework/configuration.nix, config/ and the host's
 // flake.lock. Every symlink under h.ModulesDir and h.HostDir is dereferenced; a
 // dangling one refuses the whole call, naming it, before anything is touched.
@@ -71,17 +75,21 @@ const (
 // in the staged default.nix is pointed there. The original is not staged; no
 // source file is rewritten.
 //
-// inputs are the flake-file.inputs declarations of the modules h builds plus
-// the host's machine.nix; they become flake.nix's `inputs = { ... };` block
-// beyond the flake-file pin.
+// inputs are the luxos.inputs declarations of the modules h builds plus
+// the host's machine.nix; with the built-in luxos input they are merged
+// (nix.MergeInputs) into flake.nix's `inputs = { ... };` block.
 //
 // settings names the units whose settings files (config.SettingsPath) are
 // copied to config/settings/ and imported by framework/configuration.nix.
 func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts, settings []string) error {
-	inputsNix := nix.RenderInputs(inputs)
-	if inputsNix == "" {
+	if len(inputs) == 0 {
 		return errors.New("staging: flake inputs are required")
 	}
+	merged, err := nix.MergeInputs(append(slices.Clone(inputs), luxosInput()))
+	if err != nil {
+		return err
+	}
+	inputsNix := nix.RenderInputs(merged)
 	if err := checkNoDanglingLinks(h.ModulesDir); err != nil {
 		return err
 	}
@@ -107,7 +115,7 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 			return err
 		}
 	}
-	if err := writeFlakeNix(stagingDir, inputsNix); err != nil {
+	if err := writeFlakeNix(stagingDir, h.Name, inputsNix); err != nil {
 		return err
 	}
 
@@ -115,7 +123,6 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		name   string
 		render func() ([]byte, error)
 	}{
-		{flakeFileNix, func() ([]byte, error) { return flakeBootstrap(h.Name) }},
 		{hardwareFactsNix, func() ([]byte, error) { return hardware.Render(facts) }},
 		{configurationNix, func() ([]byte, error) { return configuration(h.Name, settings) }},
 	}
@@ -248,8 +255,11 @@ func checkNoDanglingLinks(root string) error {
 	})
 }
 
-func writeFlakeNix(dst, inputsNix string) error {
-	out, err := templates.Render(flakeTemplate, flakeNixData{Inputs: inputsNix})
+func writeFlakeNix(dst, host, inputsNix string) error {
+	if host == "" {
+		return errors.New("staging.writeFlakeNix: host name is required")
+	}
+	out, err := templates.Render(flakeTemplate, flakeNixData{Host: host, Inputs: inputsNix})
 	if err != nil {
 		return err
 	}
@@ -257,6 +267,7 @@ func writeFlakeNix(dst, inputsNix string) error {
 }
 
 type flakeNixData struct {
+	Host   string
 	Inputs string
 }
 
@@ -373,4 +384,18 @@ func Baseline(stagingDir string) (string, error) {
 		return "", err
 	}
 	return base, nil
+}
+
+// luxosInput is the declaration of the luxos binary's own flake input,
+// installed by framework/system.nix.
+func luxosInput() nix.InputDecl {
+	return nix.InputDecl{
+		File: luxosInputSource,
+		Name: luxosInputName,
+		URL:  luxosInputURL,
+		Value: map[string]any{
+			"url":    luxosInputURL,
+			"inputs": map[string]any{"nixpkgs": map[string]any{"follows": "nixpkgs"}},
+		},
+	}
 }

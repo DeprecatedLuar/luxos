@@ -251,7 +251,6 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 	for name := range locked {
 		names[name] = true
 	}
-	delete(names, flake.FileInput)
 
 	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
 
@@ -446,9 +445,6 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 
 	segments := strings.Split(name, flakePathSep)
 	root := segments[0]
-	if root == flake.FileInput {
-		return flakeView{}, unknown
-	}
 
 	builtin := slices.Contains(flake.Builtin, root)
 	rootKey, locked := graph.Nodes[nix.LockRootNode].Inputs[root]

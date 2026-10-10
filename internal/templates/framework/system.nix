@@ -45,7 +45,7 @@ in
 
     kitty.terminfo
   ] ++ [
-    # The luxos binary itself, from the flake input declared in flake-file.nix.
+    # The luxos binary itself, from the flake input declared by the framework.
     inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 

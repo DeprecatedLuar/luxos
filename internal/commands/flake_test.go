@@ -14,10 +14,10 @@ import (
 
 func testLockGraph() nix.Lock {
 	return nix.Lock{
-		Root: []string{"ambxst", "flake-file", "luxos", "old", "shared"},
+		Root: []string{"ambxst", "luxos", "old", "shared"},
 		Nodes: map[string]nix.LockNode{
 			nix.LockRootNode: {Inputs: map[string]string{
-				"ambxst": "ambxst", "flake-file": "flake-file", "luxos": "luxos", "old": "old", "shared": "shared_2",
+				"ambxst": "ambxst", "luxos": "luxos", "old": "old", "shared": "shared_2",
 			}},
 			"ambxst":    {Inputs: map[string]string{"axctl": "axctl", "nixpkgs": "nixpkgs_2"}},
 			"axctl":     {Inputs: map[string]string{"deep": "deep"}},
@@ -41,11 +41,10 @@ func rowByName(rows []moduleRow, name string) (moduleRow, bool) {
 
 func TestFlakeBuildRowsMarkersAndPlacement(t *testing.T) {
 	decls := map[string][]string{
-		"ambxst":     {"desktop/shells/ambxst"},
-		"shared":     {"a.nix", "b/c.nix"},
-		"newone":     {"local/x.nix"},
-		"flake-file": {"y.nix"},
-		"nixpkgs":    {"nixpkgs.nix"},
+		"ambxst":  {"desktop/shells/ambxst"},
+		"shared":  {"a.nix", "b/c.nix"},
+		"newone":  {"local/x.nix"},
+		"nixpkgs": {"nixpkgs.nix"},
 	}
 	rows := flakeBuildRows(decls, testLockGraph(), nil)
 
@@ -72,9 +71,6 @@ func TestFlakeBuildRowsMarkersAndPlacement(t *testing.T) {
 		if !reflect.DeepEqual(r.category, c.category) {
 			t.Errorf("%s category = %v, want %v", c.name, r.category, c.category)
 		}
-	}
-	if _, ok := rowByName(rows, "flake-file"); ok {
-		t.Error("flake-file must never be listed")
 	}
 	if len(rows) != len(cases) {
 		t.Errorf("got %d rows, want %d", len(rows), len(cases))
@@ -325,7 +321,7 @@ func TestFlakeShowOfflineAndUnlocked(t *testing.T) {
 }
 
 func TestFlakeShowUnknownInput(t *testing.T) {
-	for _, name := range []string{"nope", "flake-file", "ambxst/nope", "newone/x", "nope/x"} {
+	for _, name := range []string{"nope", "ambxst/nope", "newone/x", "nope/x"} {
 		_, err := flakeBuildView(name, "h", showSites(), showGraph(), nil)
 		if err == nil || !strings.Contains(err.Error(), "no input '"+name+"' for h\n  list them with: luxos flakes") {
 			t.Errorf("%s: %v", name, err)

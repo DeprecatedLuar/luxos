@@ -181,7 +181,7 @@ func baseChannelHint() string {
 			}
 		}
 	}
-	return "flake-file.inputs.nixpkgs.url = \"<flake url>\";"
+	return "luxos.inputs.nixpkgs.url = \"<flake url>\";"
 }
 
 // checkMachineFile fails when the machine.nix at path holds any static or

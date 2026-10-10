@@ -1,5 +1,5 @@
 # Builds the luxos binary. Hosts consume packages.<system>.default as the
-# `luxos` flake input declared by the framework's flake-file bootstrap.
+# `luxos` flake input that luxos adds to every host's flake.nix.
 {
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 

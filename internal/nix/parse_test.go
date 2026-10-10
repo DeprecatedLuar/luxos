@@ -226,6 +226,15 @@ func TestNames_CallShapeSuite(t *testing.T) {
 		})
 	}
 
+	t.Run("luxos as an attribute name", func(t *testing.T) {
+		ok("inputs declaration", `{ luxos, ... }: { luxos.inputs.x.url = "github:o/x"; imports = luxos.modules [ "a" ]; }`, "a")
+		ok("nested inputs declaration", `{ ... }: { luxos.inputs.x = { url = "github:o/x"; }; }`, "")
+		ok("inputs after other attrs", `{ ... }: { a = 1; luxos.inputs.x.url = "github:o/x"; }`, "")
+		bad("bound to a name", `{ luxos, ... }: { x = luxos; }`, "uses 'luxos'")
+		bad("inherited", `{ luxos, ... }: { inherit luxos; }`, "uses 'luxos'")
+		bad("with", `{ luxos, ... }: { x = with luxos; modules; }`, "uses 'luxos'")
+	})
+
 	t.Run("recognized shape: literal list of string literals", func(t *testing.T) {
 		ok("single name", `{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`, "wayland")
 		ok("multiple names", `{ luxos, ... }: { imports = luxos.modules [ "wayland" "x11" ]; }`, "wayland\nx11")

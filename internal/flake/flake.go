@@ -15,9 +15,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
-// FileInput is rev-pinned in the embedded bootstrap, never actionable, never listed.
-const FileInput = "flake-file"
-
 const (
 	sharedDisplayDir   = "modules"
 	localDisplayDir    = "local/modules"
@@ -27,7 +24,7 @@ const (
 	shortRevLen = 7
 )
 
-// Builtin inputs are declared by the embedded bootstrap flake, so they are
+// Builtin inputs are declared by luxos when it renders flake.nix, so they are
 // declared even when no module says so, and always sit at the tree root.
 var Builtin = []string{"luxos", "nixpkgs"}
 
@@ -70,7 +67,7 @@ type Decl struct {
 	URL  string
 }
 
-// Declarations returns every flake-file.inputs declaration of the modules h
+// Declarations returns every luxos.inputs declaration of the modules h
 // builds and of its machine.nix, by input name, sorted by file then line.
 func Declarations(h *modules.Host) (map[string][]Decl, error) {
 	built, err := h.Built()
@@ -167,7 +164,7 @@ func check(up Upstream, node nix.LockNode) (tip string, note Note, err error) {
 }
 
 // Notes checks the upstream tip of every locked node reachable from the root
-// (flake-file excluded), one goroutine per node. It returns node key -> note:
+// one goroutine per node. It returns node key -> note:
 // NoteBehind when the tip differs from the locked rev, NoteUnknown on any
 // failure, absent when equal.
 func Notes(up Upstream, lock nix.Lock) map[string]Note {
@@ -182,10 +179,8 @@ func Notes(up Upstream, lock nix.Lock) map[string]Note {
 			walk(target)
 		}
 	}
-	for name, key := range lock.Nodes[nix.LockRootNode].Inputs {
-		if name != FileInput {
-			walk(key)
-		}
+	for _, key := range lock.Nodes[nix.LockRootNode].Inputs {
+		walk(key)
 	}
 	delete(keys, nix.LockRootNode)
 
@@ -270,7 +265,7 @@ func Version(up Upstream, node nix.LockNode) VersionInfo {
 }
 
 // NestedPaths returns, sorted by traversal, every path "a/b/name" under which
-// the lock pulls in an input called name below a root input (flake-file excluded).
+// the lock pulls in an input called name below a root input.
 func NestedPaths(lock nix.Lock, name string) []string {
 	var found []string
 	var walk func(key, prefix string, ancestors map[string]bool)
@@ -278,7 +273,7 @@ func NestedPaths(lock nix.Lock, name string) []string {
 		inputs := lock.Nodes[key].Inputs
 		for _, child := range sortedKeys(inputs) {
 			target := inputs[child]
-			if ancestors[target] || (prefix == "" && child == FileInput) {
+			if ancestors[target] {
 				continue
 			}
 			path := child

@@ -4,13 +4,13 @@
 { config, pkgs, lib, inputs, ... }:
 
 {
-  # Modules declare the flake inputs they consume here; only flake-file reads
-  # them (from flake-file.nix), the system build ignores the value.
-  options.flake-file.inputs = lib.mkOption {
+  # Modules declare the flake inputs they consume here; luxos reads them to
+  # render flake.nix, the system build ignores the value.
+  options.luxos.inputs = lib.mkOption {
     type = lib.types.attrsOf lib.types.anything;
     default = { };
     internal = true;
-    description = "Flake inputs declared by modules, read by flake-file.";
+    description = "Flake inputs declared by modules, read by luxos.";
   };
 
   imports = [

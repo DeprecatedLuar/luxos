@@ -121,9 +121,9 @@ func TestStatusOfRemoved(t *testing.T) {
 func TestStatusOfInputs(t *testing.T) {
 	skipIfNoNix(t)
 	h := statusFixture(t, nil, "none.nix")
-	mustWriteFile(t, filepath.Join(h.ModulesDir, "file.nix"), "{ ... }: {\n  flake-file.inputs.zed.url = \"github:o/zed\";\n  flake-file.inputs.abc.url = \"github:o/abc\";\n}\n")
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "file.nix"), "{ ... }: {\n  luxos.inputs.zed.url = \"github:o/zed\";\n  luxos.inputs.abc.url = \"github:o/abc\";\n}\n")
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "default.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ ... }: {\n  flake-file.inputs.deep.url = \"github:o/deep\";\n}\n")
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ ... }: {\n  luxos.inputs.deep.url = \"github:o/deep\";\n}\n")
 	h, err := Load(h.ModulesDir, h.HostDir)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestChangedFrom(t *testing.T) {
 func TestStatusOfBroken(t *testing.T) {
 	skipIfNoNix(t)
 	h := statusFixture(t, nil, "fine.nix")
-	mustWriteFile(t, filepath.Join(h.ModulesDir, "flaky.nix"), "{ ... }: {\n  flake-file.inputs.zed.url = \"github:o/zed\";\n}\n")
+	mustWriteFile(t, filepath.Join(h.ModulesDir, "flaky.nix"), "{ ... }: {\n  luxos.inputs.zed.url = \"github:o/zed\";\n}\n")
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "default.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ x = ; }\n")
 	h, err := Load(h.ModulesDir, h.HostDir)

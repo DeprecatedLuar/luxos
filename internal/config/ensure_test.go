@@ -250,7 +250,7 @@ func TestRenderMachine_FillsValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`flake-file.inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";`,
+		`luxos.inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";`,
 		`time.timeZone = "Europe/Lisbon";`,
 		`i18n.defaultLocale = "pt_PT.UTF-8";`,
 		`services.xserver.xkb.layout = "pt";`,

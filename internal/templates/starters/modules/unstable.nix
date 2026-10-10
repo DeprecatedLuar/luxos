@@ -1,5 +1,5 @@
 { ... }:
 
 {
-  flake-file.inputs.unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  luxos.inputs.unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 }
