@@ -151,6 +151,14 @@ in
     options v4l2loopback devices=1 video_nr=10 card_label="Virtual Camera" exclusive_caps=1
   '';
 
+  #──[Qt Theming]───────────────────────────────────────────────────────────
+  # The qt6ct plugin also answers to "qt5ct", so one value themes Qt5 and Qt6.
+
+  qt = {
+    enable = lib.mkDefault true;
+    platformTheme = lib.mkDefault "qt5ct";
+  };
+
   #──[Fonts]────────────────────────────────────────────────────────────────
 
   fonts.packages = with pkgs; [
