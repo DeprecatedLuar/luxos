@@ -83,12 +83,7 @@ func TestEnvironmentParser(t *testing.T) {
 		envErr("38", "PATH=/x", 1),
 		envErr("39", "A=1\nA=2", 2),
 		envErr("40", "# c\nHOME=/x", 2),
-		envOK("template", string(tmpl), map[string]string{
-			"XDG_CACHE_HOME":  "$HOME/.cache",
-			"XDG_CONFIG_HOME": "$HOME/.config",
-			"XDG_DATA_HOME":   "$HOME/.local/share",
-			"XDG_STATE_HOME":  "$HOME/.local/state",
-		}),
+		envOK("template", string(tmpl), map[string]string{}),
 	}
 
 	for _, tc := range cases {

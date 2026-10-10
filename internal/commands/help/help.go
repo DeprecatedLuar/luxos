@@ -27,7 +27,7 @@ func rootPage() *gohelp.Page {
 		Section("Commands",
 			gohelp.Item("help", "Show this message"),
 			gohelp.Item("version|-v|--version", "Print the commit this binary was built from"),
-			gohelp.Item("rebuild [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
+			gohelp.Item("rebuild|rb [flags] [nixos-rebuild args]", "Rebuild the system from CONFIG_DIR"),
 			gohelp.Item("setup [--config|-C <dir>]", "Create a luxos config, or add this computer to one; rebuild runs it when there is no config"),
 			gohelp.Item("flakes|flake list|ls", "List the host's flake inputs as a tree; bare 'flakes' is a shortcut for this"),
 			gohelp.Item("flake <name>...", "Show where each input comes from and what updating it would give"),

@@ -44,7 +44,7 @@ func run(args []string) error {
 		return help.Run(args)
 	case "version", "-v", "--version":
 		return commands.Version(rest)
-	case "rebuild":
+	case "rebuild", "rb":
 		return commands.Rebuild(rest)
 	case "setup":
 		return setup.Run(rest)
