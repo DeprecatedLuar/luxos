@@ -371,7 +371,8 @@ func TestRun_HardwareFactsDetectedAndStaged(t *testing.T) {
 		GPUs: []hardware.GPU{
 			{BusID: "PCI:1@0:0:0", Vendor: "nvidia", VendorID: "0x10de", DeviceID: "0x1234", Class: "3d", BootVGA: false},
 		},
-		DMI: hardware.DMI{Vendor: "Vendor", Product: "Product", ChassisType: 10},
+		DMI:       hardware.DMI{Vendor: "Vendor", Product: "Product", ChassisType: 10},
+		CPUVendor: "unknown",
 	})
 	if err != nil {
 		t.Fatal(err)

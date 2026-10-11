@@ -12,6 +12,7 @@ import (
 type Facts struct {
 	GPUs             []GPU
 	DMI              DMI
+	CPUVendor        string
 	PlatformProfiles []string
 }
 
@@ -27,6 +28,7 @@ func Render(f Facts) ([]byte, error) {
 	fmt.Fprintf(&b, "  luxos.hardware.vendor = %s;\n", nix.String(f.DMI.Vendor))
 	fmt.Fprintf(&b, "  luxos.hardware.product = %s;\n", nix.String(f.DMI.Product))
 	fmt.Fprintf(&b, "  luxos.hardware.chassisType = %d;\n", f.DMI.ChassisType)
+	fmt.Fprintf(&b, "  luxos.hardware.cpuVendor = %s;\n", nix.String(f.CPUVendor))
 	b.WriteString("  luxos.hardware.platformProfiles = [ ")
 	for _, p := range f.PlatformProfiles {
 		b.WriteString(nix.String(p) + " ")

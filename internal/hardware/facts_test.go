@@ -32,7 +32,7 @@ func TestRender_GPUsSortedByBusID(t *testing.T) {
 }
 
 func TestRender_DMI(t *testing.T) {
-	out, err := Render(Facts{DMI: DMI{Vendor: "Example Corp.", Product: "Example Laptop 14", ChassisType: 10}})
+	out, err := Render(Facts{DMI: DMI{Vendor: "Example Corp.", Product: "Example Laptop 14", ChassisType: 10}, CPUVendor: "intel"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -40,6 +40,7 @@ func TestRender_DMI(t *testing.T) {
 		"  luxos.hardware.vendor = \"Example Corp.\";\n" +
 		"  luxos.hardware.product = \"Example Laptop 14\";\n" +
 		"  luxos.hardware.chassisType = 10;\n" +
+		"  luxos.hardware.cpuVendor = \"intel\";\n" +
 		"  luxos.hardware.platformProfiles = [ ];\n" +
 		"  luxos.hardware.gpus = [ ];\n" +
 		"}\n"

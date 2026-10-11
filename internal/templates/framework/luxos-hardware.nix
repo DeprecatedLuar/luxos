@@ -28,6 +28,10 @@
     type = lib.types.int;
     description = "SMBIOS chassis type (DMI chassis_type): 3 desktop; 8, 9, 10, 14 portable/laptop/notebook; 31 convertible. Written to framework/hardware-facts.nix on every rebuild. Read-only fact - do not set.";
   };
+  options.luxos.hardware.cpuVendor = lib.mkOption {
+    type = lib.types.str;
+    description = "CPU vendor from the kernel's CPU modalias: \"intel\", \"amd\" or \"unknown\"; written to framework/hardware-facts.nix on every rebuild. Read-only fact - do not set.";
+  };
   options.luxos.hardware.platformProfiles = lib.mkOption {
     type = lib.types.listOf lib.types.str;
     default = [ ];

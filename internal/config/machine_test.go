@@ -27,7 +27,7 @@ func TestStarterModules_Parse(t *testing.T) {
 	}
 	dir := t.TempDir()
 	err = fs.WalkDir(src, ".", func(rel string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || d.IsDir() || filepath.Ext(rel) != ".nix" {
 			return err
 		}
 		data, err := fs.ReadFile(src, rel)

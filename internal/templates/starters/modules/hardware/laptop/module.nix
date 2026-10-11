@@ -12,12 +12,20 @@ let
   # failed write is only logged at debug level.
   offered = config.luxos.hardware.platformProfiles;
   powerSaverPlatformProfile = lib.findFirst (p: lib.elem p offered) null [ "low-power" "quiet" ];
+
+  flag = enabled: if enabled then 1 else 0;
+
+  turbo = pkgs.writeShellApplication {
+    name = "turbo";
+    text = builtins.readFile ./bin/turbo.sh;
+  };
 in
 {
   #──[Power Management]──────────────────────────────────────────────────────
 
   powerManagement.enable = true;
   services.power-profiles-daemon.enable = false;
+  services.thermald.enable = config.luxos.hardware.cpuVendor == "intel";
 
   # Profile settings need TLP 1.10+, which only unstable ships.
   services.tlp = {
@@ -29,9 +37,10 @@ in
       TLP_PROFILE_BAT = tlpProfile.${cfg.onBattery};
 
       # All three, or turbo stays off after the first power-saver switch.
-      CPU_BOOST_ON_AC = 1;
-      CPU_BOOST_ON_BAT = 1;
-      CPU_BOOST_ON_SAV = 0;
+      # With profiles, AC/BAT/SAV mean performance/balanced/power-saver.
+      CPU_BOOST_ON_AC = flag cfg.turboPerformance;
+      CPU_BOOST_ON_BAT = flag cfg.turboBalanced;
+      CPU_BOOST_ON_SAV = flag cfg.turboPowerSaver;
 
       CPU_ENERGY_PERF_POLICY_ON_AC = "performance";
       CPU_ENERGY_PERF_POLICY_ON_BAT = "balance_power";
@@ -41,7 +50,7 @@ in
     };
   };
 
-  environment.systemPackages = [ pkgs.unstable.tlp-pd ];
+  environment.systemPackages = [ pkgs.unstable.tlp-pd turbo ];
   systemd.packages = [ pkgs.unstable.tlp-pd ];
   systemd.services.tlp-pd.wantedBy = [ "graphical.target" ];
 
