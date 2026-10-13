@@ -44,9 +44,11 @@ func efiSys(t *testing.T, sysDir string) {
 }
 
 // wholeDisk creates <sys>/class/block/<name> as a plain directory (no
-// partition file), optionally with a non-empty slaves/ subdirectory.
-func wholeDisk(t *testing.T, sysDir, name string, withSlave bool) {
+// partition file), optionally with a non-empty slaves/ subdirectory, plus its
+// <dev> node.
+func wholeDisk(t *testing.T, sysDir, devDir, name string, withSlave bool) {
 	t.Helper()
+	devNode(t, devDir, name)
 	dir := filepath.Join(sysDir, "class", "block", name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir class/block/%s: %v", name, err)
@@ -64,9 +66,11 @@ func wholeDisk(t *testing.T, sysDir, name string, withSlave bool) {
 
 // partition creates <sys>/devices/x/<disk>/<part>/partition and symlinks
 // <sys>/class/block/<part> to that directory, as the plan's test fixture
-// instructions describe.
-func partition(t *testing.T, sysDir, disk, part string) {
+// instructions describe. It also creates the <dev> nodes for disk and part.
+func partition(t *testing.T, sysDir, devDir, disk, part string) {
 	t.Helper()
+	devNode(t, devDir, disk)
+	devNode(t, devDir, part)
 	realDir := filepath.Join(sysDir, "devices", "x", disk, part)
 	if err := os.MkdirAll(realDir, 0755); err != nil {
 		t.Fatalf("mkdir device dir: %v", err)
@@ -85,12 +89,36 @@ func partition(t *testing.T, sysDir, disk, part string) {
 	}
 }
 
+// devNode creates <dev>/<name> as an empty file standing in for a device node.
+func devNode(t *testing.T, devDir, name string) {
+	t.Helper()
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		t.Fatalf("mkdir dev dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(devDir, name), nil, 0644); err != nil {
+		t.Fatalf("write dev node %s: %v", name, err)
+	}
+}
+
+// devLink creates <dev>/<rel> as a relative symlink to target, as udev does.
+func devLink(t *testing.T, devDir, rel, target string) {
+	t.Helper()
+	link := filepath.Join(devDir, rel)
+	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(link), err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink %s: %v", rel, err)
+	}
+}
+
 func TestDetectBoot_EFI_VfatAtBoot(t *testing.T) {
 	sysDir := t.TempDir()
+	devDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 /boot vfat rw 0 0")
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -102,13 +130,14 @@ func TestDetectBoot_EFI_VfatAtBoot(t *testing.T) {
 
 func TestDetectBoot_EFI_PrefersEfiMountPoint(t *testing.T) {
 	sysDir := t.TempDir()
+	devDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(),
 		"/dev/sda2 /boot vfat rw 0 0",
 		"/dev/sda1 /boot/efi vfat rw 0 0",
 	)
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -120,20 +149,22 @@ func TestDetectBoot_EFI_PrefersEfiMountPoint(t *testing.T) {
 
 func TestDetectBoot_EFI_NoVfatErrors(t *testing.T) {
 	sysDir := t.TempDir()
+	devDir := t.TempDir()
 	efiSys(t, sysDir)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 /boot ext4 rw 0 0")
 
-	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+	if _, err := DetectBoot(sysDir, devDir, mountsFile); err == nil {
 		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
 func TestDetectBoot_BIOS_PartitionOfRoot(t *testing.T) {
 	sysDir := t.TempDir()
-	partition(t, sysDir, "sda", "sda1")
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "sda", "sda1")
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 / ext4 rw 0 0")
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -145,10 +176,11 @@ func TestDetectBoot_BIOS_PartitionOfRoot(t *testing.T) {
 
 func TestDetectBoot_BIOS_NvmePartition(t *testing.T) {
 	sysDir := t.TempDir()
-	partition(t, sysDir, "nvme0n1", "nvme0n1p2")
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "nvme0n1", "nvme0n1p2")
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/nvme0n1p2 / ext4 rw 0 0")
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -160,14 +192,15 @@ func TestDetectBoot_BIOS_NvmePartition(t *testing.T) {
 
 func TestDetectBoot_BIOS_PrefersBootMount(t *testing.T) {
 	sysDir := t.TempDir()
-	partition(t, sysDir, "sdb", "sdb1")
-	partition(t, sysDir, "sda", "sda1")
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "sdb", "sdb1")
+	partition(t, sysDir, devDir, "sda", "sda1")
 	mountsFile := writeMounts(t, t.TempDir(),
 		"/dev/sda1 / ext4 rw 0 0",
 		"/dev/sdb1 /boot ext4 rw 0 0",
 	)
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -179,10 +212,11 @@ func TestDetectBoot_BIOS_PrefersBootMount(t *testing.T) {
 
 func TestDetectBoot_BIOS_WholeDiskNoPartitionFile(t *testing.T) {
 	sysDir := t.TempDir()
-	wholeDisk(t, sysDir, "vda", false)
+	devDir := t.TempDir()
+	wholeDisk(t, sysDir, devDir, "vda", false)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/vda / ext4 rw 0 0")
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}
@@ -194,41 +228,95 @@ func TestDetectBoot_BIOS_WholeDiskNoPartitionFile(t *testing.T) {
 
 func TestDetectBoot_BIOS_SlavesErrors(t *testing.T) {
 	sysDir := t.TempDir()
-	wholeDisk(t, sysDir, "dm-0", true)
+	devDir := t.TempDir()
+	wholeDisk(t, sysDir, devDir, "dm-0", true)
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/dm-0 / ext4 rw 0 0")
 
-	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+	if _, err := DetectBoot(sysDir, devDir, mountsFile); err == nil {
 		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
 func TestDetectBoot_BIOS_NonDevSourceErrors(t *testing.T) {
 	sysDir := t.TempDir()
+	devDir := t.TempDir()
 	mountsFile := writeMounts(t, t.TempDir(), "tmpfs / tmpfs rw 0 0")
 
-	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+	if _, err := DetectBoot(sysDir, devDir, mountsFile); err == nil {
 		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
 func TestDetectBoot_BIOS_MissingClassBlockEntryErrors(t *testing.T) {
 	sysDir := t.TempDir()
+	devDir := t.TempDir()
+	devNode(t, devDir, "sda1")
 	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 / ext4 rw 0 0")
 
-	if _, err := DetectBoot(sysDir, mountsFile); err == nil {
+	if _, err := DetectBoot(sysDir, devDir, mountsFile); err == nil {
+		t.Fatalf("DetectBoot: want error, got nil")
+	}
+}
+
+func TestDetectBoot_BIOS_ByUUIDSourceResolves(t *testing.T) {
+	sysDir := t.TempDir()
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "vda", "vda1")
+	devLink(t, devDir, "disk/by-uuid/root-id", "../../vda1")
+	mountsFile := writeMounts(t, t.TempDir(), "/dev/disk/by-uuid/root-id / ext4 rw 0 0")
+
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
+	if err != nil {
+		t.Fatalf("DetectBoot: %v", err)
+	}
+	want := Loader{EFI: false, Target: "/dev/vda"}
+	if got != want {
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
+	}
+}
+
+func TestDetectBoot_BIOS_PrefersByIDDisk(t *testing.T) {
+	sysDir := t.TempDir()
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "sdb", "sdb1")
+	partition(t, sysDir, devDir, "sda", "sda1")
+	devLink(t, devDir, "disk/by-id/ata-DiskA", "../../sda")
+	devLink(t, devDir, "disk/by-id/ata-DiskA-part1", "../../sda1")
+	devLink(t, devDir, "disk/by-id/ata-DiskB", "../../sdb")
+	devLink(t, devDir, "disk/by-id/wwn-0xA", "../../sda")
+	mountsFile := writeMounts(t, t.TempDir(), "/dev/sda1 / ext4 rw 0 0")
+
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
+	if err != nil {
+		t.Fatalf("DetectBoot: %v", err)
+	}
+	want := Loader{EFI: false, Target: "/dev/disk/by-id/ata-DiskA"}
+	if got != want {
+		t.Errorf("DetectBoot = %+v, want %+v", got, want)
+	}
+}
+
+func TestDetectBoot_BIOS_DanglingSourceErrors(t *testing.T) {
+	sysDir := t.TempDir()
+	devDir := t.TempDir()
+	devLink(t, devDir, "disk/by-uuid/gone", "../../vda1")
+	mountsFile := writeMounts(t, t.TempDir(), "/dev/disk/by-uuid/gone / ext4 rw 0 0")
+
+	if _, err := DetectBoot(sysDir, devDir, mountsFile); err == nil {
 		t.Fatalf("DetectBoot: want error, got nil")
 	}
 }
 
 func TestDetectBoot_MountsFile_LastLineForMountPointWins(t *testing.T) {
 	sysDir := t.TempDir()
-	partition(t, sysDir, "sdb", "sdb1")
+	devDir := t.TempDir()
+	partition(t, sysDir, devDir, "sdb", "sdb1")
 	mountsFile := writeMounts(t, t.TempDir(),
 		"/dev/sda1 / ext4 rw 0 0",
 		"/dev/sdb1 / ext4 rw 0 0",
 	)
 
-	got, err := DetectBoot(sysDir, mountsFile)
+	got, err := DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		t.Fatalf("DetectBoot: %v", err)
 	}

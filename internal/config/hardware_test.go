@@ -117,7 +117,7 @@ func TestEnsureBoot_ExistingFileUntouched(t *testing.T) {
 		t.Fatalf("write existing boot.nix: %v", err)
 	}
 
-	created, err := ensureBoot(bootFile, filepath.Join(dir, "sys"), filepath.Join(dir, "mounts"))
+	created, err := ensureBoot(bootFile, filepath.Join(dir, "sys"), filepath.Join(dir, "dev"), filepath.Join(dir, "mounts"))
 	if err != nil {
 		t.Fatalf("ensureBoot: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestEnsureBoot_MissingFileWritesDetected(t *testing.T) {
 	mountsFile := writeMounts(t, dir, "/dev/sda1 /boot vfat rw 0 0")
 	bootFile := filepath.Join(dir, "boot.nix")
 
-	created, err := ensureBoot(bootFile, sysDir, mountsFile)
+	created, err := ensureBoot(bootFile, sysDir, filepath.Join(dir, "dev"), mountsFile)
 	if err != nil {
 		t.Fatalf("ensureBoot: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
 	mountsFile := writeMounts(t, dir)
 	bootFile := filepath.Join(dir, "boot.nix")
 
-	created, err := ensureBoot(bootFile, sysDir, mountsFile)
+	created, err := ensureBoot(bootFile, sysDir, filepath.Join(dir, "dev"), mountsFile)
 	if err == nil {
 		t.Fatalf("ensureBoot: want error, got nil")
 	}

@@ -28,6 +28,7 @@ const (
 
 	staging        = "/etc/nixos"
 	sysDir         = "/sys"
+	devDir         = "/dev"
 	mountsFile     = "/proc/mounts"
 	runningModules = "/run/current-system/luxos/modules.nix"
 	newStage       = "/etc/.nixos-luxos-new"
@@ -44,6 +45,7 @@ type Paths struct {
 	Staging        string // /etc/nixos, the flake root
 	HardwareRoot   string // <Config>/.local/hardware
 	Sys            string // /sys
+	Dev            string // /dev
 	Mounts         string // /proc/mounts
 	RunningModules string // /run/current-system/luxos/modules.nix
 	NewStage       string // /etc/.nixos-luxos-new, where rebuild builds a stage before promoting it to Staging
@@ -82,6 +84,7 @@ func Resolve() (Paths, error) {
 		Staging:        staging,
 		HardwareRoot:   filepath.Join(config, hardwareRel),
 		Sys:            sysDir,
+		Dev:            devDir,
 		Mounts:         mountsFile,
 		RunningModules: runningModules,
 		NewStage:       newStage,

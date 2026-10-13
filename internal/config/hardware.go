@@ -79,7 +79,7 @@ func EnsureHardware(out *ui.Progress, p paths.Paths) (string, error) {
 	}
 
 	bootPath := filepath.Join(hwDir, BootFile)
-	created, err = ensureBoot(bootPath, p.Sys, p.Mounts)
+	created, err = ensureBoot(bootPath, p.Sys, p.Dev, p.Mounts)
 	if err != nil {
 		return "", err
 	}
@@ -133,14 +133,14 @@ func ensureHardwareConfig(hardwareFile string) (created bool, err error) {
 // ensureBoot writes bootFile from boot loader detection when nothing exists
 // at that path, and reports whether it did. An existing entry of any kind is
 // left alone. A detection failure is a hard error naming bootFile.
-func ensureBoot(bootFile, sysDir, mountsFile string) (created bool, err error) {
+func ensureBoot(bootFile, sysDir, devDir, mountsFile string) (created bool, err error) {
 	if _, err := os.Lstat(bootFile); err == nil {
 		return false, nil
 	} else if !os.IsNotExist(err) {
 		return false, fmt.Errorf("config.ensureBoot: stat %s: %w", bootFile, err)
 	}
 
-	loader, err := hardware.DetectBoot(sysDir, mountsFile)
+	loader, err := hardware.DetectBoot(sysDir, devDir, mountsFile)
 	if err != nil {
 		return false, fmt.Errorf("cannot detect the boot loader: %s\nwrite %s by hand to configure the boot loader", err, bootFile)
 	}

@@ -13,6 +13,7 @@ import (
 
 const efivarsRel = "firmware/efi/efivars"
 const classBlockRel = "class/block"
+const byIDRel = "disk/by-id"
 
 // Non-empty means "not a plain disk or partition".
 const slavesDir = "slaves"
@@ -31,7 +32,7 @@ var efiMounts = []string{"/boot/efi", "/boot"}
 var biosMounts = []string{"/boot", "/"}
 
 // Loader is the detected GRUB target: the EFI mount point when EFI, else the
-// "/dev/<disk>" BIOS boot device.
+// BIOS boot disk as "/dev/disk/by-id/<id>" when one exists, or "/dev/<disk>".
 type Loader struct {
 	EFI    bool
 	Target string
@@ -61,7 +62,7 @@ func parseMounts(mountsFile string) (map[string]mountEntry, error) {
 	return mounts, nil
 }
 
-func DetectBoot(sysDir, mountsFile string) (Loader, error) {
+func DetectBoot(sysDir, devDir, mountsFile string) (Loader, error) {
 	mounts, err := parseMounts(mountsFile)
 	if err != nil {
 		return Loader{}, err
@@ -74,7 +75,7 @@ func DetectBoot(sysDir, mountsFile string) (Loader, error) {
 		return Loader{}, fmt.Errorf("stat %s: %w", efivarsPath, err)
 	}
 
-	return detectBIOS(sysDir, mounts)
+	return detectBIOS(sysDir, devDir, mounts)
 }
 
 // /boot/efi takes priority over /boot.
@@ -87,43 +88,111 @@ func detectEFI(mounts map[string]mountEntry) (Loader, error) {
 	return Loader{}, fmt.Errorf("no vfat filesystem mounted at %s", strings.Join(efiMounts, " or "))
 }
 
-// The target is "/dev/<disk>" for the source device of the /boot mount, falling back to /.
-func detectBIOS(sysDir string, mounts map[string]mountEntry) (Loader, error) {
-	var device string
+// The target is the disk holding the source device of the /boot mount,
+// falling back to /.
+func detectBIOS(sysDir, devDir string, mounts map[string]mountEntry) (Loader, error) {
+	source, err := biosSource(mounts)
+	if err != nil {
+		return Loader{}, err
+	}
+	name, err := resolveDevice(devDir, source)
+	if err != nil {
+		return Loader{}, err
+	}
+	disk, err := parentDisk(sysDir, name)
+	if err != nil {
+		return Loader{}, err
+	}
+	target, err := stableDiskPath(devDir, disk)
+	if err != nil {
+		return Loader{}, err
+	}
+	return Loader{EFI: false, Target: target}, nil
+}
+
+func biosSource(mounts map[string]mountEntry) (string, error) {
 	for _, mp := range biosMounts {
 		if entry, ok := mounts[mp]; ok {
-			device = entry.source
-			break
+			if !strings.HasPrefix(entry.source, devPrefix) {
+				return "", fmt.Errorf("device %q is not a block device under %s", entry.source, devPrefix)
+			}
+			return entry.source, nil
 		}
 	}
-	if device == "" {
-		return Loader{}, fmt.Errorf("no mount found for %s", strings.Join(biosMounts, " or "))
-	}
-	if !strings.HasPrefix(device, devPrefix) {
-		return Loader{}, fmt.Errorf("device %q is not a block device under %s", device, devPrefix)
-	}
+	return "", fmt.Errorf("no mount found for %s", strings.Join(biosMounts, " or "))
+}
 
-	name := strings.TrimPrefix(device, devPrefix)
+// resolveDevice follows udev symlinks (e.g. /dev/disk/by-uuid/<id>) to the
+// kernel device name (e.g. "vda1") under devDir.
+func resolveDevice(devDir, source string) (string, error) {
+	root, err := filepath.EvalSymlinks(devDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", devDir, err)
+	}
+	path := filepath.Join(devDir, strings.TrimPrefix(source, devPrefix))
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve device %s: %w", source, err)
+	}
+	name, err := filepath.Rel(root, resolved)
+	if err != nil || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("device %s resolves to %s, outside %s", source, resolved, devDir)
+	}
+	return name, nil
+}
+
+// parentDisk maps a kernel device name to its whole disk via sysfs: a
+// partition yields its parent, a plain disk yields itself.
+func parentDisk(sysDir, name string) (string, error) {
 	classPath := filepath.Join(sysDir, classBlockRel, name)
 	if _, err := os.Lstat(classPath); err != nil {
-		return Loader{}, fmt.Errorf("device %s missing under %s", name, filepath.Join(sysDir, classBlockRel))
+		return "", fmt.Errorf("device %s missing under %s", name, filepath.Join(sysDir, classBlockRel))
 	}
 
 	slavesPath := filepath.Join(classPath, slavesDir)
 	if entries, err := os.ReadDir(slavesPath); err == nil && len(entries) > 0 {
-		return Loader{}, fmt.Errorf("device %s has slaves (LUKS, LVM or RAID)", name)
+		return "", fmt.Errorf("device %s has slaves (LUKS, LVM or RAID)", name)
 	}
 
-	disk := name
-	if _, err := os.Stat(filepath.Join(classPath, partitionFile)); err == nil {
-		resolved, err := filepath.EvalSymlinks(classPath)
+	if _, err := os.Stat(filepath.Join(classPath, partitionFile)); err != nil {
+		return name, nil
+	}
+	resolved, err := filepath.EvalSymlinks(classPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", classPath, err)
+	}
+	return filepath.Base(filepath.Dir(resolved)), nil
+}
+
+// stableDiskPath returns "/dev/disk/by-id/<id>" for the first (sorted) by-id
+// link resolving to disk, since kernel names can change between boots.
+// Without one it returns "/dev/<disk>".
+func stableDiskPath(devDir, disk string) (string, error) {
+	fallback := devPrefix + disk
+	diskPath, err := filepath.EvalSymlinks(filepath.Join(devDir, disk))
+	if err != nil {
+		return "", fmt.Errorf("resolve disk %s: %w", disk, err)
+	}
+
+	byIDDir := filepath.Join(devDir, byIDRel)
+	entries, err := os.ReadDir(byIDDir)
+	if os.IsNotExist(err) {
+		return fallback, nil
+	} else if err != nil {
+		return "", fmt.Errorf("read %s: %w", byIDDir, err)
+	}
+
+	for _, e := range entries {
+		link := filepath.Join(byIDDir, e.Name())
+		resolved, err := filepath.EvalSymlinks(link)
 		if err != nil {
-			return Loader{}, fmt.Errorf("resolve %s: %w", classPath, err)
+			return "", fmt.Errorf("resolve %s: %w", link, err)
 		}
-		disk = filepath.Base(filepath.Dir(resolved))
+		if resolved == diskPath {
+			return devPrefix + byIDRel + "/" + e.Name(), nil
+		}
 	}
-
-	return Loader{EFI: false, Target: devPrefix + disk}, nil
+	return fallback, nil
 }
 
 func RenderBoot(l Loader) ([]byte, error) {
