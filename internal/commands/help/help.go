@@ -36,11 +36,11 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("packages|package list|ls", "List the packages the config installs under the files declaring them; bare 'packages' is a shortcut for this"),
 			gohelp.Item("package <name>...", "Show where a package comes from and which files declare it"),
 			gohelp.Item("module|modules|m list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
-			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active host"),
+			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; host/<name> creates one private to the active host, machine/<name> one private to this computer"),
 			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit'/'e' is a shortcut for this"),
-			gohelp.Item("module|modules|m configure|config <name>", "Open this host's settings for a module in $EDITOR, creating or updating them first; top-level 'configure'/'config' is a shortcut for this"),
-			gohelp.Item("module|modules|m enable|1 <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
-			gohelp.Item("module|modules|m disable|0 <name>... [-y]", "Disable one or more modules on this host; top-level 'disable' is a shortcut for this"),
+			gohelp.Item("module|modules|m configure|config <name> [--machine]", "Open the settings in effect for a module in $EDITOR, creating or updating them first; --machine binds them to this computer; top-level 'configure'/'config' is a shortcut for this"),
+			gohelp.Item("module|modules|m enable|1 <name>... [--machine]", "Enable modules: a machine module in this computer's selection, any other in this host's; --machine puts a shared one in this computer's; top-level 'enable' is a shortcut for this"),
+			gohelp.Item("module|modules|m disable|0 <name>... [-y]", "Disable modules in every selection holding them; top-level 'disable' is a shortcut for this"),
 			gohelp.Item("module|modules|m remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
 			gohelp.Item("module|modules|m rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
@@ -54,7 +54,7 @@ func rebuildPage() *gohelp.Page {
 	return gohelp.NewPage("rebuild", rebuildDescription).
 		Usage(binaryName+" rebuild [flags] [nixos-rebuild args]").
 		Section("Flags",
-			gohelp.Item("--prune", "Remove unresolvable imports on the active host"),
+			gohelp.Item("--prune", "Remove unresolvable imports from this host's and this computer's selections"),
 			gohelp.Item("--host <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--backup-dir <dir>", "Move unrecognized /etc/nixos entries here (sets LUXOS_BACKUP_DIR)"),
@@ -138,16 +138,16 @@ func modulePage() *gohelp.Page {
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
 			gohelp.Item("list|ls [category-path|bundle] [--json]", "List modules (grouped by category), or the submodules of a bundle; --json prints JSON"),
-			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active host"),
+			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; host/<name> creates one private to the active host, machine/<name> one private to this computer"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
-			gohelp.Item("configure|config <name>", "Open this host's settings for a module in $EDITOR, creating or updating them first"),
-			gohelp.Item("enable|1 <name>...", "Enable one or more modules on this host; a submodule also enables its bundle"),
-			gohelp.Item("disable|0 <name>... [-y]", "Disable one or more modules on this host; a bundle also disables its submodules"),
+			gohelp.Item("configure|config <name> [--machine]", "Open the settings in effect for a module in $EDITOR, creating or updating them first; --machine binds them to this computer"),
+			gohelp.Item("enable|1 <name>... [--machine]", "Enable modules: a machine module in this computer's selection, any other in this host's; --machine puts a shared one in this computer's; a submodule also enables its bundle"),
+			gohelp.Item("disable|0 <name>... [-y]", "Disable modules in every selection holding them; a bundle also disables its submodules"),
 			gohelp.Item("<bundle>", "List a bundle (shorthand for list <bundle>); a verb always wins over a bundle of the same name"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a module everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a module's identity"),
 		).
-		Text("A bundle is a folder module with a modules/ folder inside: everything outside modules/ is the bundle itself, imported whenever it is selected, and each module under modules/ is a submodule that a host selects separately. A submodule is addressed as <bundle>/<name> (eduardo/git) wherever a module name is accepted; modules reach other modules through luxos.modules by global name only, never a submodule. Renaming a submodule keeps it in its bundle. A local module named like a shared one replaces it on this host, and is shown underlined in its place in the list. A bundle is listed as one row, ◈ in its state's color followed by how many of its submodules are enabled (◈ eduardo 1); list <bundle> shows its submodules. After a name, ❄ marks a module declaring flake inputs and ! one nix cannot evaluate (a syntax or type error); on a module outside the build they are dimmed. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off), the declared inputs and ok or broken, tab-separated, with every submodule on its own row. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs, ok) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
+		Text("A bundle is a folder module with a modules/ folder inside: everything outside modules/ is the bundle itself, imported whenever it is selected, and each module under modules/ is a submodule that a host selects separately. A submodule is addressed as <bundle>/<name> (eduardo/git) wherever a module name is accepted; modules reach other modules through luxos.modules by global name only, never a submodule. Renaming a submodule keeps it in its bundle. A host module named like a shared one replaces it on this host, and a machine module named like either replaces both on this computer; the replacement is shown underlined in the original's place in the list. A bundle is listed as one row, ◈ in its state's color followed by how many of its submodules are enabled (◈ eduardo 1); list <bundle> shows its submodules. After a name, ❄ marks a module declaring flake inputs and ! one nix cannot evaluate (a syntax or type error); on a module outside the build they are dimmed. Piped, or with --raw, the list prints path, state (active, staged, modified, removed, leftover, pulled, off), the declared inputs and ok or broken, tab-separated, with every submodule on its own row. A blue ⊕ (modified) means the module's files changed since the running build. A struck-through red ⊘ (removed) is a module the running system imports that no longer exists in the config; it disappears after the next switch. --json prints the same fields (path, state, inputs, ok) as a JSON array; field names match the plain output. It cannot be combined with --raw or --flat.")
 }
 
 func userPage() *gohelp.Page {
@@ -162,7 +162,7 @@ func userPage() *gohelp.Page {
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
 		).
-		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no local/ equivalent for users.")
+		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no host/ or machine/ equivalent for users.")
 }
 
 func shellPage() *gohelp.Page {
@@ -195,7 +195,7 @@ func environmentPage() *gohelp.Page {
 
 func settingsPage() *gohelp.Page {
 	return gohelp.NewPage("settings", settingsDescription).
-		Usage("<unit>/options.nix  and  .local/hosts/<host>/settings/<unit>.nix").
+		Usage("<unit>/options.nix  and  .local/hosts/<host>/settings/<unit>.nix  or  .local/machines/<key>/settings/<unit>.nix").
 		Section("options.nix rules",
 			gohelp.Item("{ lib, ... }:", "Takes only lib"),
 			gohelp.Item("options.<unit>.<key>", "Declarations only, one level under the unit's name (eduardo/git: options.eduardo.git.<key>)"),
@@ -207,6 +207,7 @@ func settingsPage() *gohelp.Page {
 			gohelp.Item("created", "On enable or rebuild, for a selected unit, with every default"),
 			gohelp.Item("missing key", "Appended with its default; existing lines are never rewritten"),
 			gohelp.Item("undeclared key", "Commented out with a warning; delete it by hand"),
+			gohelp.Item("machine file", "Wins over the host's whole-file when both exist; created by configure --machine"),
 			gohelp.Item("rename / remove", "The file moves or is deleted with the unit"),
 		).
 		Text("A broken options.nix or settings file fails the rebuild before anything is staged and shows ⚙ in yellow in module list. A missing settings file builds the unit with its defaults.")

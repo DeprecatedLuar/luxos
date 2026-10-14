@@ -18,8 +18,8 @@ const (
 	parseCheckPattern    = "luxos-setup-*.nix"
 )
 
-// HostSpec is what setup writes for a new host. Selection holds import
-// paths without "./", e.g. "local/hardware-support".
+// HostSpec is what setup writes for a new host. Selection holds
+// modules-relative paths, e.g. "host/packages.nix" or "users/ana".
 type HostSpec struct {
 	Name         string
 	StateVersion string

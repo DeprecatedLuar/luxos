@@ -21,8 +21,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-// entrypointName is the file under Paths.Modules that mirrors the active
-// host's selection.
+// entrypointName is the file that turns a folder into a unit.
 const entrypointName = "default.nix"
 
 // accountFileName is where a user module's account definition lives;
@@ -481,17 +480,12 @@ func moduleList(p paths.Paths, args []string) error {
 
 	tty := ui.IsTerminal(os.Stdout)
 
-	var runningPaths []string
-	if _, err := os.Stat(p.RunningModules); err == nil {
-		runningPaths, err = modules.ReadSelection(p.RunningModules, config.ScopeShared)
-		if err != nil {
-			return err
-		}
-	} else {
-		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningModules)
-		if !os.IsNotExist(err) {
-			return err
-		}
+	runningPaths, found, err := modules.ReadRunning(p.RunningSelections)
+	if err != nil {
+		return err
+	}
+	if !found {
+		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningSelections)
 	}
 
 	baseline, err := staging.Baseline(p.Staging)
@@ -625,7 +619,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 	}
 	shadowedPath := ""
 	if existing, found := h.Find(name); found {
-		if !shadowsShared(target, existing.Path) {
+		if !shadowsLower(target, existing) {
 			return fmt.Errorf("module name '%s' already exists at modules/%s", name, existing.Path)
 		}
 		shadowedPath = existing.Path
@@ -661,7 +655,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 	}
 
 	if opts["enable"] != "" {
-		return toggleModule(p, name, true)
+		return toggleModule(p, name, true, false)
 	}
 	return nil
 }
@@ -714,13 +708,18 @@ func moduleEditTarget(h *modules.Host, name string) (string, error) {
 
 //──[configure]────────────────────────────────────────────────────────────
 
-// moduleConfigure syncs the active host's settings file of a unit and opens
-// it in $EDITOR. A broken unit's existing file is still opened, so it can be fixed.
+// moduleConfigure syncs the settings file in effect for a unit (this
+// computer's with --machine) and opens it in $EDITOR. A broken unit's
+// existing file is still opened, so it can be fixed.
 func moduleConfigure(p paths.Paths, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: luxos module configure <name>")
+	opts, rest, err := shared.Parse("machine:bool", args)
+	if err != nil {
+		return err
 	}
-	name := args[0]
+	if len(rest) != 1 {
+		return fmt.Errorf("usage: luxos module configure <name> [--machine]")
+	}
+	name := rest[0]
 
 	h, err := loadActive(p)
 	if err != nil {
@@ -730,7 +729,7 @@ func moduleConfigure(p paths.Paths, args []string) error {
 	if !found {
 		return fmt.Errorf("unknown module '%s'", name)
 	}
-	file, rep, err := modules.SyncUnitSettings(h, m)
+	file, rep, err := modules.SyncUnitSettings(h, m, opts["machine"] != "")
 	if err != nil {
 		return err
 	}
@@ -747,6 +746,7 @@ func moduleConfigure(p paths.Paths, args []string) error {
 	if len(rep.Broken) > 0 && !fileExists(file) {
 		return fmt.Errorf("module '%s' breaks the settings rules; fix its %s first", name, modules.OptionsFile)
 	}
+	fmt.Printf("Settings: %s\n", file)
 	return editNixFileInPlace(file)
 }
 
@@ -757,18 +757,28 @@ func fileExists(path string) bool {
 
 //──[enable/disable]─────────────────────────────────────────────────────────
 
-// loadActive loads the active host's modules and selection.
+// loadActive loads the active host with this computer's machine folder.
 func loadActive(p paths.Paths) (*modules.Host, error) {
 	host, err := shared.ActiveHost(p)
 	if err != nil {
 		return nil, err
 	}
-	return modules.Load(p.Modules, filepath.Join(p.Hosts, host))
+	return loadHost(p, filepath.Join(p.Hosts, host))
+}
+
+// loadHost loads the host at hostDir with this computer's machine folder.
+func loadHost(p paths.Paths, hostDir string) (*modules.Host, error) {
+	machineDir, err := config.LinkedMachineDir(p.Modules)
+	if err != nil {
+		return nil, err
+	}
+	return modules.Load(p.Modules, hostDir, machineDir)
 }
 
 // toggleModule is the shared body for enable/disable: acts only on the
-// active host's selection.
-func toggleModule(p paths.Paths, name string, enable bool) error {
+// active host's and this computer's selections. toMachine sends a shared
+// unit to the machine selection on enable.
+func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 	h, err := loadActive(p)
 	if err != nil {
 		return err
@@ -779,10 +789,10 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 	}
 
 	if enable {
-		if err := enableBundles(h, name); err != nil {
+		if err := enableBundles(h, name, toMachine); err != nil {
 			return err
 		}
-		changed, err := modules.Enable(h, name)
+		changed, err := modules.Enable(h, name, toMachine)
 		if err != nil {
 			return err
 		}
@@ -792,15 +802,18 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 		return nil
 	}
 
-	subs, err := disableSubmodules(h, m)
+	subs, err := disableSubmodules(p, h, m)
 	if err != nil {
 		return err
 	}
-	changed, err := modules.Disable(h, name)
+	files, err := modules.Disable(h, name)
 	if err != nil {
 		return err
 	}
-	if !changed && !subs {
+	for _, f := range files {
+		fmt.Printf("disabled '%s' in %s\n", name, displaySelection(p, f))
+	}
+	if len(files) == 0 && !subs {
 		fmt.Printf("'%s' is already disabled\n", name)
 	}
 	return nil
@@ -808,13 +821,13 @@ func toggleModule(p paths.Paths, name string, enable bool) error {
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
 // outermost first.
-func enableBundles(h *modules.Host, name string) error {
+func enableBundles(h *modules.Host, name string, toMachine bool) error {
 	var chain []string
 	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
 		chain = append([]string{b}, chain...)
 	}
 	for _, bundle := range chain {
-		changed, err := modules.Enable(h, bundle)
+		changed, err := modules.Enable(h, bundle, toMachine)
 		if err != nil {
 			return err
 		}
@@ -827,31 +840,38 @@ func enableBundles(h *modules.Host, name string) error {
 
 // disableSubmodules removes every enabled line for a submodule of m when m is
 // a bundle, reporting whether any was removed.
-func disableSubmodules(h *modules.Host, m modules.Module) (bool, error) {
+func disableSubmodules(p paths.Paths, h *modules.Host, m modules.Module) (bool, error) {
 	if !modules.IsBundle(m.Abs) {
 		return false, nil
 	}
 	removed := false
-	for _, sel := range append([]string(nil), h.Selection...) {
+	for _, sel := range h.Selection() {
 		sub := modules.NameFromPath(sel)
 		if !strings.HasPrefix(sub, m.Name+nameSep) {
 			continue
 		}
-		if _, err := modules.Disable(h, sub); err != nil {
+		files, err := modules.Disable(h, sub)
+		if err != nil {
 			return removed, err
 		}
-		fmt.Printf("disabled '%s' (submodule of '%s')\n", sub, m.Name)
-		removed = true
+		for _, f := range files {
+			fmt.Printf("disabled '%s' in %s (submodule of '%s')\n", sub, displaySelection(p, f), m.Name)
+		}
+		removed = removed || len(files) > 0
 	}
 	return removed, nil
 }
 
 func moduleEnable(p paths.Paths, args []string) error {
-	if len(args) == 0 {
+	opts, names, err := shared.Parse("machine:bool", args)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
 		return fmt.Errorf("module enable requires at least one name")
 	}
-	for _, name := range args {
-		if err := toggleModule(p, name, true); err != nil {
+	for _, name := range names {
+		if err := toggleModule(p, name, true, opts["machine"] != ""); err != nil {
 			return err
 		}
 	}
@@ -867,19 +887,19 @@ func moduleEnable(p paths.Paths, args []string) error {
 	return nil
 }
 
-// errHardwareDisableAborted is returned when disabling hardware is not confirmed.
-var errHardwareDisableAborted = errors.New("aborted: nothing changed\n  confirm with: luxos module disable hardware-support --yes")
+// errBootDisableAborted is returned when disabling boot is not confirmed.
+var errBootDisableAborted = errors.New("aborted: nothing changed\n  confirm with: luxos module disable boot --yes")
 
-// disablesEnabledHardware reports whether any name in names is the
-// hardware unit and currently enabled on the active host.
-func disablesEnabledHardware(p paths.Paths, names []string) (bool, error) {
+// disablesBoot reports whether any name in names is the machine's boot unit
+// and it is currently selected.
+func disablesBoot(p paths.Paths, names []string) (bool, error) {
 	h, err := loadActive(p)
 	if err != nil {
 		return false, err
 	}
 	for _, name := range names {
 		m, found := h.Find(name)
-		if !found || m.Path != config.HardwareUnitPath {
+		if !found || m.Scope != config.ScopeMachine || m.Name != bootUnit {
 			continue
 		}
 		if _, enabled := h.Selected(name); enabled {
@@ -898,28 +918,22 @@ func moduleDisable(p paths.Paths, args []string) error {
 		return fmt.Errorf("usage: luxos module disable <name>... [-y]")
 	}
 
-	hardware, err := disablesEnabledHardware(p, names)
+	boot, err := disablesBoot(p, names)
 	if err != nil {
 		return err
 	}
-	if hardware {
-		if opts["yes"] == "" {
-			ok, err := shared.ConfirmHardwareOff()
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return errHardwareDisableAborted
-			}
-		}
-		escalated := append(append([]string{"module", "disable"}, names...), "--yes")
-		if err := shared.EnsureRoot(escalated); err != nil {
+	if boot && opts["yes"] == "" {
+		ok, err := shared.ConfirmBootOff()
+		if err != nil {
 			return err
+		}
+		if !ok {
+			return errBootDisableAborted
 		}
 	}
 
 	for _, name := range names {
-		if err := toggleModule(p, name, false); err != nil {
+		if err := toggleModule(p, name, false, false); err != nil {
 			return err
 		}
 	}
@@ -928,25 +942,36 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 //──[scoping]──────────────────────────────────────────────────────────────
 
-// shadowsShared reports whether creating or renaming to a unit at newPath
-// (a "local/..." path or add target) that collides with the unit at
-// existingPath is a shadow: the new unit is local and the existing one is
-// shared.
-func shadowsShared(newPath, existingPath string) bool {
-	return strings.HasPrefix(newPath, modules.LocalPrefix) && !strings.HasPrefix(existingPath, modules.LocalPrefix)
+// scopeRank orders scopes by shadow precedence.
+var scopeRank = map[string]int{config.ScopeShared: 0, config.ScopeHost: 1, config.ScopeMachine: 2}
+
+// shadowsLower reports whether a unit at newPath colliding with existing is a
+// shadow: newPath lies in a higher scope than existing.
+func shadowsLower(newPath string, existing modules.Module) bool {
+	return scopeRank[pathScope(newPath)] > scopeRank[existing.Scope]
 }
 
-// printShadowedHosts tells which hosts keep meaning their own local module.
-func printShadowedHosts(name string, hosts []string) {
-	if len(hosts) > 0 {
-		fmt.Printf("'%s' is shadowed on %s; left untouched there\n", name, strings.Join(hosts, ", "))
+func pathScope(p string) string {
+	switch {
+	case strings.HasPrefix(p, modules.HostPrefix):
+		return config.ScopeHost
+	case strings.HasPrefix(p, modules.MachinePrefix):
+		return config.ScopeMachine
+	}
+	return config.ScopeShared
+}
+
+// printShadowed tells which folders keep meaning their own module.
+func printShadowed(name string, folders []string) {
+	if len(folders) > 0 {
+		fmt.Printf("'%s' is shadowed in %s; left untouched there\n", name, strings.Join(folders, ", "))
 	}
 }
 
-// declined handles a "no": a plain abort, except when shadowed hosts made the
-// confirmation mandatory, where it fails naming the flag that answers it.
-func declined(skipHosts []string) error {
-	if len(skipHosts) > 0 {
+// declined handles a "no": a plain abort, except when shadowing folders made
+// the confirmation mandatory, where it fails naming the flag that answers it.
+func declined(skipped []string) error {
+	if len(skipped) > 0 {
 		return fmt.Errorf("not confirmed; run again with --yes to proceed")
 	}
 	fmt.Println("Aborted.")
@@ -972,8 +997,8 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 	}
 }
 
-// errHardwareUnit refuses remove and rename of the computer's hardware folder.
-var errHardwareUnit = errors.New("'hardware-support' is this computer's hardware folder, managed by luxos; it cannot be removed or renamed\n  disable it with: luxos module disable hardware-support")
+// errBootUnit refuses remove and rename of the machine's boot unit.
+var errBootUnit = errors.New("'boot' holds this computer's boot loader and luxos recreates it when missing; edit it with: luxos module edit boot")
 
 func moduleRemove(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse(moduleYesSpec, args)
@@ -999,25 +1024,24 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	path := m.Path
 
-	scope, err := modules.ScopeOf(p.Hosts, p.Modules, h.Name, m)
+	scope, err := modules.ScopeOf(p.Hosts, p.Machines, h, m)
 	if err != nil {
 		return err
 	}
-	host, localDirs, skipHosts := scope.Host, scope.LocalDirs, scope.SkipHosts
 
-	importers, err := modules.Importers(p.Hosts, name, host)
+	importers, err := modules.Importers(scope.Selections, name)
 	if err != nil {
 		return err
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is imported by:", name), importers, fmt.Sprintf("'%s' is not imported by any host.", name))
 
-	dependents, err := modules.Dependents(p.Modules, localDirs, name)
+	dependents, err := modules.Dependents(p.Modules, scope.UnitDirs, name)
 	if err != nil {
 		return err
 	}
 	printReferencedBy(fmt.Sprintf("'%s' is referenced by:", name), dependents, "")
 
-	printShadowedHosts(name, skipHosts)
+	printShadowed(name, scope.Skipped)
 
 	if opts["yes"] == "" {
 		ok, err := ui.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
@@ -1025,28 +1049,28 @@ func moduleRemove(p paths.Paths, args []string) error {
 			return err
 		}
 		if !ok {
-			return declined(skipHosts)
+			return declined(scope.Skipped)
 		}
 	}
 
 	// modules.RetargetRefs first: it validates every dependent's call shape before
 	// writing anything and refuses the whole operation on a bad shape, so a
 	// refusal here leaves the tree completely untouched.
-	if _, err := modules.RetargetRefs(p.Modules, localDirs, name, ""); err != nil {
+	if _, err := modules.RetargetRefs(p.Modules, scope.UnitDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := modules.RetargetSelections(p.Hosts, name, "", host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(scope.Selections, name, ""); err != nil {
 		return err
 	}
 	if modules.IsBundle(filepath.Join(p.Modules, path)) {
-		if _, err := modules.RetargetPrefix(p.Hosts, path, "", host, skipHosts); err != nil {
+		if _, err := modules.RetargetPrefix(scope.Selections, path, ""); err != nil {
 			return err
 		}
 	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
 		return err
 	}
-	if _, err := modules.MoveSettings(p.Hosts, name, "", host, skipHosts); err != nil {
+	if _, err := modules.MoveSettings(scope.SettingsDirs, name, ""); err != nil {
 		return err
 	}
 
@@ -1102,25 +1126,24 @@ func moduleRename(p paths.Paths, args []string) error {
 
 	shadowedPath := ""
 	if existing, found := h.Find(newQualified); found {
-		if !shadowsShared(oldPath, existing.Path) {
+		if !shadowsLower(oldPath, existing) {
 			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existing.Path)
 		}
 		shadowedPath = existing.Path
 	}
 
-	scope, err := modules.ScopeOf(p.Hosts, p.Modules, h.Name, old)
+	scope, err := modules.ScopeOf(p.Hosts, p.Machines, h, old)
 	if err != nil {
 		return err
 	}
-	host, localDirs, skipHosts := scope.Host, scope.LocalDirs, scope.SkipHosts
 
-	dependents, err := modules.Dependents(p.Modules, localDirs, oldName)
+	dependents, err := modules.Dependents(p.Modules, scope.UnitDirs, oldName)
 	if err != nil {
 		return err
 	}
-	if len(dependents) > 0 || len(skipHosts) > 0 {
+	if len(dependents) > 0 || len(scope.Skipped) > 0 {
 		printReferencedBy(fmt.Sprintf("'%s' is referenced by:", oldName), dependents, "")
-		printShadowedHosts(oldName, skipHosts)
+		printShadowed(oldName, scope.Skipped)
 
 		if opts["yes"] == "" {
 			ok, err := ui.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
@@ -1128,7 +1151,7 @@ func moduleRename(p paths.Paths, args []string) error {
 				return err
 			}
 			if !ok {
-				return declined(skipHosts)
+				return declined(scope.Skipped)
 			}
 		}
 	}
@@ -1151,21 +1174,21 @@ func moduleRename(p paths.Paths, args []string) error {
 	// refusal here leaves the unit unmoved and every host entrypoint
 	// untouched.
 	bundle := modules.IsBundle(oldFull)
-	if _, err := modules.RetargetRefs(p.Modules, localDirs, oldName, newQualified); err != nil {
+	if _, err := modules.RetargetRefs(p.Modules, scope.UnitDirs, oldName, newQualified); err != nil {
 		return err
 	}
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := modules.RetargetSelections(p.Hosts, oldName, newPath, host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(scope.Selections, oldName, newPath); err != nil {
 		return err
 	}
 	if bundle {
-		if _, err := modules.RetargetPrefix(p.Hosts, oldPath, newPath, host, skipHosts); err != nil {
+		if _, err := modules.RetargetPrefix(scope.Selections, oldPath, newPath); err != nil {
 			return err
 		}
 	}
-	kept, err := modules.MoveSettings(p.Hosts, oldName, newQualified, host, skipHosts)
+	kept, err := modules.MoveSettings(scope.SettingsDirs, oldName, newQualified)
 	if err != nil {
 		return err
 	}
@@ -1192,7 +1215,7 @@ func underCategory(path, category string) bool {
 }
 
 // ownedUnit finds name for remove and rename, refusing framework modules and
-// the hardware folder.
+// the machine's boot unit.
 func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
 	m, found := h.Find(name)
 	if !found {
@@ -1201,13 +1224,13 @@ func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
 	if underCategory(m.Path, moduleFrameworkCategory) {
 		return m, fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, m.Path)
 	}
-	if m.Path == config.HardwareUnitPath {
-		return m, errHardwareUnit
+	if m.Scope == config.ScopeMachine && m.Name == bootUnit {
+		return m, errBootUnit
 	}
 	return m, nil
 }
 
-// shownPath is where a unit is listed: a shadow sits where the unit it hides sits, not under local/.
+// shownPath is where a unit is listed: a shadow sits where the unit it hides sits, not under host/ or machine/.
 func shownPath(m modules.Module) string {
 	if m.Shadows != "" {
 		return m.Shadows

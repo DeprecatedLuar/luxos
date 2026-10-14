@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"maps"
 	"os"
@@ -11,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	config_ "github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -29,14 +30,14 @@ const hostFlakeLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs_2","unstab
 // fixtureUUID is the product_uuid every fixture exposes under its fake sysfs.
 const fixtureUUID = "4c4c4544-0042-5110-8042-cac04f375433"
 
-// hardwareDir returns the hardware folder Run uses for p.
-func hardwareDir(t *testing.T, p paths.Paths) string {
+// machineDirOf returns the machine folder Run uses for p.
+func machineDirOf(t *testing.T, p paths.Paths) string {
 	t.Helper()
 	key, err := hardware.Key(p.Sys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(p.HardwareRoot, key)
+	return filepath.Join(p.Machines, key)
 }
 
 // hardwareConfigContent is the pre-written hardware-configuration.nix.
@@ -63,13 +64,17 @@ func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 // runAll is a whole rebuild's preparation: config, heal and validate, stage, seal.
 func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
 	out := ui.NewProgress(w)
-	if err := config_.Ensure(out, p, host); err != nil {
+	if err := config.Ensure(out, p, host); err != nil {
 		return err
 	}
-	if err := healAndValidate(out, p, host, prune); err != nil {
+	machineDir, err := config.LinkedMachineDir(p.Modules)
+	if err != nil {
 		return err
 	}
-	if err := syncSettings(out, p, host); err != nil {
+	if err := healAndValidate(out, p, host, machineDir, prune); err != nil {
+		return err
+	}
+	if err := syncSettings(out, p, host, machineDir); err != nil {
 		return err
 	}
 	if err := stage(out, p, host, p.Staging, steps); err != nil {
@@ -79,70 +84,71 @@ func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeStep
 }
 
 // fixture builds a config tree at root with two hosts: host1 (active),
-// whose entrypoint references a module by a stale path (the module has
-// since moved to modules/misc/foo.nix), and host2, whose entrypoint
-// already references the module correctly. Returns Paths with every field
-// under root and the active host's name.
+// whose selection references a module by a stale path (the module has
+// since moved to modules/misc/foo.nix), and host2, whose selection
+// already references the module correctly. This computer's machine folder
+// holds a hardware-configuration.nix and a boot.nix. Returns Paths with every
+// field under root and the active host's name.
 func fixture(t *testing.T) (paths.Paths, string) {
 	t.Helper()
 	root := t.TempDir()
 
-	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local", "hosts")
-	modules := filepath.Join(config, "modules")
+	cfg := filepath.Join(root, "config")
+	hosts := filepath.Join(cfg, ".local", "hosts")
+	machines := filepath.Join(cfg, ".local", "machines")
+	modulesDir := filepath.Join(cfg, "modules")
 	staging := filepath.Join(root, "etc-nixos")
 	sysDir := filepath.Join(root, "sys")
 	mountsFile := filepath.Join(root, "mounts")
 
-	// The module that host1's entrypoint refers to by a now-stale path;
-	// units.Resolve finds it by name ("foo") and modules.Heal rewrites the
-	// broken line to point here.
-	write(t, filepath.Join(modules, "misc", "foo.nix"), "{ }\n")
+	// The module that host1's selection refers to by a now-stale path;
+	// modules.Heal finds it by name ("foo") and rewrites the broken line to
+	// point here.
+	write(t, filepath.Join(modulesDir, "misc", "foo.nix"), "{ }\n")
 
 	// host1: active host, stale import to heal.
-	write(t, filepath.Join(local, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
+	write(t, config.SelectionPath(filepath.Join(hosts, "host1")),
+		"{ ... }:\n{\n  imports = [\n    ../old/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(hosts, "host1", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
-	write(t, filepath.Join(local, "host1", "host.nix"),
+	write(t, filepath.Join(hosts, "host1", "host.nix"),
 		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
-	write(t, filepath.Join(local, "host1", "flake.lock"), hostFlakeLock)
+	write(t, filepath.Join(hosts, "host1", "flake.lock"), hostFlakeLock)
 
 	// A flake.lock at the config root, which must be ignored: only the
 	// active host's own .local/hosts/<host>/flake.lock is ever staged.
-	write(t, filepath.Join(config, "flake.lock"), "{ \"root-lock\": true }\n")
+	write(t, filepath.Join(cfg, "flake.lock"), "{ \"root-lock\": true }\n")
 
 	// host2: other host, already correct - modules.Heal must leave it be.
-	write(t, filepath.Join(local, "host2", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(local, "host2", ".plsdonttouch.nix"),
+	write(t, config.SelectionPath(filepath.Join(hosts, "host2")),
+		"{ ... }:\n{\n  imports = [\n    ../misc/foo.nix\n  ];\n}\n")
+	write(t, filepath.Join(hosts, "host2", ".plsdonttouch.nix"),
 		"{ system.stateVersion = \"25.11\"; }\n")
-	write(t, filepath.Join(local, "host2", "host.nix"),
+	write(t, filepath.Join(hosts, "host2", "host.nix"),
 		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
 
-	hardwareRoot := filepath.Join(config, ".local", "hardware")
 	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
 	writeDMIFixture(t, sysDir)
 	key, err := hardware.Key(sysDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(hardwareRoot, key, config_.HardwareConfigFile), hardwareConfigContent)
-	write(t, filepath.Join(hardwareRoot, key, config_.BootFile), "{ ... }: { }\n")
+	write(t, filepath.Join(machines, key, config.HardwareConfigFile), hardwareConfigContent)
+	write(t, filepath.Join(machines, key, config.ScopeModulesDir, config.BootFile), "{ ... }: { }\n")
 	write(t, mountsFile, "")
 
 	p := paths.Paths{
-		Home:           root,
-		User:           "test",
-		Config:         config,
-		Hosts:          local,
-		Modules:        modules,
-		Staging:        staging,
-		Backup:         filepath.Join(root, "backup"),
-		HardwareRoot:   hardwareRoot,
-		Sys:            sysDir,
-		Mounts:         mountsFile,
-		RunningModules: filepath.Join(root, "run-modules.nix"),
+		Home:              root,
+		User:              "test",
+		Config:            cfg,
+		Hosts:             hosts,
+		Machines:          machines,
+		Modules:           modulesDir,
+		Staging:           staging,
+		Backup:            filepath.Join(root, "backup"),
+		Sys:               sysDir,
+		Mounts:            mountsFile,
+		RunningSelections: filepath.Join(root, "run-modules"),
 	}
 	return p, "host1"
 }
@@ -179,36 +185,51 @@ func TestRun_EndToEnd(t *testing.T) {
 		}
 	}
 
-	hw := hardwareDir(t, p)
+	machine := machineDirOf(t, p)
 
 	// The pre-written boot.nix was left alone.
-	if got := mustReadFile(t, filepath.Join(hw, "boot.nix")); got != "{ ... }: { }\n" {
+	if got := mustReadFile(t, filepath.Join(machine, "modules", "boot.nix")); got != "{ ... }: { }\n" {
 		t.Errorf("boot.nix = %q, want it untouched", got)
 	}
 
-	// The hardware folder is ensured before anything is staged.
-	ensuringHW := strings.Index(out.String(), "Ensuring "+hw)
+	// The machine folder is ensured before anything is staged.
+	ensuring := strings.Index(out.String(), "Ensuring "+machine)
 	materializing := strings.Index(out.String(), "Materializing "+p.Staging)
-	if ensuringHW < 0 || ensuringHW > materializing {
-		t.Errorf("want Ensuring hardware before Materializing, got:\n%s", out.String())
+	if ensuring < 0 || ensuring > materializing {
+		t.Errorf("want Ensuring the machine folder before Materializing, got:\n%s", out.String())
 	}
 
-	// The pre-written hardware-configuration.nix was left alone.
-	hwConfig := filepath.Join(hw, "hardware-configuration.nix")
+	// The pre-written hardware-configuration.nix was left alone; the machine's
+	// selection was seeded.
+	hwConfig := filepath.Join(machine, "hardware-configuration.nix")
 	if got := mustReadFile(t, hwConfig); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q, want %q", got, hardwareConfigContent)
 	}
 	if strings.Contains(out.String(), "created: "+hwConfig) {
 		t.Errorf("output reported creating %s, got:\n%s", hwConfig, out.String())
 	}
-
-	// The host's modules/ links to it, and it is staged under config/modules/local/hardware-support.
-	target, err := os.Readlink(filepath.Join(p.Hosts, host, "modules", "hardware-support"))
-	if err != nil || target != "../../../hardware/"+filepath.Base(hw) {
-		t.Errorf("hardware link = %q (%v)", target, err)
+	if got := mustReadFile(t, config.SelectionPath(machine)); !strings.Contains(got, "./boot.nix") {
+		t.Errorf("machine selection = %q, want the seed selecting ./boot.nix", got)
 	}
-	for _, name := range []string{"default.nix", "hardware-configuration.nix", "boot.nix"} {
-		staged := filepath.Join(p.Staging, "config", "modules", "local", "hardware-support", name)
+
+	// The four links exist and modules/default.nix is a real read-only file.
+	for link, target := range map[string]string{
+		filepath.Join(p.Modules, "host"):    "../.local/hosts/" + host + "/modules",
+		filepath.Join(p.Modules, "machine"): "../.local/machines/" + filepath.Base(machine) + "/modules",
+		filepath.Join(p.Config, "host"):     ".local/hosts/" + host,
+		filepath.Join(p.Config, "machine"):  ".local/machines/" + filepath.Base(machine),
+	} {
+		if got, err := os.Readlink(link); err != nil || got != target {
+			t.Errorf("%s -> %q (%v), want %q", link, got, err, target)
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(p.Modules, "default.nix")); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0444 {
+		t.Errorf("modules/default.nix: %v, %v", info, err)
+	}
+	for _, staged := range []string{
+		filepath.Join(p.Staging, "config", "modules", "machine", "boot.nix"),
+		filepath.Join(p.Staging, "config", "hardware-configuration.nix"),
+	} {
 		if _, err := os.Stat(staged); err != nil {
 			t.Errorf("expected %s staged: %v", staged, err)
 		}
@@ -221,8 +242,8 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("staged flake.lock = %q, want the host's flake.lock %q", stagedLock, hostFlakeLock)
 	}
 
-	// The moved import was rewritten in host1's real entrypoint.
-	entrypoint := filepath.Join(p.Hosts, host, "modules.nix")
+	// The moved import was rewritten in host1's real selection.
+	entrypoint := config.SelectionPath(filepath.Join(p.Hosts, host))
 	content := mustReadFile(t, entrypoint)
 	if strings.Contains(content, "old/foo.nix") {
 		t.Errorf("entrypoint %s still references old/foo.nix:\n%s", entrypoint, content)
@@ -230,13 +251,13 @@ func TestRun_EndToEnd(t *testing.T) {
 	if !strings.Contains(content, "misc/foo.nix") {
 		t.Errorf("entrypoint %s was not rewritten to misc/foo.nix:\n%s", entrypoint, content)
 	}
-	if !strings.Contains(out.String(), "./old/foo.nix -> ./misc/foo.nix") {
+	if !strings.Contains(out.String(), "old/foo.nix -> misc/foo.nix") {
 		t.Errorf("output did not report the heal, got:\n%s", out.String())
 	}
 
 	// .gitignore contains every required line.
 	gitignoreContent := mustReadFile(t, filepath.Join(p.Config, ".gitignore"))
-	for _, line := range []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/hosts/*/modules/hardware-support"} {
+	for _, line := range []string{"/modules/system", "/modules/default.nix", "/modules/host", "/modules/machine", "/host", "/machine"} {
 		if !strings.Contains(gitignoreContent, line) {
 			t.Errorf(".gitignore missing line %q, got:\n%s", line, gitignoreContent)
 		}
@@ -259,7 +280,7 @@ func TestRun_EndToEnd(t *testing.T) {
 	if err := runAll(&out2, p, host, false, steps); err != nil {
 		t.Fatalf("second Run: %v\noutput:\n%s", err, out2.String())
 	}
-	for _, marker := range []string{"-> ./", "Warning:", "scaffolded:", "added:", "created:", "removed ./"} {
+	for _, marker := range []string{"-> ./", "Warning:", "scaffolded:", "added:", "created:", "removed "} {
 		if strings.Contains(out2.String(), marker) {
 			t.Errorf("second run reported a heal change (found %q), got:\n%s", marker, out2.String())
 		}
@@ -294,7 +315,7 @@ func TestRun_BootConfigCreated(t *testing.T) {
 
 	// No pre-written boot.nix this time: fixture wrote one, so remove it and
 	// fake an EFI sysfs with vfat mounted at /boot.
-	bootConfig := filepath.Join(hardwareDir(t, p), "boot.nix")
+	bootConfig := filepath.Join(machineDirOf(t, p), "modules", "boot.nix")
 	if err := os.Remove(bootConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -384,84 +405,86 @@ func TestRun_HardwareFactsDetectedAndStaged(t *testing.T) {
 	}
 }
 
-func TestRun_LocalModuleSelected(t *testing.T) {
+func TestRun_HostModuleSelected(t *testing.T) {
 	skipIfNoNix(t)
 
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local", "hosts")
-	modules := filepath.Join(config, "modules")
-	staging := filepath.Join(root, "etc-nixos")
-	sysDir := filepath.Join(root, "sys")
-	mountsFile := filepath.Join(root, "mounts")
-
-	// A module private to host1, selected through the "local/" prefix.
-	write(t, filepath.Join(local, "host1", "modules", "foo.nix"), "{ }\n")
-	write(t, filepath.Join(local, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(local, "host1", ".plsdonttouch.nix"),
-		"{ system.stateVersion = \"25.11\"; }\n")
-	write(t, filepath.Join(local, "host1", "host.nix"),
-		"{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n  time.timeZone = \"UTC\"; i18n.defaultLocale = \"en_US.UTF-8\"; }\n")
-
-	hardwareRoot := filepath.Join(config, ".local", "hardware")
-	write(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
-	writeDMIFixture(t, sysDir)
-	key, err := hardware.Key(sysDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(hardwareRoot, key, config_.HardwareConfigFile), hardwareConfigContent)
-	write(t, filepath.Join(hardwareRoot, key, config_.BootFile), "{ ... }: { }\n")
-	write(t, mountsFile, "")
-
-	p := paths.Paths{
-		Home:           root,
-		User:           "test",
-		Config:         config,
-		Hosts:          local,
-		Modules:        modules,
-		Staging:        staging,
-		Backup:         filepath.Join(root, "backup"),
-		HardwareRoot:   hardwareRoot,
-		Sys:            sysDir,
-		Mounts:         mountsFile,
-		RunningModules: filepath.Join(root, "run-modules.nix"),
-	}
-
+	p, host := fixture(t)
 	steps, _ := fakeNix(t)
+	write(t, filepath.Join(p.Hosts, host, "modules", "mine.nix"), "{ }\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, host)),
+		"{ ... }:\n{\n  imports = [\n    ./mine.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
-	if err := runAll(&out, p, "host1", false, steps); err != nil {
+	if err := runAll(&out, p, host, false, steps); err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
 
-	link := filepath.Join(modules, "local")
-	info, err := os.Lstat(link)
-	if err != nil {
-		t.Fatalf("Lstat %s: %v", link, err)
+	link := filepath.Join(p.Modules, "host")
+	if got, err := os.Readlink(link); err != nil || got != "../.local/hosts/"+host+"/modules" {
+		t.Errorf("%s -> %q (%v), want the host's modules", link, got, err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("%s is not a symlink", link)
-	}
-
-	stagedFoo := filepath.Join(staging, "config", "modules", "local", "foo.nix")
-	if _, err := os.Stat(stagedFoo); err != nil {
-		t.Errorf("expected %s to exist: %v", stagedFoo, err)
+	stagedMine := filepath.Join(p.Staging, "config", "modules", "host", "mine.nix")
+	if _, err := os.Stat(stagedMine); err != nil {
+		t.Errorf("expected %s to exist: %v", stagedMine, err)
 	}
 
-	flakeNix := mustReadFile(t, filepath.Join(staging, "flake.nix"))
+	flakeNix := mustReadFile(t, filepath.Join(p.Staging, "flake.nix"))
 	if want := `import ./framework/outputs.nix inputs "host1"`; !strings.Contains(flakeNix, want) {
 		t.Errorf("flake.nix missing %q, got:\n%s", want, flakeNix)
 	}
 
-	// No lock existed for the host: the fake lock step created one, so the
-	// rebuild copies it back and says so.
-	if !strings.Contains(out.String(), "locked new inputs:") {
-		t.Errorf("output did not report the new lock, got:\n%s", out.String())
+	// The host had a lock: nothing new to copy back.
+	if _, err := os.Stat(filepath.Join(p.Hosts, host, "flake.lock")); err != nil {
+		t.Errorf("host lock missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(local, "host1", "flake.lock")); err != nil {
-		t.Errorf("lock was not copied back to the host folder: %v", err)
+}
+
+func TestRun_CrossScopeLineMoved(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, host)),
+		"{ ... }:\n{\n  imports = [\n    ../machine/boot.nix\n  ];\n}\n")
+
+	var out bytes.Buffer
+	if err := runAll(&out, p, host, false, steps); err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+
+	hostSel := mustReadFile(t, config.SelectionPath(filepath.Join(p.Hosts, host)))
+	if strings.Contains(hostSel, "boot") {
+		t.Errorf("host selection still holds the machine line:\n%s", hostSel)
+	}
+	machineSel := mustReadFile(t, config.SelectionPath(machineDirOf(t, p)))
+	if strings.Count(machineSel, "./boot.nix") != 1 {
+		t.Errorf("machine selection should select ./boot.nix once:\n%s", machineSel)
+	}
+	if !strings.Contains(out.String(), "moved: boot → modules/machine/default.nix") {
+		t.Errorf("output did not report the move, got:\n%s", out.String())
+	}
+}
+
+func TestRun_SelectionWithSettingFails(t *testing.T) {
+	skipIfNoNix(t)
+
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	hostSel := config.SelectionPath(filepath.Join(p.Hosts, host))
+	write(t, hostSel, "{ ... }:\n{\n  imports = [\n    ../misc/foo.nix\n  ];\n  services.x.enable = true;\n}\n")
+
+	var out bytes.Buffer
+	err := runAll(&out, p, host, false, steps)
+	if err == nil || !strings.Contains(err.Error(), hostSel) {
+		t.Fatalf("err = %v, want one naming %s", err, hostSel)
+	}
+	for _, dir := range []string{p.NewStage, p.Staging} {
+		if dir == "" {
+			continue
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "framework")); !os.IsNotExist(statErr) {
+			t.Errorf("%s staged despite the selection error: %v", dir, statErr)
+		}
 	}
 }
 
@@ -508,8 +531,8 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	// A module referencing a path outside its own module - a boundary
 	// violation refs.Validate must catch before anything is staged.
 	write(t, filepath.Join(p.Modules, "bad.nix"), "{ imports = [ ../outside.nix ]; }\n")
-	write(t, filepath.Join(p.Hosts, host, "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./misc/foo.nix\n    ./bad.nix\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, host)),
+		"{ ... }:\n{\n  imports = [\n    ../misc/foo.nix\n    ../bad.nix\n  ];\n}\n")
 
 	var out bytes.Buffer
 	err := runAll(&out, p, host, false, steps)
@@ -559,7 +582,7 @@ func TestAdoptStaging_NoBackupDirNamesFlag(t *testing.T) {
 	}
 }
 
-func TestRun_SecondRunLeavesHardwareFolder(t *testing.T) {
+func TestRun_SecondRunLeavesMachineFolder(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
@@ -570,7 +593,7 @@ func TestRun_SecondRunLeavesHardwareFolder(t *testing.T) {
 			t.Fatalf("run %d: %v\noutput:\n%s", i+1, err, out.String())
 		}
 	}
-	if got := mustReadFile(t, filepath.Join(hardwareDir(t, p), "hardware-configuration.nix")); got != hardwareConfigContent {
+	if got := mustReadFile(t, filepath.Join(machineDirOf(t, p), "hardware-configuration.nix")); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q after second run, want %q", got, hardwareConfigContent)
 	}
 }
@@ -580,7 +603,7 @@ func TestStageDoesNotAdopt(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config_.Ensure(discard, p, host); err != nil {
+	if err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -646,7 +669,7 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config_.Ensure(discard, p, host); err != nil {
+	if err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, p.Config)
@@ -672,7 +695,7 @@ func TestStageLeavesLockWritable(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config_.Ensure(discard, p, host); err != nil {
+	if err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 
@@ -748,22 +771,23 @@ func diffKeys(a, b map[string]string) string {
 	return strings.Join(keys, "\n")
 }
 
-func TestSelectedInputsIncludeHardwareOfHostWithoutLink(t *testing.T) {
+func TestSelectedInputsIncludeMachineUnits(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
 	hostDir := filepath.Join(root, "hosts", "other")
-	hwDir := filepath.Join(root, "hardware")
+	machineDir := filepath.Join(root, "machines", "k1")
 	write(t, filepath.Join(modulesDir, "a.nix"), "{ ... }: { }\n")
 	write(t, filepath.Join(hostDir, "host.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
-	write(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n")
-	write(t, filepath.Join(hwDir, "default.nix"), "{ ... }: {\n  luxos.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
+	write(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
+	write(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ./board.nix\n  ];\n}\n")
+	write(t, filepath.Join(machineDir, "modules", "board.nix"), "{ ... }: {\n  luxos.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
 
-	h, err := modules.Load(modulesDir, hostDir)
+	h, err := modules.Load(modulesDir, hostDir, machineDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := selectedInputs(h, hwDir)
+	inputs, err := selectedInputs(h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +796,7 @@ func TestSelectedInputsIncludeHardwareOfHostWithoutLink(t *testing.T) {
 		names = append(names, d.Name)
 	}
 	if !slices.Contains(names, "nixos-hardware") {
-		t.Errorf("inputs = %v, want nixos-hardware from the hardware folder", names)
+		t.Errorf("inputs = %v, want nixos-hardware from the machine unit", names)
 	}
 }
 
@@ -782,7 +806,7 @@ func TestRun_BrokenSettingsFailBeforeStaging(t *testing.T) {
 	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
 	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; }; }\n")
-	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "./laptop"); err != nil {
+	if err := nix.AddImport(config.SelectionPath(filepath.Join(p.Hosts, host)), "../laptop"); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -801,7 +825,7 @@ func TestRun_SettingsCreatedAndStaged(t *testing.T) {
 	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
 	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
-	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "./laptop"); err != nil {
+	if err := nix.AddImport(config.SelectionPath(filepath.Join(p.Hosts, host)), "../laptop"); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -816,12 +840,12 @@ func TestRun_SettingsCreatedAndStaged(t *testing.T) {
 	}
 }
 
-func TestStageWithoutHardwareLinkFails(t *testing.T) {
+func TestStageWithoutMachineLinkFails(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	err := stage(ui.NewProgress(io.Discard), p, host, t.TempDir(), steps)
-	if err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
-		t.Fatalf("err = %v, want the missing-link message", err)
+	if !errors.Is(err, config.ErrNoMachineLink) {
+		t.Fatalf("err = %v, want the missing-link error", err)
 	}
 }

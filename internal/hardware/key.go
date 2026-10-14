@@ -30,7 +30,7 @@ func Key(sysDir string) (string, error) {
 		err = errEmptyUUID
 	}
 	if err != nil {
-		return "", fmt.Errorf("cannot read %s: luxos needs it to pick this computer's hardware folder: %w", path, err)
+		return "", fmt.Errorf("cannot read %s: luxos needs it to pick this computer's machine folder: %w", path, err)
 	}
 	sum := sha256.Sum256([]byte(keyPrefix + uuid))
 	return hex.EncodeToString(sum[:])[:keyLen], nil

@@ -25,17 +25,24 @@ type flakeSteps struct {
 
 var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
-// healAndValidate rewrites broken lines of the hosts' selections, then checks
-// the active host's module boundaries. prune removes unresolvable lines from
-// the active host's selection instead of failing.
-func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) error {
-	out.Printf("Checking %s's selection...\n", host)
-	if err := modules.CheckSelection(filepath.Join(p.Hosts, host, modules.SelectionFile)); err != nil {
-		return err
+// healAndValidate checks both selections hold only imports, moves
+// cross-scope lines, heals broken lines, then checks the active host's
+// module boundaries. prune removes unresolvable lines from the active host's
+// and this computer's selections instead of failing.
+func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, prune bool) error {
+	hostDir := filepath.Join(p.Hosts, host)
+	out.Printf("Checking selections...\n")
+	for _, dir := range []string{hostDir, machineDir} {
+		if err := modules.CheckSelection(config.SelectionPath(dir)); err != nil {
+			return err
+		}
 	}
 
 	out.Printf("Healing modules imports...\n")
-	changes, warnings, err := modules.Heal(p.Hosts, p.Modules, host, prune)
+	moves, changes, warnings, err := modules.Heal(p.Modules, p.Hosts, p.Machines, host, machineDir, prune)
+	for _, m := range moves {
+		out.Warnf("moved: %s → %s", m.Name, displaySelection(p, m.To))
+	}
 	for _, c := range changes {
 		out.Changef("%s", formatImportChange(c))
 	}
@@ -47,7 +54,7 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) e
 	}
 
 	out.Printf("Validating module boundaries...\n")
-	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host))
+	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
 		return err
 	}
@@ -64,11 +71,19 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) e
 	return out.Err()
 }
 
+// displaySelection names a selection file by its path under modules/.
+func displaySelection(p paths.Paths, file string) string {
+	if strings.HasPrefix(file, p.Machines+string(filepath.Separator)) {
+		return "modules/machine/default.nix"
+	}
+	return "modules/host/default.nix"
+}
+
 // syncSettings brings host's settings files in line with its selected
 // units' options.nix, failing on any unit that breaks a settings rule.
-func syncSettings(out *ui.Progress, p paths.Paths, host string) error {
+func syncSettings(out *ui.Progress, p paths.Paths, host, machineDir string) error {
 	out.Printf("Syncing module settings...\n")
-	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host))
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
 	if err != nil {
 		return err
 	}
@@ -102,9 +117,9 @@ func printSettingsReport(out *ui.Progress, rep modules.SettingsReport) {
 
 func formatImportChange(c modules.Change) string {
 	if c.New == "" {
-		return fmt.Sprintf("%s: removed ./%s", c.File, c.Old)
+		return fmt.Sprintf("%s: removed %s", c.File, c.Old)
 	}
-	return fmt.Sprintf("%s: ./%s -> ./%s", c.File, c.Old, c.New)
+	return fmt.Sprintf("%s: %s -> %s", c.File, c.Old, c.New)
 }
 
 // stage writes host's stage into dir from CONFIG_DIR, which it only reads
@@ -113,15 +128,15 @@ func formatImportChange(c modules.Change) string {
 func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) error {
 	hostDir := filepath.Join(p.Hosts, host)
 
-	h, err := modules.Load(p.Modules, hostDir)
+	machineDir, err := config.LinkedMachineDir(p.Modules)
 	if err != nil {
 		return err
 	}
-	hwDir, err := config.LinkedHardwareDir(p.Modules)
+	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
 		return err
 	}
-	inputs, err := selectedInputs(h, hwDir)
+	inputs, err := selectedInputs(h)
 	if err != nil {
 		return err
 	}
@@ -134,7 +149,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	printFacts(out, facts)
 
 	out.Printf("Materializing %s for %s...\n", dir, host)
-	if err := staging.Materialize(dir, h, hwDir, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts, h.StagedSettings()); err != nil {
+	if err := staging.Materialize(dir, h, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts, h.StagedSettings()); err != nil {
 		return err
 	}
 
@@ -156,9 +171,8 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 // selectedInputs returns the luxos.inputs declarations of the host's
 // host.nix and of every module it builds. They become the bootstrap flake's
 // inputs, so a module that imports from its own input (a nixos-hardware
-// module, say) already has that input on its first build. hwDir
-// stands in for the hardware-support module on a host without its link.
-func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
+// module, say) already has that input on its first build.
+func selectedInputs(h *modules.Host) ([]nix.InputDecl, error) {
 	built, err := h.Built()
 	if err != nil {
 		return nil, err
@@ -170,18 +184,6 @@ func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 			return nil, err
 		}
 		files = append(files, mf...)
-	}
-	// A host that is not the active one has no hardware-support link, so its
-	// selected hardware folder is not among the built modules.
-	if _, selected := h.Selected(config.HardwareUnitName); selected {
-		if _, linked := h.Find(config.HardwareUnitName); !linked {
-			hw := modules.Module{Name: config.HardwareUnitName, Path: config.HardwareUnitPath, Abs: hwDir}
-			hf, err := hw.Files()
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, hf...)
-		}
 	}
 	return nix.InputDecls(files...)
 }

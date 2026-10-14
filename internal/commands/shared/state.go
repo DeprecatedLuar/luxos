@@ -38,7 +38,7 @@ func NoHostError(configDir, hostsDir, host string) error {
 	return errors.New(msg + noHostTail)
 }
 
-// ActiveHost is config.ActiveHost; when the modules/local link is missing it
+// ActiveHost is config.ActiveHost; when the modules/host link is missing it
 // reports a missing config or host for this computer's hostname instead.
 func ActiveHost(p paths.Paths) (string, error) {
 	host, err := config.ActiveHost(p.Modules)

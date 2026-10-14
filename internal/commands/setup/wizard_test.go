@@ -53,7 +53,7 @@ func noClone(string, string) error { return errors.New("clone must not run") }
 
 func selection(t *testing.T, p paths.Paths, host string) string {
 	t.Helper()
-	sel, err := modules.ReadSelection(filepath.Join(p.Hosts, host, "modules.nix"), config.ScopeShared)
+	sel, err := modules.ReadSelection(config.SelectionPath(filepath.Join(p.Hosts, host)), config.ScopeHost)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestFresh_NewConfig(t *testing.T) {
 	if name != "cathode" {
 		t.Errorf("name = %q", name)
 	}
-	want := "local/hardware-support local/packages.nix unstable.nix users/ana desktop/compositors/hyprland.nix desktop/greeters/greetd.nix"
+	want := "host/packages.nix unstable.nix users/ana desktop/compositors/hyprland.nix desktop/greeters/greetd.nix"
 	if got := selection(t, p, "cathode"); got != want {
 		t.Errorf("selection = %q\nwant %q", got, want)
 	}
@@ -102,7 +102,7 @@ func TestFresh_ConsoleSelectsNoDesktop(t *testing.T) {
 	if _, err := w.Fresh(); err != nil {
 		t.Fatalf("Fresh: %v\n%s", err, out)
 	}
-	if got := selection(t, p, "cathode"); got != "local/hardware-support local/packages.nix unstable.nix users/ana" {
+	if got := selection(t, p, "cathode"); got != "host/packages.nix unstable.nix users/ana" {
 		t.Errorf("selection = %q", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestFresh_CloneFailureNamesFix(t *testing.T) {
 func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 	return func(url, dir string) error {
 		hosts := filepath.Join(dir, ".local/hosts")
-		m := config.HostSpec{Name: "nuremberg", StateVersion: "25.05", Values: config.HostDefaults, Selection: []string{"local/hardware-support"}}
+		m := config.HostSpec{Name: "nuremberg", StateVersion: "25.05", Values: config.HostDefaults, Selection: []string{"host/packages.nix"}}
 		if err := config.CreateHost(hosts, m); err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 	if name != "nuremberg" {
 		t.Errorf("name = %q", name)
 	}
-	if got := selection(t, p, "nuremberg"); got != "local/hardware-support users/ana" {
+	if got := selection(t, p, "nuremberg"); got != "host/packages.nix users/ana" {
 		t.Errorf("selection = %q", got)
 	}
 	account, err := os.ReadFile(filepath.Join(p.Modules, "users/ana/account.nix"))
@@ -184,7 +184,7 @@ func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 			t.Fatalf("HostScreen: %v\n%s", err, out)
 		}
 	}
-	if got := selection(t, p, "nuremberg"); got != "local/hardware-support users/ana" {
+	if got := selection(t, p, "nuremberg"); got != "host/packages.nix users/ana" {
 		t.Errorf("selection = %q", got)
 	}
 	if got, _ := os.ReadFile(accountPath); string(got) != "{ users.users.ana.isNormalUser = true; }\n" {
@@ -212,7 +212,7 @@ func TestHostScreen_NewHost(t *testing.T) {
 	if strings.Contains(out.String(), "desktop") {
 		t.Errorf("host screen must not ask for a desktop:\n%s", out)
 	}
-	if got := selection(t, p, "cathode"); got != "local/hardware-support local/packages.nix users/ana" {
+	if got := selection(t, p, "cathode"); got != "host/packages.nix users/ana" {
 		t.Errorf("selection = %q", got)
 	}
 }

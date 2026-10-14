@@ -14,7 +14,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/flake"
-	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -145,7 +144,7 @@ func flakeList(args []string) error {
 		return err
 	}
 
-	h, err := modules.Load(p.Modules, hostDir)
+	h, err := loadHost(p, hostDir)
 	if err != nil {
 		return err
 	}
@@ -365,7 +364,7 @@ func flakeShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	h, err := modules.Load(p.Modules, hostDir)
+	h, err := loadHost(p, hostDir)
 	if err != nil {
 		return err
 	}

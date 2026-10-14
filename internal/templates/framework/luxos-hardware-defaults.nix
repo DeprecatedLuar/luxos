@@ -52,7 +52,7 @@ let
       what = "NVIDIA GPU ${g.busId} (${g.deviceId}) is only supported by the legacy ${branch}.xx driver, which luxos does not enable automatically.";
     in
     if nvidiaPackages ? ${attr}
-    then "${what} To use it, add to this computer's hardware.nix: hardware.nvidia.package = config.boot.kernelPackages.nvidiaPackages.${attr}; services.xserver.videoDrivers = [ \"nvidia\" ];"
+    then "${what} To use it, set in a machine module: hardware.nvidia.package = config.boot.kernelPackages.nvidiaPackages.${attr}; services.xserver.videoDrivers = [ \"nvidia\" ];"
     else "${what} nixpkgs packages no driver for it.";
 in
 {

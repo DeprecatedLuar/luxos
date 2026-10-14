@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	config_ "github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
@@ -123,99 +123,131 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-// twoHostScopeFixture builds a config tree with two hosts' local modules
-// dirs and modules/local pointed at host1 (the active host).
+const emptyTestSelection = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
+
+// selectionWith renders a selection holding lines.
+func selectionWith(lines ...string) string {
+	out := "{ ... }:\n{\n  imports = [\n"
+	for _, l := range lines {
+		out += "    " + l + "\n"
+	}
+	return out + "  ];\n}\n"
+}
+
+// twoHostScopeFixture builds a config tree with two hosts and one machine,
+// the scope links pointed at host1 (the active host) and the machine, and the
+// machine's selection holding boot.
 func twoHostScopeFixture(t *testing.T) paths.Paths {
 	t.Helper()
 	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	local := filepath.Join(config, ".local", "hosts")
-	modules := filepath.Join(config, "modules")
-	mustMkdirAll(t, modules)
+	cfg := filepath.Join(root, "config")
+	hosts := filepath.Join(cfg, ".local", "hosts")
+	machines := filepath.Join(cfg, ".local", "machines")
+	modulesDir := filepath.Join(cfg, "modules")
+	mustMkdirAll(t, modulesDir)
 
-	if err := config_.EnsureLocalModules(local, modules, "host1"); err != nil {
-		t.Fatalf("EnsureLocalModules: %v", err)
+	for _, h := range []string{"host1", "host2"} {
+		write(t, config.SelectionPath(filepath.Join(hosts, h)), emptyTestSelection)
 	}
-	// host2 has no active symlink, but still needs its own local dir.
-	mustMkdirAll(t, filepath.Join(local, "host2", "modules"))
+	machine := filepath.Join(machines, "k1")
+	write(t, filepath.Join(machine, "modules", "boot.nix"), "{ }\n")
+	write(t, config.SelectionPath(machine), selectionWith("./boot.nix"))
+	if err := config.EnsureScopeLinks(cfg, modulesDir, filepath.Join(hosts, "host1"), machine); err != nil {
+		t.Fatalf("EnsureScopeLinks: %v", err)
+	}
 
 	return paths.Paths{
-		Home:           root,
-		User:           "test",
-		Config:         config,
-		Hosts:          local,
-		Modules:        modules,
-		Staging:        filepath.Join(root, "staging"),
-		RunningModules: filepath.Join(root, "run-modules.nix"),
+		Home:              root,
+		User:              "test",
+		Config:            cfg,
+		Hosts:             hosts,
+		Machines:          machines,
+		Modules:           modulesDir,
+		Staging:           filepath.Join(root, "staging"),
+		RunningSelections: filepath.Join(root, "run-modules"),
 	}
 }
 
-func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
+// captureStdout returns what fn prints to os.Stdout.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestModuleRemove_HostUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
 
 	write(t, filepath.Join(p.Hosts, "host1", "modules", "foo.nix"), "{ }\n")
 	write(t, filepath.Join(p.Hosts, "host2", "modules", "foo.nix"), "{ }\n")
-	write(t, filepath.Join(p.Hosts, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
-	write(t, filepath.Join(p.Hosts, "host2", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("./foo.nix"))
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host2")), selectionWith("./foo.nix"))
 
 	if err := moduleRemove(p, []string{"foo", "-y"}); err != nil {
 		t.Fatalf("moduleRemove: %v", err)
 	}
 
-	host1Names, err := modules.ReadSelection(filepath.Join(p.Hosts, "host1", "modules.nix"), config.ScopeShared)
+	host1Names, err := modules.ReadSelection(config.SelectionPath(filepath.Join(p.Hosts, "host1")), config.ScopeHost)
 	if err != nil {
 		t.Fatalf("List(host1): %v", err)
 	}
 	if len(host1Names) != 0 {
-		t.Errorf("host1 modules.nix = %v, want empty (import removed)", host1Names)
+		t.Errorf("host1 selection = %v, want empty (import removed)", host1Names)
 	}
 
-	host2Content := mustReadFile(t, filepath.Join(p.Hosts, "host2", "modules.nix"))
-	if !strings.Contains(host2Content, "./local/foo.nix") {
-		t.Errorf("host2 modules.nix was touched, want untouched:\n%s", host2Content)
+	host2Content := mustReadFile(t, config.SelectionPath(filepath.Join(p.Hosts, "host2")))
+	if !strings.Contains(host2Content, "./foo.nix") {
+		t.Errorf("host2 selection was touched, want untouched:\n%s", host2Content)
 	}
 	if _, err := os.Stat(filepath.Join(p.Hosts, "host2", "modules", "foo.nix")); err != nil {
-		t.Errorf("host2's local foo.nix should still exist: %v", err)
+		t.Errorf("host2's foo.nix should still exist: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(p.Hosts, "host1", "modules", "foo.nix")); !os.IsNotExist(err) {
-		t.Errorf("host1's local foo.nix should have been removed, stat err = %v", err)
+		t.Errorf("host1's foo.nix should have been removed, stat err = %v", err)
 	}
 }
 
-func TestModuleRemoveRename_HardwareUnitRefused(t *testing.T) {
+func TestModuleRemoveRename_BootUnitRefused(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
-	write(t, filepath.Join(p.Hosts, "host1", "modules", "hardware-support", "default.nix"), "{ }\n")
-	write(t, filepath.Join(p.Hosts, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n")
 
 	for name, err := range map[string]error{
-		"remove": moduleRemove(p, []string{"hardware-support", "-y"}),
-		"rename": moduleRename(p, []string{"hardware-support", "hw", "-y"}),
+		"remove": moduleRemove(p, []string{"boot", "-y"}),
+		"rename": moduleRename(p, []string{"boot", "bt", "-y"}),
 	} {
-		if err == nil || !strings.Contains(err.Error(), "managed by luxos") || !strings.Contains(err.Error(), "luxos module disable hardware-support") {
+		if err == nil || !strings.Contains(err.Error(), "luxos recreates it") {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(p.Hosts, "host1", "modules", "hardware-support", "default.nix")); err != nil {
-		t.Errorf("hardware folder was touched: %v", err)
+	if _, err := os.Stat(filepath.Join(p.Machines, "k1", "modules", "boot.nix")); err != nil {
+		t.Errorf("boot unit was touched: %v", err)
 	}
 }
 
-func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) {
+func TestModuleRename_SharedUnitRewritesNonActiveHostsModule(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
 
 	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
 	write(t, filepath.Join(p.Hosts, "host2", "modules", "x.nix"),
 		`{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`+"\n")
-	write(t, filepath.Join(p.Hosts, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./wayland.nix\n  ];\n}\n")
-	write(t, filepath.Join(p.Hosts, "host2", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/x.nix\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("../wayland.nix"))
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host2")), selectionWith("./x.nix"))
 
 	if err := moduleRename(p, []string{"wayland", "wl", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
@@ -223,12 +255,12 @@ func TestModuleRename_SharedUnitRewritesNonActiveHostsLocalModule(t *testing.T) 
 
 	host2Content := mustReadFile(t, filepath.Join(p.Hosts, "host2", "modules", "x.nix"))
 	if !strings.Contains(host2Content, `"wl"`) || strings.Contains(host2Content, `"wayland"`) {
-		t.Errorf("host2's local x.nix not rewritten: %q", host2Content)
+		t.Errorf("host2's x.nix not rewritten: %q", host2Content)
 	}
 
-	host1Content := mustReadFile(t, filepath.Join(p.Hosts, "host1", "modules.nix"))
-	if !strings.Contains(host1Content, "./wl.nix") {
-		t.Errorf("host1 modules.nix not rewritten to wl.nix: %q", host1Content)
+	host1Content := mustReadFile(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")))
+	if !strings.Contains(host1Content, "../wl.nix") {
+		t.Errorf("host1 selection not rewritten to wl.nix: %q", host1Content)
 	}
 }
 
@@ -253,22 +285,21 @@ func TestModuleRename_SharedUnitShadowedOnHostLeavesThatHostUntouched(t *testing
 	write(t, filepath.Join(p.Hosts, "host2", "modules", "wayland.nix"), "{ }\n")
 	write(t, filepath.Join(p.Hosts, "host2", "modules", "x.nix"),
 		`{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`+"\n")
-	write(t, filepath.Join(p.Hosts, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./wayland.nix\n  ];\n}\n")
-	host2Sel := "{ ... }:\n{\n  imports = [\n    ./local/wayland.nix\n    ./local/x.nix\n  ];\n}\n"
-	write(t, filepath.Join(p.Hosts, "host2", "modules.nix"), host2Sel)
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("../wayland.nix"))
+	host2Sel := selectionWith("./wayland.nix", "./x.nix")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host2")), host2Sel)
 
 	if err := moduleRename(p, []string{"wayland", "wl", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
 	}
 
-	if got := mustReadFile(t, filepath.Join(p.Hosts, "host2", "modules.nix")); got != host2Sel {
-		t.Errorf("shadowing host's modules.nix changed:\n%s", got)
+	if got := mustReadFile(t, config.SelectionPath(filepath.Join(p.Hosts, "host2"))); got != host2Sel {
+		t.Errorf("shadowing host's selection changed:\n%s", got)
 	}
 	if got := mustReadFile(t, filepath.Join(p.Hosts, "host2", "modules", "x.nix")); !strings.Contains(got, `"wayland"`) {
-		t.Errorf("shadowing host's local reference changed: %q", got)
+		t.Errorf("shadowing host's reference changed: %q", got)
 	}
-	if got := mustReadFile(t, filepath.Join(p.Hosts, "host1", "modules.nix")); !strings.Contains(got, "./wl.nix") {
+	if got := mustReadFile(t, config.SelectionPath(filepath.Join(p.Hosts, "host1"))); !strings.Contains(got, "../wl.nix") {
 		t.Errorf("host1 not rewritten: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "wl.nix")); err != nil {
@@ -276,30 +307,80 @@ func TestModuleRename_SharedUnitShadowedOnHostLeavesThatHostUntouched(t *testing
 	}
 }
 
-func TestModuleRename_LocalUnitMayShadowSharedName(t *testing.T) {
+func TestModuleRename_HostUnitMayShadowSharedName(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
 
 	write(t, filepath.Join(p.Modules, "wayland.nix"), "{ }\n")
 	write(t, filepath.Join(p.Hosts, "host1", "modules", "mine.nix"), "{ }\n")
-	write(t, filepath.Join(p.Hosts, "host1", "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/mine.nix\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("./mine.nix"))
 
 	if err := moduleRename(p, []string{"mine", "wayland", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(p.Hosts, "host1", "modules", "wayland.nix")); err != nil {
-		t.Errorf("local unit not renamed: %v", err)
+		t.Errorf("host unit not renamed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "wayland.nix")); err != nil {
 		t.Errorf("shared unit must stay: %v", err)
 	}
 }
 
+func TestModuleEnableMachineFlag(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	write(t, filepath.Join(p.Modules, "devices", "laptop.nix"), "{ }\n")
+	hostSel := config.SelectionPath(filepath.Join(p.Hosts, "host1"))
+	before := mustReadFile(t, hostSel)
+
+	if err := moduleEnable(p, []string{"laptop", "--machine"}); err != nil {
+		t.Fatalf("moduleEnable: %v", err)
+	}
+	machineSel := mustReadFile(t, config.SelectionPath(filepath.Join(p.Machines, "k1")))
+	if !strings.Contains(machineSel, "../devices/laptop.nix") {
+		t.Errorf("machine selection lacks the line:\n%s", machineSel)
+	}
+	if got := mustReadFile(t, hostSel); got != before {
+		t.Errorf("host selection changed:\n%s", got)
+	}
+}
+
+func TestModuleDisableNamesEachFile(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	write(t, filepath.Join(p.Modules, "devices", "laptop.nix"), "{ }\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("../devices/laptop.nix"))
+	write(t, config.SelectionPath(filepath.Join(p.Machines, "k1")), selectionWith("./boot.nix", "../devices/laptop.nix"))
+
+	out := captureStdout(t, func() {
+		if err := moduleDisable(p, []string{"laptop", "-y"}); err != nil {
+			t.Fatalf("moduleDisable: %v", err)
+		}
+	})
+	for _, want := range []string{"disabled 'laptop' in modules/host/default.nix", "disabled 'laptop' in modules/machine/default.nix"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestModuleAddMachineUnit(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	t.Setenv("EDITOR", "true")
+
+	if err := moduleAdd(p, []string{"machine/dgpu"}); err != nil {
+		t.Fatalf("moduleAdd: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Machines, "k1", "modules", "dgpu.nix")); err != nil {
+		t.Errorf("machine unit not created through the link: %v", err)
+	}
+}
+
 func TestModuleBuildRows_ShadowSitsAtOriginalCategoryUnderlined(t *testing.T) {
 	us := []modules.Module{
-		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst"},
-		{Name: "other", Path: "local/other.nix"},
+		{Name: "ambxst", Path: "host/ambxst.nix", Shadows: "desktop/shells/ambxst"},
+		{Name: "other", Path: "host/other.nix"},
 	}
 	rows := moduleRows(statusesFor(us, nil, nil), "desktop")
 	if len(rows) != 1 || !rows[0].shadow || strings.Join(rows[0].category, "/") != "shells" {
@@ -415,33 +496,29 @@ func TestModuleRenderRemoved(t *testing.T) {
 }
 
 const (
-	bundleName     = "luar"
-	bundlePath     = "users/luar"
-	subName        = "luar/demo"
-	subPath        = "users/luar/modules/demo.nix"
-	emptyImports   = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
-	hostEntrypoint = "modules.nix"
+	bundleName   = "luar"
+	bundlePath   = "users/luar"
+	subName      = "luar/demo"
+	subPath      = "users/luar/modules/demo.nix"
+	emptyImports = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
 )
 
 // bundleFixture is twoHostScopeFixture plus a shared bundle with one
-// submodule, the active host's mirror link, and empty selections.
+// submodule and empty host selections.
 func bundleFixture(t *testing.T) paths.Paths {
 	t.Helper()
 	p := twoHostScopeFixture(t)
 	write(t, filepath.Join(p.Modules, bundlePath, "default.nix"), "{ }\n")
 	write(t, filepath.Join(p.Modules, subPath), "{ }\n")
 	for _, h := range []string{"host1", "host2"} {
-		write(t, filepath.Join(p.Hosts, h, hostEntrypoint), emptyImports)
-	}
-	if err := config_.EnsureMirror(p.Hosts, p.Modules, "host1"); err != nil {
-		t.Fatalf("EnsureMirror: %v", err)
+		write(t, config.SelectionPath(filepath.Join(p.Hosts, h)), emptyImports)
 	}
 	return p
 }
 
 func hostImports(t *testing.T, p paths.Paths, host string) []string {
 	t.Helper()
-	got, err := modules.ReadSelection(filepath.Join(p.Hosts, host, hostEntrypoint), config.ScopeShared)
+	got, err := modules.ReadSelection(config.SelectionPath(filepath.Join(p.Hosts, host)), config.ScopeHost)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +529,7 @@ func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
 
-	if err := toggleModule(p, subName, true); err != nil {
+	if err := toggleModule(p, subName, true, false); err != nil {
 		t.Fatalf("toggleModule: %v", err)
 	}
 	got := hostImports(t, p, "host1")
@@ -464,11 +541,11 @@ func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true); err != nil {
+	if err := toggleModule(p, subName, true, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := toggleModule(p, bundleName, false); err != nil {
+	if err := toggleModule(p, bundleName, false, false); err != nil {
 		t.Fatalf("toggleModule: %v", err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -479,10 +556,10 @@ func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
 func TestToggleModule_DisableSubmoduleKeepsBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true); err != nil {
+	if err := toggleModule(p, subName, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := toggleModule(p, subName, false); err != nil {
+	if err := toggleModule(p, subName, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath {
@@ -494,8 +571,8 @@ func TestModuleRemove_BundleRemovesSubmoduleLinesEverywhere(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
 	for _, h := range []string{"host1", "host2"} {
-		write(t, filepath.Join(p.Hosts, h, hostEntrypoint),
-			"{ ... }:\n{\n  imports = [\n    ./"+bundlePath+"\n    ./"+subPath+"\n  ];\n}\n")
+		write(t, config.SelectionPath(filepath.Join(p.Hosts, h)),
+			"{ ... }:\n{\n  imports = [\n    ../"+bundlePath+"\n    ../"+subPath+"\n  ];\n}\n")
 	}
 
 	if err := moduleRemove(p, []string{bundleName, "-y"}); err != nil {
@@ -516,10 +593,10 @@ func TestModuleRemove_BundleShadowedHostKeepsSubmoduleLines(t *testing.T) {
 	p := bundleFixture(t)
 	write(t, filepath.Join(p.Hosts, "host2", "modules", bundleName, "default.nix"), "{ }\n")
 	write(t, filepath.Join(p.Hosts, "host2", "modules", bundleName, "modules", "demo.nix"), "{ }\n")
-	write(t, filepath.Join(p.Hosts, "host2", hostEntrypoint),
-		"{ ... }:\n{\n  imports = [\n    ./local/"+bundleName+"\n    ./local/"+bundleName+"/modules/demo.nix\n  ];\n}\n")
-	write(t, filepath.Join(p.Hosts, "host1", hostEntrypoint),
-		"{ ... }:\n{\n  imports = [\n    ./"+bundlePath+"\n    ./"+subPath+"\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host2")),
+		"{ ... }:\n{\n  imports = [\n    ./"+bundleName+"\n    ./"+bundleName+"/modules/demo.nix\n  ];\n}\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")),
+		"{ ... }:\n{\n  imports = [\n    ../"+bundlePath+"\n    ../"+subPath+"\n  ];\n}\n")
 
 	if err := moduleRemove(p, []string{bundleName, "-y"}); err != nil {
 		t.Fatalf("moduleRemove: %v", err)
@@ -532,7 +609,7 @@ func TestModuleRemove_BundleShadowedHostKeepsSubmoduleLines(t *testing.T) {
 func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true); err != nil {
+	if err := toggleModule(p, subName, true, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -572,7 +649,7 @@ func TestModuleRename_SubmoduleCollisionIsQualified(t *testing.T) {
 func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true); err != nil {
+	if err := toggleModule(p, subName, true, false); err != nil {
 		t.Fatal(err)
 	}
 

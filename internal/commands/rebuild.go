@@ -99,35 +99,39 @@ func selfUpdate(hostLock string, args []string) error {
 	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
 }
 
-func hardwareSelected(hostDir string) (bool, error) {
-	list, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile), config.ScopeShared)
-	if err != nil {
-		return false, err
-	}
-	for _, path := range list {
-		if modules.NameFromPath(path) == config.HardwareUnitName {
-			return true, nil
-		}
-	}
-	return false, nil
-}
+// bootUnit is the machine unit holding the boot loader.
+const bootUnit = "boot"
 
-// Asks for confirmation when host does not select the hardware unit.
-// Reports whether a prompt was answered yes.
-func hardwareGuard(hostDir, host string, yes bool) (bool, error) {
-	selected, err := hardwareSelected(hostDir)
-	if err != nil {
-		return false, err
-	}
-	if selected || yes {
+// bootGuard asks for confirmation when this computer's selection does not
+// select boot. Before the first rebuild there is no machine link and the
+// seeded selection selects it, so nothing is asked. Reports whether a prompt
+// was answered yes.
+func bootGuard(modulesDir string, yes bool) (bool, error) {
+	machineDir, err := config.LinkedMachineDir(modulesDir)
+	if errors.Is(err, config.ErrNoMachineLink) {
 		return false, nil
 	}
-	ok, err := shared.ConfirmHardwareOff()
+	if err != nil {
+		return false, err
+	}
+	paths, err := modules.ReadSelection(config.SelectionPath(machineDir), config.ScopeMachine)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range paths {
+		if modules.NameFromPath(p) == bootUnit {
+			return false, nil
+		}
+	}
+	if yes {
+		return false, nil
+	}
+	ok, err := shared.ConfirmBootOff()
 	if err != nil {
 		return false, err
 	}
 	if !ok {
-		return false, fmt.Errorf("module 'hardware-support' is not enabled on %s: aborted, nothing changed\n  enable it: luxos module enable hardware-support\n  build without it: luxos rebuild --yes <same args>", host)
+		return false, fmt.Errorf("module 'boot' is not selected in modules/machine/default.nix: aborted, nothing changed\n  enable it: luxos module enable boot\n  build without it: luxos rebuild --yes <same args>")
 	}
 	return true, nil
 }
@@ -187,7 +191,7 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	answered, err := hardwareGuard(hostDir, host, yes)
+	answered, err := bootGuard(p.Modules, yes)
 	if err != nil {
 		return err
 	}
@@ -284,10 +288,14 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := config.Ensure(out, p, host); err != nil {
 		return err
 	}
-	if err := healAndValidate(out, p, host, prune); err != nil {
+	machineDir, err := config.LinkedMachineDir(p.Modules)
+	if err != nil {
 		return err
 	}
-	if err := syncSettings(out, p, host); err != nil {
+	if err := healAndValidate(out, p, host, machineDir, prune); err != nil {
+		return err
+	}
+	if err := syncSettings(out, p, host, machineDir); err != nil {
 		return err
 	}
 	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {

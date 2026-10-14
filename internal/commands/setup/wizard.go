@@ -36,8 +36,7 @@ const (
 
 // Selection lines of a new host, without "./".
 const (
-	hardwareSelection      = "local/hardware-support"
-	localPackagesSelection = "local/packages.nix"
+	localPackagesSelection = "host/packages.nix"
 	unstableSelection      = "unstable.nix"
 	usersCategory          = "users"
 )
@@ -125,7 +124,7 @@ func (w *Wizard) freshConfig() (string, error) {
 		return "", err
 	}
 
-	sel := append([]string{hardwareSelection, localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
+	sel := append([]string{localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
 	m := w.host(name, values, sel)
 	if err := config.CheckHost(m); err != nil {
 		return "", err
@@ -157,7 +156,7 @@ func (w *Wizard) newHost(existing []string) (string, error) {
 		return "", err
 	}
 
-	if err := config.CheckHost(w.host(name, values, []string{hardwareSelection, localPackagesSelection, w.userPath()})); err != nil {
+	if err := config.CheckHost(w.host(name, values, []string{localPackagesSelection, w.userPath()})); err != nil {
 		return "", err
 	}
 
@@ -165,7 +164,7 @@ func (w *Wizard) newHost(existing []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sel := []string{hardwareSelection, localPackagesSelection, userPath}
+	sel := []string{localPackagesSelection, userPath}
 	return name, config.CreateHost(w.Paths.Hosts, w.host(name, values, sel))
 }
 
@@ -177,7 +176,7 @@ func (w *Wizard) host(name string, values config.HostValues, sel []string) confi
 // config has none by that name.
 func (w *Wizard) enableUser(host string) error {
 	hostDir := filepath.Join(w.Paths.Hosts, host)
-	h, err := modules.Load(w.Paths.Modules, hostDir)
+	h, err := modules.Load(w.Paths.Modules, hostDir, "")
 	if err != nil {
 		return err
 	}
@@ -185,11 +184,11 @@ func (w *Wizard) enableUser(host string) error {
 		if err := w.writeUser(); err != nil {
 			return err
 		}
-		if h, err = modules.Load(w.Paths.Modules, hostDir); err != nil {
+		if h, err = modules.Load(w.Paths.Modules, hostDir, ""); err != nil {
 			return err
 		}
 	}
-	changed, err := modules.Enable(h, w.Paths.User)
+	changed, err := modules.Enable(h, w.Paths.User, false)
 	if err != nil {
 		return err
 	}
@@ -202,7 +201,7 @@ func (w *Wizard) enableUser(host string) error {
 // ensureUserUnit returns the selection path of the user's unit, creating it
 // when the config has none by that name.
 func (w *Wizard) ensureUserUnit() (string, error) {
-	ms, err := modules.Walk(w.Paths.Modules, "")
+	ms, _, err := modules.Walk(w.Paths.Modules, "", "")
 	if err != nil {
 		return "", err
 	}

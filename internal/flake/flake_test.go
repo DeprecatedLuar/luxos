@@ -200,9 +200,12 @@ func TestDeclarations(t *testing.T) {
 	writeFile(t, filepath.Join(modulesDir, "apps", "shell.nix"), "{ ... }: {\n  luxos.inputs.ambxst.url = \"github:o/ambxst\";\n}\n")
 	writeFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ ... }: {\n  luxos.inputs.wg.url = \"github:o/wg\";\n}\n")
 	writeFile(t, filepath.Join(hostDir, "host.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
-	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./apps/shell.nix\n    ./local/vpn.nix\n  ];\n}\n")
+	writeFile(t, filepath.Join(hostDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n    ../apps/shell.nix\n    ./vpn.nix\n  ];\n}\n")
+	machineDir := filepath.Join(root, ".local", "machines", "k1")
+	writeFile(t, filepath.Join(machineDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n    ./dgpu.nix\n  ];\n}\n")
+	writeFile(t, filepath.Join(machineDir, "modules", "dgpu.nix"), "{ ... }: {\n  luxos.inputs.nvidia.url = \"github:o/nvidia\";\n}\n")
 
-	h, err := modules.Load(modulesDir, hostDir)
+	h, err := modules.Load(modulesDir, hostDir, machineDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +215,8 @@ func TestDeclarations(t *testing.T) {
 	}
 	want := map[string][]Decl{
 		"ambxst":  {{Unit: "apps/shell.nix", File: "modules/apps/shell.nix", Line: 2, URL: "github:o/ambxst"}},
-		"wg":      {{Unit: "local/vpn.nix", File: "local/modules/vpn.nix", Line: 2, URL: "github:o/wg"}},
+		"wg":      {{Unit: "host/vpn.nix", File: "host/modules/vpn.nix", Line: 2, URL: "github:o/wg"}},
+		"nvidia":  {{Unit: "machine/dgpu.nix", File: "machine/modules/dgpu.nix", Line: 2, URL: "github:o/nvidia"}},
 		"nixpkgs": {{File: ".local/hosts/box/host.nix", Line: 2, URL: "github:NixOS/nixpkgs/nixos-25.11"}},
 	}
 	if !reflect.DeepEqual(got, want) {

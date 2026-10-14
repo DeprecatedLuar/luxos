@@ -7,7 +7,6 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -16,9 +15,10 @@ import (
 )
 
 const (
-	sharedDisplayDir = "modules"
-	localDisplayDir  = "local/modules"
-	hostsDisplayDir  = ".local/hosts"
+	sharedDisplayDir  = "modules"
+	hostDisplayDir    = "host/modules"
+	machineDisplayDir = "machine/modules"
+	hostsDisplayDir   = ".local/hosts"
 
 	pathSep     = "/"
 	shortRevLen = 7
@@ -78,8 +78,11 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 	out := map[string][]Decl{}
 	for _, m := range built {
 		display := sharedDisplayDir
-		if strings.HasPrefix(m.Path, modules.LocalPrefix) {
-			display = localDisplayDir
+		switch m.Scope {
+		case config.ScopeHost:
+			display = hostDisplayDir
+		case config.ScopeMachine:
+			display = machineDisplayDir
 		}
 		files, err := m.Files()
 		if err != nil {

@@ -20,14 +20,14 @@ func confirmWith(t *testing.T, input string) bool {
 	old := os.Stdin
 	os.Stdin = r
 	defer func() { os.Stdin = old }()
-	ok, err := ConfirmHardwareOff()
+	ok, err := ConfirmBootOff()
 	if err != nil {
 		t.Fatal(err)
 	}
 	return ok
 }
 
-func TestConfirmHardwareOff(t *testing.T) {
+func TestConfirmBootOff(t *testing.T) {
 	if !confirmWith(t, "y\n") {
 		t.Fatal("y should confirm")
 	}
