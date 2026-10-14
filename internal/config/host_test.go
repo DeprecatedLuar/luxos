@@ -20,21 +20,21 @@ func writeFile(t *testing.T, path, content string) {
 func writeRequiredFiles(t *testing.T, hostDir string) {
 	t.Helper()
 	writeFile(t, filepath.Join(hostDir, ".plsdonttouch.nix"), "{ system.stateVersion = \"24.05\"; }\n")
-	writeFile(t, filepath.Join(hostDir, "machine.nix"), "{ time.timeZone = \"UTC\"; }\n")
+	writeFile(t, filepath.Join(hostDir, "host.nix"), "{ time.timeZone = \"UTC\"; }\n")
 	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ imports = []; }\n")
 }
 
 func TestResolveHost_Found(t *testing.T) {
 	localDir := t.TempDir()
-	machineDir := filepath.Join(localDir, "paraloid")
-	writeFile(t, filepath.Join(machineDir, "modules.nix"), "{ imports = []; }\n")
+	hostDir := filepath.Join(localDir, "paraloid")
+	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ imports = []; }\n")
 
 	dir, err := ResolveHost(localDir, "paraloid")
 	if err != nil {
 		t.Fatalf("ResolveHost: %v", err)
 	}
-	if dir != machineDir {
-		t.Fatalf("dir = %q, want %q", dir, machineDir)
+	if dir != hostDir {
+		t.Fatalf("dir = %q, want %q", dir, hostDir)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestValidateHost_ValidWithEmptyModulesDir(t *testing.T) {
 }
 
 func TestValidateHost_MissingEach(t *testing.T) {
-	for _, missing := range []string{".plsdonttouch.nix", "machine.nix", "modules.nix"} {
+	for _, missing := range []string{".plsdonttouch.nix", "host.nix", "modules.nix"} {
 		t.Run(missing, func(t *testing.T) {
 			dir := t.TempDir()
 			writeRequiredFiles(t, dir)
@@ -153,7 +153,7 @@ func TestValidateHost_LockAsDirectory(t *testing.T) {
 
 func TestValidateHost_MultipleProblemsInOneError(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "machine.nix"), "{ }\n")
+	writeFile(t, filepath.Join(dir, "host.nix"), "{ }\n")
 	writeFile(t, filepath.Join(dir, "modules.nix"), "{ imports = []; }\n")
 	writeFile(t, filepath.Join(dir, "hardware.nix"), "{ }\n")
 	// .plsdonttouch.nix missing entirely.
@@ -207,8 +207,8 @@ func TestProtectHost_ChangesModeOnce(t *testing.T) {
 
 func TestResolveHostOldLayoutHint(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, ".local", "machines")
-	if err := os.MkdirAll(machines, 0755); err != nil {
+	hosts := filepath.Join(root, ".local", "hosts")
+	if err := os.MkdirAll(hosts, 0755); err != nil {
 		t.Fatal(err)
 	}
 	oldHost := filepath.Join(root, ".local", "h1")
@@ -219,11 +219,11 @@ func TestResolveHostOldLayoutHint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := ResolveHost(machines, "h1")
+	_, err := ResolveHost(hosts, "h1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	newHost := filepath.Join(machines, "h1")
+	newHost := filepath.Join(hosts, "h1")
 	want := "host folder " + oldHost + " must move to " + newHost + ":\n  mv " + oldHost + " " + newHost
 	if err.Error() != want {
 		t.Fatalf("got %q, want %q", err.Error(), want)

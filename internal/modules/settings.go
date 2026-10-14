@@ -333,8 +333,8 @@ func joinPaths(paths [][]string) []string {
 // scope (host and skipHosts as for RetargetSelections); newName "" deletes
 // them. A missing entry is skipped. An entry whose target already exists is
 // left in place and returned in kept.
-func MoveSettings(machinesDir, name, newName, host string, skipHosts []string) (kept []string, err error) {
-	entrypoints, err := scopedEntrypoints(machinesDir, host, skipHosts)
+func MoveSettings(hostsDir, name, newName, host string, skipHosts []string) (kept []string, err error) {
+	entrypoints, err := scopedEntrypoints(hostsDir, host, skipHosts)
 	if err != nil {
 		return nil, err
 	}

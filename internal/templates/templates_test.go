@@ -49,7 +49,7 @@ func TestSystemNix_ImportsNothing(t *testing.T) {
 	}
 }
 
-func TestSystemNix_RetentionInMachineTemplate(t *testing.T) {
+func TestSystemNix_RetentionInHostTemplate(t *testing.T) {
 	sys, err := File("framework/system.nix")
 	if err != nil {
 		t.Fatal(err)

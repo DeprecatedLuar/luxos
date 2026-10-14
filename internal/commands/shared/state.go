@@ -12,34 +12,34 @@ import (
 
 const (
 	noConfigFormat  = "There's no luxos config at %s yet.\nRun `luxos setup` to create one, or pass --config <dir>."
-	noMachineFormat = "I couldn't find a %q machine in %s"
-	noMachineHas    = "\n(has %s)."
-	noMachineNone   = "."
-	noMachineTail   = "\nRun `luxos setup`, or pass --machine <name>."
-	machineListSep  = ", "
+	noHostFormat = "I couldn't find a %q host in %s"
+	noHostHas    = "\n(has %s)."
+	noHostNone   = "."
+	noHostTail   = "\nRun `luxos setup`, or pass --host <name>."
+	hostListSep  = ", "
 )
 
 func NoConfigError(configDir string) error {
 	return fmt.Errorf(noConfigFormat, configDir)
 }
 
-// NoMachineError names the machines configDir does have, when it has any.
-func NoMachineError(configDir, machinesDir, host string) error {
-	names, err := config.Machines(machinesDir)
+// NoHostError names the hosts configDir does have, when it has any.
+func NoHostError(configDir, hostsDir, host string) error {
+	names, err := config.Hosts(hostsDir)
 	if err != nil {
 		return err
 	}
-	msg := fmt.Sprintf(noMachineFormat, host, configDir)
+	msg := fmt.Sprintf(noHostFormat, host, configDir)
 	if len(names) > 0 {
-		msg += fmt.Sprintf(noMachineHas, strings.Join(names, machineListSep))
+		msg += fmt.Sprintf(noHostHas, strings.Join(names, hostListSep))
 	} else {
-		msg += noMachineNone
+		msg += noHostNone
 	}
-	return errors.New(msg + noMachineTail)
+	return errors.New(msg + noHostTail)
 }
 
 // ActiveHost is config.ActiveHost; when the modules/local link is missing it
-// reports a missing config or machine for this computer's hostname instead.
+// reports a missing config or host for this computer's hostname instead.
 func ActiveHost(p paths.Paths) (string, error) {
 	host, err := config.ActiveHost(p.Modules)
 	if err == nil {
@@ -49,15 +49,15 @@ func ActiveHost(p paths.Paths) (string, error) {
 	if herr != nil {
 		return "", errors.Join(err, herr)
 	}
-	state, serr := config.ConfigState(p.Config, p.Machines, hostname)
+	state, serr := config.ConfigState(p.Config, p.Hosts, hostname)
 	if serr != nil {
 		return "", serr
 	}
 	switch state {
 	case config.StateNoConfig:
 		return "", NoConfigError(p.Config)
-	case config.StateNoMachine:
-		return "", NoMachineError(p.Config, p.Machines, hostname)
+	case config.StateNoHost:
+		return "", NoHostError(p.Config, p.Hosts, hostname)
 	}
 	return "", err
 }

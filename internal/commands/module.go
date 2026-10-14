@@ -763,7 +763,7 @@ func loadActive(p paths.Paths) (*modules.Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return modules.Load(p.Modules, filepath.Join(p.Machines, host))
+	return modules.Load(p.Modules, filepath.Join(p.Hosts, host))
 }
 
 // toggleModule is the shared body for enable/disable: acts only on the
@@ -999,13 +999,13 @@ func moduleRemove(p paths.Paths, args []string) error {
 	}
 	path := m.Path
 
-	scope, err := modules.ScopeOf(p.Machines, p.Modules, h.Name, m)
+	scope, err := modules.ScopeOf(p.Hosts, p.Modules, h.Name, m)
 	if err != nil {
 		return err
 	}
 	host, localDirs, skipHosts := scope.Host, scope.LocalDirs, scope.SkipHosts
 
-	importers, err := modules.Importers(p.Machines, name, host)
+	importers, err := modules.Importers(p.Hosts, name, host)
 	if err != nil {
 		return err
 	}
@@ -1035,18 +1035,18 @@ func moduleRemove(p paths.Paths, args []string) error {
 	if _, err := modules.RetargetRefs(p.Modules, localDirs, name, ""); err != nil {
 		return err
 	}
-	if _, err := modules.RetargetSelections(p.Machines, name, "", host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(p.Hosts, name, "", host, skipHosts); err != nil {
 		return err
 	}
 	if modules.IsBundle(filepath.Join(p.Modules, path)) {
-		if _, err := modules.RetargetPrefix(p.Machines, path, "", host, skipHosts); err != nil {
+		if _, err := modules.RetargetPrefix(p.Hosts, path, "", host, skipHosts); err != nil {
 			return err
 		}
 	}
 	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
 		return err
 	}
-	if _, err := modules.MoveSettings(p.Machines, name, "", host, skipHosts); err != nil {
+	if _, err := modules.MoveSettings(p.Hosts, name, "", host, skipHosts); err != nil {
 		return err
 	}
 
@@ -1108,7 +1108,7 @@ func moduleRename(p paths.Paths, args []string) error {
 		shadowedPath = existing.Path
 	}
 
-	scope, err := modules.ScopeOf(p.Machines, p.Modules, h.Name, old)
+	scope, err := modules.ScopeOf(p.Hosts, p.Modules, h.Name, old)
 	if err != nil {
 		return err
 	}
@@ -1157,15 +1157,15 @@ func moduleRename(p paths.Paths, args []string) error {
 	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
 		return err
 	}
-	if _, err := modules.RetargetSelections(p.Machines, oldName, newPath, host, skipHosts); err != nil {
+	if _, err := modules.RetargetSelections(p.Hosts, oldName, newPath, host, skipHosts); err != nil {
 		return err
 	}
 	if bundle {
-		if _, err := modules.RetargetPrefix(p.Machines, oldPath, newPath, host, skipHosts); err != nil {
+		if _, err := modules.RetargetPrefix(p.Hosts, oldPath, newPath, host, skipHosts); err != nil {
 			return err
 		}
 	}
-	kept, err := modules.MoveSettings(p.Machines, oldName, newQualified, host, skipHosts)
+	kept, err := modules.MoveSettings(p.Hosts, oldName, newQualified, host, skipHosts)
 	if err != nil {
 		return err
 	}

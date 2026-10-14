@@ -1,7 +1,7 @@
 # Settings for this physical computer. Hand-owned: luxos creates this file
 # once when it is missing and never edits it again. Only what exists
-# because of this box belongs here; the machine's own settings live in
-# machine.nix.
+# because of this box belongs here; the host's own settings live in
+# host.nix.
 { ... }:
 
 {

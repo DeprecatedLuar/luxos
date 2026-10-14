@@ -37,9 +37,9 @@ func TestLaunch_NoTerminalIsStateError(t *testing.T) {
 	defer func(f func(*os.File) bool) { isTerminal = f }(isTerminal)
 	isTerminal = func(*os.File) bool { return false }
 
-	_, err := Launch(ui.NewPrompter(strings.NewReader("y\n"), io.Discard), io.Discard, p, "nixos", config.StateNoMachine)
-	if err == nil || err.Error() != shared.NoMachineError(p.Config, p.Machines, "nixos").Error() {
-		t.Errorf("err = %v, want the no-machine error", err)
+	_, err := Launch(ui.NewPrompter(strings.NewReader("y\n"), io.Discard), io.Discard, p, "nixos", config.StateNoHost)
+	if err == nil || err.Error() != shared.NoHostError(p.Config, p.Hosts, "nixos").Error() {
+		t.Errorf("err = %v, want the no-host error", err)
 	}
 }
 

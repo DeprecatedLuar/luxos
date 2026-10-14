@@ -192,7 +192,7 @@ func TestBaseChannel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			file := writeNixFile(t, t.TempDir(), "machine.nix", tc.src)
+			file := writeNixFile(t, t.TempDir(), "host.nix", tc.src)
 			url, line, err := BaseChannel(file)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {

@@ -24,13 +24,13 @@ import (
 // After one succeeds the staged tree is the running system.
 var rebuildActivatingActions = map[string]bool{"switch": true, "boot": true, "test": true}
 
-const rebuildFlagSpec = "prune:bool machine:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
+const rebuildFlagSpec = "prune:bool host:value config|C:value backup-dir:value goodbye-luxos:value yes|y:bool"
 
 // Appended when a prompt was already answered, so the root process does not ask again.
 const yesFlag = "--yes"
 
-// Appended when setup picked the machine, so the root process builds it.
-const machineFlag = "--machine"
+// Appended when setup picked the host, so the root process builds it.
+const hostFlag = "--host"
 
 // A replacement configuration folder must contain at least one entry with this extension.
 const goodbyeNixExt = ".nix"
@@ -170,16 +170,16 @@ func Rebuild(args []string) error {
 	if err != nil {
 		return err
 	}
-	state, err := config.ConfigState(target.Config, target.Machines, host)
+	state, err := config.ConfigState(target.Config, target.Hosts, host)
 	if err != nil {
 		return err
 	}
-	if state == config.StateNoConfig && opts["machine"] == "" {
+	if state == config.StateNoConfig && opts["host"] == "" {
 		name, err := setup.Launch(ui.NewPrompter(os.Stdin, os.Stdout), os.Stdout, target, host, state)
 		if err != nil {
 			return err
 		}
-		args = withMachine(opts, args, name)
+		args = withHost(opts, args, name)
 	}
 
 	p, host, hostDir, err := shared.ResolveHost(opts)
@@ -331,10 +331,10 @@ func interrupted(sigs <-chan os.Signal) error {
 
 // The rebuild command line handed to the root process, with --yes appended
 // when a prompt was already answered yes.
-// withMachine makes the rest of the run, and its sudo re-exec, build name.
-func withMachine(opts map[string]string, args []string, name string) []string {
-	opts["machine"] = name
-	return append(args, machineFlag, name)
+// withHost makes the rest of the run, and its sudo re-exec, build name.
+func withHost(opts map[string]string, args []string, name string) []string {
+	opts["host"] = name
+	return append(args, hostFlag, name)
 }
 
 func escalationArgs(args []string, answered bool) []string {

@@ -10,11 +10,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
-func testMachine() Machine {
-	return Machine{
+func testHost() HostSpec {
+	return HostSpec{
 		Name:         "cathode",
 		StateVersion: "25.11",
-		Values:       MachineValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
+		Values:       HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
 		Selection:    []string{"local/hardware-support", "local/packages.nix", "users/ana"},
 	}
 }
@@ -61,12 +61,12 @@ func TestCopyStarterModules(t *testing.T) {
 	}
 }
 
-func TestCreateMachine(t *testing.T) {
-	machines := filepath.Join(t.TempDir(), ".local/machines")
-	if err := CreateMachine(machines, testMachine()); err != nil {
+func TestCreateHost(t *testing.T) {
+	hosts := filepath.Join(t.TempDir(), ".local/hosts")
+	if err := CreateHost(hosts, testHost()); err != nil {
 		t.Fatal(err)
 	}
-	hostDir := filepath.Join(machines, "cathode")
+	hostDir := filepath.Join(hosts, "cathode")
 
 	if err := ValidateHost(hostDir); err != nil {
 		t.Errorf("ValidateHost: %v", err)
@@ -78,8 +78,8 @@ func TestCreateMachine(t *testing.T) {
 	if got := readFile(t, filepath.Join(hostDir, ".plsdonttouch.nix")); !strings.Contains(got, `system.stateVersion = "25.11";`) {
 		t.Errorf(".plsdonttouch.nix = %q", got)
 	}
-	if got := readFile(t, filepath.Join(hostDir, "machine.nix")); !strings.Contains(got, `time.timeZone = "Europe/Lisbon";`) {
-		t.Errorf("machine.nix = %q", got)
+	if got := readFile(t, filepath.Join(hostDir, "host.nix")); !strings.Contains(got, `time.timeZone = "Europe/Lisbon";`) {
+		t.Errorf("host.nix = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(hostDir, "modules/packages.nix")); err != nil {
 		t.Errorf("modules/packages.nix: %v", err)
@@ -89,21 +89,21 @@ func TestCreateMachine(t *testing.T) {
 		t.Errorf("modules.nix = %q", got)
 	}
 
-	if err := CreateMachine(machines, testMachine()); err == nil {
-		t.Error("creating an existing machine must fail")
+	if err := CreateHost(hosts, testHost()); err == nil {
+		t.Error("creating an existing host must fail")
 	}
 }
 
-func TestCreateMachine_UnparsableValueWritesNothing(t *testing.T) {
+func TestCreateHost_UnparsableValueWritesNothing(t *testing.T) {
 	skipIfNoNix(t)
-	machines := filepath.Join(t.TempDir(), ".local/machines")
-	m := testMachine()
+	hosts := filepath.Join(t.TempDir(), ".local/hosts")
+	m := testHost()
 	m.Values.Timezone = `Europe/"Lisbon`
-	err := CreateMachine(machines, m)
-	if err == nil || !strings.Contains(err.Error(), "machine.nix") {
-		t.Fatalf("err = %v, want a parse error naming machine.nix", err)
+	err := CreateHost(hosts, m)
+	if err == nil || !strings.Contains(err.Error(), "host.nix") {
+		t.Fatalf("err = %v, want a parse error naming host.nix", err)
 	}
-	if _, err := os.Stat(filepath.Join(machines, "cathode")); !os.IsNotExist(err) {
-		t.Errorf("machine folder exists after a refused write: %v", err)
+	if _, err := os.Stat(filepath.Join(hosts, "cathode")); !os.IsNotExist(err) {
+		t.Errorf("host folder exists after a refused write: %v", err)
 	}
 }

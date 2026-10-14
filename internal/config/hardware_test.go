@@ -62,7 +62,7 @@ func TestValidateHardware_NotRegular(t *testing.T) {
 
 func TestValidateHost_HardwareEntryRejected(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, plsDontTouchFile, MachineFile, SelectionFile)
+	writeFiles(t, dir, plsDontTouchFile, HostFile, SelectionFile)
 	if err := os.Symlink("../../hardware/x", filepath.Join(dir, "hardware")); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
 
 func TestLinkedHardwareDir(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, ".local", "machines")
+	hosts := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	hwRoot := filepath.Join(root, ".local", "hardware")
 	if err := os.MkdirAll(filepath.Join(hwRoot, "k1"), 0755); err != nil {
@@ -217,14 +217,14 @@ func TestLinkedHardwareDir(t *testing.T) {
 	}
 
 	// modules/local exists, hardware-support does not.
-	if err := EnsureLocalModules(machines, modulesDir, "a"); err != nil {
+	if err := EnsureLocalModules(hosts, modulesDir, "a"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LinkedHardwareDir(modulesDir); err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
 		t.Fatalf("without hardware-support: err = %v, want the missing-link message", err)
 	}
 
-	if err := ensureHardwareLink(machines, hwRoot, "a", "k1"); err != nil {
+	if err := ensureHardwareLink(hosts, hwRoot, "a", "k1"); err != nil {
 		t.Fatal(err)
 	}
 	want, err := filepath.EvalSymlinks(filepath.Join(hwRoot, "k1"))

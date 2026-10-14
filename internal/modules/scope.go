@@ -18,18 +18,18 @@ type Scope struct {
 // selection lines and every host's local module references, except the hosts
 // whose local modules shadow it (or, for a submodule, its bundle), which keep
 // meaning their own.
-func ScopeOf(machinesDir, modulesDir, activeHost string, m Module) (Scope, error) {
+func ScopeOf(hostsDir, modulesDir, activeHost string, m Module) (Scope, error) {
 	if strings.HasPrefix(m.Path, LocalPrefix) {
-		return Scope{Host: activeHost, LocalDirs: []string{filepath.Join(machinesDir, activeHost, localModulesDirName)}}, nil
+		return Scope{Host: activeHost, LocalDirs: []string{filepath.Join(hostsDir, activeHost, localModulesDirName)}}, nil
 	}
 
-	hosts, err := Hosts(machinesDir)
+	hosts, err := Hosts(hostsDir)
 	if err != nil {
 		return Scope{}, err
 	}
 	var s Scope
 	for _, host := range hosts {
-		localDir := filepath.Join(machinesDir, host, localModulesDirName)
+		localDir := filepath.Join(hostsDir, host, localModulesDirName)
 		ms, err := Walk(modulesDir, localDir)
 		if err != nil {
 			return Scope{}, fmt.Errorf("%s: %w", host, err)

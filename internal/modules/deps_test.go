@@ -906,7 +906,7 @@ func TestBuiltUsesHostLocalUnits(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, ".local", "machines", "b")
+	hostDir := filepath.Join(root, ".local", "hosts", "b")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf("./local/vpn.nix"))
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"git\" ];\n}\n")

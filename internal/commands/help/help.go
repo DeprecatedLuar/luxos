@@ -7,9 +7,9 @@ import (
 const binaryName = "luxos"
 
 const (
-	rootDescription    = "manages NixOS machine configuration"
+	rootDescription    = "manages NixOS host configuration"
 	rebuildDescription = "rebuild the system from CONFIG_DIR"
-	setupDescription   = "create a luxos config on this computer, or add it as a machine"
+	setupDescription   = "create a luxos config on this computer, or add it as a host"
 	flakeDescription   = "list, inspect and update the host's flake inputs"
 	updateDescription  = "update luxos or the host's flake inputs"
 	packageDescription = "list the packages the config installs and the files declaring them"
@@ -36,7 +36,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("packages|package list|ls", "List the packages the config installs under the files declaring them; bare 'packages' is a shortcut for this"),
 			gohelp.Item("package <name>...", "Show where a package comes from and which files declare it"),
 			gohelp.Item("module|modules|m list|ls [category-path]", "List modules (grouped by category); bare 'modules', or top-level 'list'/'ls', is a shortcut for this"),
-			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
+			gohelp.Item("module|modules|m add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active host"),
 			gohelp.Item("module|modules|m edit|e <name>", "Open a module in $EDITOR; top-level 'edit'/'e' is a shortcut for this"),
 			gohelp.Item("module|modules|m configure|config <name>", "Open this host's settings for a module in $EDITOR, creating or updating them first; top-level 'configure'/'config' is a shortcut for this"),
 			gohelp.Item("module|modules|m enable|1 <name>...", "Enable one or more modules on this host; top-level 'enable' is a shortcut for this"),
@@ -55,13 +55,13 @@ func rebuildPage() *gohelp.Page {
 		Usage(binaryName+" rebuild [flags] [nixos-rebuild args]").
 		Section("Flags",
 			gohelp.Item("--prune", "Remove unresolvable imports on the active host"),
-			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--host <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Build from another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--backup-dir <dir>", "Move unrecognized /etc/nixos entries here (sets LUXOS_BACKUP_DIR)"),
 			gohelp.Item("--goodbye-luxos <dir>", "Replace /etc/nixos with <dir> as is and build it without luxos"),
 			gohelp.Item("-y, --yes", "Answer yes to luxos' own confirmations"),
 		).
-		Text("With no config at CONFIG_DIR, runs the setup wizard first and builds the machine it picks.")
+		Text("With no config at CONFIG_DIR, runs the setup wizard first and builds the host it picks.")
 }
 
 func setupPage() *gohelp.Page {
@@ -70,7 +70,7 @@ func setupPage() *gohelp.Page {
 		Section("Flags",
 			gohelp.Item("--config|-C <dir>", "Create or use the config in <dir> (sets LUXOS_CONFIG_DIR)"),
 		).
-		Text("With no config, asks for a git repo to clone or creates a fresh config with a desktop. With a config but no machine for this hostname, picks or creates one. Runs as your user and writes only new files. `luxos rebuild` runs the same wizard when there is no config.")
+		Text("With no config, asks for a git repo to clone or creates a fresh config with a desktop. With a config but no host for this hostname, picks or creates one. Runs as your user and writes only new files. `luxos rebuild` runs the same wizard when there is no config.")
 }
 
 func flakePage() *gohelp.Page {
@@ -82,7 +82,7 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("update [inputs...]", "Update the host's inputs"),
 		).
 		Section("Flags",
-			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--host <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--offline", "list, <name>: skip the upstream check and make no network request"),
 			gohelp.Item("--raw", "list, <name>: plain output even on a terminal"),
@@ -96,14 +96,14 @@ func flakePage() *gohelp.Page {
 			gohelp.Item("↑", "after a name: upstream has moved past the locked revision"),
 			gohelp.Item("?", "after a name: upstream could not be checked (unsupported source or request failed)"),
 		).
-		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, unstable. The base channel, nixpkgs, is declared in the host's machine.nix as luxos.inputs.nixpkgs.url = \"<url>\"; and is required. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
+		Text("The list nests an input under its declaring module's category; an input declared by several modules, or built in (luxos, nixpkgs), sits at the root, and pulled-in inputs nest under their parent. Piped, or with --raw, it prints one line per input: path, state (active, staged, leftover, pulled), status (behind, current, unknown), tab-separated; <name> prints key=value lines (name, state, status, source, declared, current, latest, commits, pulls). With no input names, every input is updated. Names are the input names declared by your modules, e.g. luxos, unstable. The base channel, nixpkgs, is declared in the host's host.nix as luxos.inputs.nixpkgs.url = \"<url>\"; and is required. Transitive inputs are addressed by path, e.g. ambxst/axctl. An input named like a verb (update, list, ls) is reached only through the tree path of its parent.")
 }
 
 func updatePage() *gohelp.Page {
 	return gohelp.NewPage("update", updateDescription).
 		Usage(binaryName+" update [inputs...] [flags]").
 		Section("Flags",
-			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--host <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("-y, --yes", "Update luxos without asking"),
 		).
@@ -118,7 +118,7 @@ func packagePage() *gohelp.Page {
 			gohelp.Item("<name>...", "Show a package: source input, declaring files, version"),
 		).
 		Section("Flags",
-			gohelp.Item("--machine <name>", "Override the hostname lookup"),
+			gohelp.Item("--host <name>", "Override the hostname lookup"),
 			gohelp.Item("--config|-C <dir>", "Use another luxos config folder (sets LUXOS_CONFIG_DIR)"),
 			gohelp.Item("--flat", "list: each package once, its files after it"),
 			gohelp.Item("--raw", "list, <name>: plain output even on a terminal"),
@@ -130,7 +130,7 @@ func packagePage() *gohelp.Page {
 			gohelp.Item("⊘", "only in the running system; the next switch removes it"),
 			gohelp.Item("❄", "after a name: comes from an input other than nixpkgs"),
 		).
-		Text("Packages are read by evaluating the config: every environment.systemPackages definition made by a file in it, including ones under mkIf or built by a function. A package is its source input plus its full name: one declared in two files is listed under both, and nixpkgs' neovim and unstable's neovim are two packages. <name> matches the name without its version (pname), or the full name of a package that has none. The running system is /etc/nixos; for another host (--machine), or before the first rebuild, there is nothing to compare against and every package shows ⊕. An input not locked yet is fetched and its pin added to the host's flake.lock, as the next rebuild would. Piped, or with --raw, the list prints file, name, state (active, staged, leftover), source and version, tab-separated, one line per file and package; <name> prints key=value lines (name, state, source, declared, version). Unknown values print as unknown, and as null in --json, which cannot be combined with --raw or --flat. A package named like a verb (list, ls) cannot be shown by name.")
+		Text("Packages are read by evaluating the config: every environment.systemPackages definition made by a file in it, including ones under mkIf or built by a function. A package is its source input plus its full name: one declared in two files is listed under both, and nixpkgs' neovim and unstable's neovim are two packages. <name> matches the name without its version (pname), or the full name of a package that has none. The running system is /etc/nixos; for another host (--host), or before the first rebuild, there is nothing to compare against and every package shows ⊕. An input not locked yet is fetched and its pin added to the host's flake.lock, as the next rebuild would. Piped, or with --raw, the list prints file, name, state (active, staged, leftover), source and version, tab-separated, one line per file and package; <name> prints key=value lines (name, state, source, declared, version). Unknown values print as unknown, and as null in --json, which cannot be combined with --raw or --flat. A package named like a verb (list, ls) cannot be shown by name.")
 }
 
 func modulePage() *gohelp.Page {
@@ -138,7 +138,7 @@ func modulePage() *gohelp.Page {
 		Usage(binaryName+" module <verb> ...").
 		Section("Commands",
 			gohelp.Item("list|ls [category-path|bundle] [--json]", "List modules (grouped by category), or the submodules of a bundle; --json prints JSON"),
-			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active machine"),
+			gohelp.Item("add|a <category/name> [--enable]", "Scaffold a module; local/<name> creates a module private to the active host"),
 			gohelp.Item("edit|e <name>", "Open a module in $EDITOR"),
 			gohelp.Item("configure|config <name>", "Open this host's settings for a module in $EDITOR, creating or updating them first"),
 			gohelp.Item("enable|1 <name>...", "Enable one or more modules on this host; a submodule also enables its bundle"),
@@ -195,7 +195,7 @@ func environmentPage() *gohelp.Page {
 
 func settingsPage() *gohelp.Page {
 	return gohelp.NewPage("settings", settingsDescription).
-		Usage("<unit>/options.nix  and  .local/machines/<host>/settings/<unit>.nix").
+		Usage("<unit>/options.nix  and  .local/hosts/<host>/settings/<unit>.nix").
 		Section("options.nix rules",
 			gohelp.Item("{ lib, ... }:", "Takes only lib"),
 			gohelp.Item("options.<unit>.<key>", "Declarations only, one level under the unit's name (eduardo/git: options.eduardo.git.<key>)"),

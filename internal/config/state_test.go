@@ -16,9 +16,9 @@ func TestConfigState(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := filepath.Join(root, "other")
-	writeFile(t, filepath.Join(other, ".local/machines/cathode/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(other, ".local/hosts/cathode/modules.nix"), "{ imports = [ ]; }\n")
 	ready := filepath.Join(root, "ready")
-	writeFile(t, filepath.Join(ready, ".local/machines/nixos/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(ready, ".local/hosts/nixos/modules.nix"), "{ imports = [ ]; }\n")
 
 	cases := []struct {
 		dir  string
@@ -26,11 +26,11 @@ func TestConfigState(t *testing.T) {
 	}{
 		{missing, StateNoConfig},
 		{empty, StateNoConfig},
-		{other, StateNoMachine},
+		{other, StateNoHost},
 		{ready, StateReady},
 	}
 	for _, c := range cases {
-		got, err := ConfigState(c.dir, filepath.Join(c.dir, ".local/machines"), "nixos")
+		got, err := ConfigState(c.dir, filepath.Join(c.dir, ".local/hosts"), "nixos")
 		if err != nil {
 			t.Fatalf("%s: %v", c.dir, err)
 		}
@@ -40,29 +40,29 @@ func TestConfigState(t *testing.T) {
 	}
 }
 
-func TestMachines(t *testing.T) {
-	machines := filepath.Join(t.TempDir(), "machines")
-	writeFile(t, filepath.Join(machines, "nuremberg/modules.nix"), "{ imports = [ ]; }\n")
-	writeFile(t, filepath.Join(machines, "cathode/modules.nix"), "{ imports = [ ]; }\n")
-	writeFile(t, filepath.Join(machines, "half/machine.nix"), "{ }\n")
+func TestHosts(t *testing.T) {
+	hosts := filepath.Join(t.TempDir(), "hosts")
+	writeFile(t, filepath.Join(hosts, "nuremberg/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(hosts, "cathode/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(hosts, "half/host.nix"), "{ }\n")
 
-	got, err := Machines(machines)
+	got, err := Hosts(hosts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"cathode", "nuremberg"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("Machines = %v, want %v", got, want)
+		t.Errorf("Hosts = %v, want %v", got, want)
 	}
 
-	got, err = Machines(filepath.Join(t.TempDir(), "absent"))
+	got, err = Hosts(filepath.Join(t.TempDir(), "absent"))
 	if err != nil || got != nil {
-		t.Errorf("Machines(absent) = %v, %v; want nil, nil", got, err)
+		t.Errorf("Hosts(absent) = %v, %v; want nil, nil", got, err)
 	}
 }
 
-func TestResolveHost_NoMachineIsErrNoMachine(t *testing.T) {
+func TestResolveHost_NoHostIsErrNoHost(t *testing.T) {
 	_, err := ResolveHost(t.TempDir(), "nixos")
-	if !errors.Is(err, ErrNoMachine) {
-		t.Fatalf("err = %v, want ErrNoMachine", err)
+	if !errors.Is(err, ErrNoHost) {
+		t.Fatalf("err = %v, want ErrNoHost", err)
 	}
 }

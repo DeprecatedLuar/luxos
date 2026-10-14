@@ -18,15 +18,15 @@ const (
 	sourcePrompt  = "Do you already have a luxos config in a git repo? [y/N] "
 	repoPrompt    = "Repo URL: "
 	cloneFixHint  = "use an https URL, or add an SSH key and run luxos setup again"
-	machinesTitle = "Machines in your config:"
-	newMachineKey = "n"
-	machinePrompt = "Pick a machine: "
-	namePrompt    = "Machine name: "
+	hostsTitle = "Hosts in your config:"
+	newHostKey = "n"
+	hostPrompt = "Pick a host: "
+	namePrompt    = "Host name: "
 	desktopTitle  = "Desktop:"
 	desktopPrompt = "Pick one: "
 	desktopRow    = "desktop"
 	reviewPrompt  = "Number to change, y to continue: "
-	invalidName   = "a machine name is letters, digits and -, 1 to 63 characters, not starting or ending with -"
+	invalidName   = "a host name is letters, digits and -, 1 to 63 characters, not starting or ending with -"
 	nameTaken     = "%s already exists, pick it from the list or choose another name\n"
 	userEnabled   = "Enabled %s on %s.\n"
 	freshDone     = "Your config is at %s. Put it in git to use it on other computers.\n"
@@ -34,7 +34,7 @@ const (
 	reviewLine    = "  %d  %-10s %s\n"
 )
 
-// Selection lines of a new machine, without "./".
+// Selection lines of a new host, without "./".
 const (
 	hardwareSelection      = "local/hardware-support"
 	localPackagesSelection = "local/packages.nix"
@@ -42,7 +42,7 @@ const (
 	usersCategory          = "users"
 )
 
-var machineNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 
 type desktop struct {
 	name, label string
@@ -65,7 +65,7 @@ type Wizard struct {
 	Clone  func(url, dir string) error
 }
 
-// Fresh runs the whole wizard on an empty config and returns the machine to build.
+// Fresh runs the whole wizard on an empty config and returns the host to build.
 func (w *Wizard) Fresh() (string, error) {
 	reply, err := w.Ask.Ask(sourcePrompt)
 	if err != nil {
@@ -81,29 +81,29 @@ func (w *Wizard) Fresh() (string, error) {
 	if err := w.Clone(url, w.Paths.Config); err != nil {
 		return "", fmt.Errorf("clone %s: %w\n  %s", url, err, cloneFixHint)
 	}
-	return w.MachineScreen()
+	return w.HostScreen()
 }
 
-// MachineScreen lets the user pick a machine of the config or create one.
-func (w *Wizard) MachineScreen() (string, error) {
-	names, err := config.Machines(w.Paths.Machines)
+// HostScreen lets the user pick a host of the config or create one.
+func (w *Wizard) HostScreen() (string, error) {
+	names, err := config.Hosts(w.Paths.Hosts)
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintln(w.Out, machinesTitle)
+	fmt.Fprintln(w.Out, hostsTitle)
 	for i, n := range names {
 		fmt.Fprintf(w.Out, menuLine, strconv.Itoa(i+1), n)
 	}
-	fmt.Fprintf(w.Out, menuLine, newMachineKey, "new machine")
+	fmt.Fprintf(w.Out, menuLine, newHostKey, "new host")
 	fmt.Fprintln(w.Out)
 
 	for {
-		reply, err := w.Ask.Ask(machinePrompt)
+		reply, err := w.Ask.Ask(hostPrompt)
 		if err != nil {
 			return "", err
 		}
-		if reply == newMachineKey {
-			return w.newMachine(names)
+		if reply == newHostKey {
+			return w.newHost(names)
 		}
 		if i, err := strconv.Atoi(reply); err == nil && i >= 1 && i <= len(names) {
 			return names[i-1], w.enableUser(names[i-1])
@@ -126,8 +126,8 @@ func (w *Wizard) freshConfig() (string, error) {
 	}
 
 	sel := append([]string{hardwareSelection, localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
-	m := w.machine(name, values, sel)
-	if err := config.CheckMachine(m); err != nil {
+	m := w.host(name, values, sel)
+	if err := config.CheckHost(m); err != nil {
 		return "", err
 	}
 
@@ -140,14 +140,14 @@ func (w *Wizard) freshConfig() (string, error) {
 	if err := w.writeUser(); err != nil {
 		return "", err
 	}
-	if err := config.CreateMachine(w.Paths.Machines, m); err != nil {
+	if err := config.CreateHost(w.Paths.Hosts, m); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(w.Out, freshDone, w.Paths.Config)
 	return name, nil
 }
 
-func (w *Wizard) newMachine(existing []string) (string, error) {
+func (w *Wizard) newHost(existing []string) (string, error) {
 	name, err := w.askName(existing)
 	if err != nil {
 		return "", err
@@ -157,7 +157,7 @@ func (w *Wizard) newMachine(existing []string) (string, error) {
 		return "", err
 	}
 
-	if err := config.CheckMachine(w.machine(name, values, []string{hardwareSelection, localPackagesSelection, w.userPath()})); err != nil {
+	if err := config.CheckHost(w.host(name, values, []string{hardwareSelection, localPackagesSelection, w.userPath()})); err != nil {
 		return "", err
 	}
 
@@ -166,17 +166,17 @@ func (w *Wizard) newMachine(existing []string) (string, error) {
 		return "", err
 	}
 	sel := []string{hardwareSelection, localPackagesSelection, userPath}
-	return name, config.CreateMachine(w.Paths.Machines, w.machine(name, values, sel))
+	return name, config.CreateHost(w.Paths.Hosts, w.host(name, values, sel))
 }
 
-func (w *Wizard) machine(name string, values config.MachineValues, sel []string) config.Machine {
-	return config.Machine{Name: name, StateVersion: w.System.Release, Values: values, Selection: sel}
+func (w *Wizard) host(name string, values config.HostValues, sel []string) config.HostSpec {
+	return config.HostSpec{Name: name, StateVersion: w.System.Release, Values: values, Selection: sel}
 }
 
-// enableUser adds the user to machine's selection, creating the unit when the
+// enableUser adds the user to host's selection, creating the unit when the
 // config has none by that name.
-func (w *Wizard) enableUser(machine string) error {
-	hostDir := filepath.Join(w.Paths.Machines, machine)
+func (w *Wizard) enableUser(host string) error {
+	hostDir := filepath.Join(w.Paths.Hosts, host)
 	h, err := modules.Load(w.Paths.Modules, hostDir)
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func (w *Wizard) enableUser(machine string) error {
 		return err
 	}
 	if changed {
-		fmt.Fprintf(w.Out, userEnabled, w.Paths.User, machine)
+		fmt.Fprintf(w.Out, userEnabled, w.Paths.User, host)
 	}
 	return nil
 }
@@ -231,7 +231,7 @@ func (w *Wizard) askName(existing []string) (string, error) {
 			return "", err
 		}
 		switch {
-		case !machineNameRe.MatchString(name):
+		case !hostNameRe.MatchString(name):
 			fmt.Fprintln(w.Out, invalidName)
 		case slices.Contains(existing, name):
 			fmt.Fprintf(w.Out, nameTaken, name)
@@ -274,7 +274,7 @@ type reviewRow struct {
 
 // review shows the detected values until the user answers y; a number
 // re-asks that value as free text. d is nil when there is no desktop row.
-func (w *Wizard) review(v *config.MachineValues, d *desktop) error {
+func (w *Wizard) review(v *config.HostValues, d *desktop) error {
 	rows := []reviewRow{
 		{"timezone", &v.Timezone},
 		{"locale", &v.Locale},

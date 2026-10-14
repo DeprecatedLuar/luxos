@@ -5,18 +5,18 @@ import (
 	"path/filepath"
 )
 
-// State is where CONFIG_DIR stands for one machine name.
+// State is where CONFIG_DIR stands for one host name.
 type State int
 
 const (
 	StateReady State = iota
 	StateNoConfig
-	StateNoMachine
+	StateNoHost
 )
 
 // ConfigState classifies configDir for host: a missing or empty folder is
-// StateNoConfig, one without machinesDir/<host>/modules.nix is StateNoMachine.
-func ConfigState(configDir, machinesDir, host string) (State, error) {
+// StateNoConfig, one without hostsDir/<host>/modules.nix is StateNoHost.
+func ConfigState(configDir, hostsDir, host string) (State, error) {
 	entries, err := os.ReadDir(configDir)
 	if os.IsNotExist(err) {
 		return StateNoConfig, nil
@@ -27,9 +27,9 @@ func ConfigState(configDir, machinesDir, host string) (State, error) {
 	if len(entries) == 0 {
 		return StateNoConfig, nil
 	}
-	_, err = os.Stat(filepath.Join(machinesDir, host, SelectionFile))
+	_, err = os.Stat(filepath.Join(hostsDir, host, SelectionFile))
 	if os.IsNotExist(err) {
-		return StateNoMachine, nil
+		return StateNoHost, nil
 	}
 	if err != nil {
 		return 0, err
@@ -37,10 +37,10 @@ func ConfigState(configDir, machinesDir, host string) (State, error) {
 	return StateReady, nil
 }
 
-// Machines lists the machines under machinesDir, sorted: every directory
+// Hosts lists the hosts under hostsDir, sorted: every directory
 // holding modules.nix.
-func Machines(machinesDir string) ([]string, error) {
-	entries, err := os.ReadDir(machinesDir)
+func Hosts(hostsDir string) ([]string, error) {
+	entries, err := os.ReadDir(hostsDir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -49,7 +49,7 @@ func Machines(machinesDir string) ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if _, err := os.Stat(filepath.Join(machinesDir, e.Name(), SelectionFile)); err == nil {
+		if _, err := os.Stat(filepath.Join(hostsDir, e.Name(), SelectionFile)); err == nil {
 			names = append(names, e.Name())
 		}
 	}

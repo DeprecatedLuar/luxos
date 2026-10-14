@@ -91,7 +91,7 @@ func TestCopyLockBack_MissingStagedLockErrors(t *testing.T) {
 func TestActiveHost(t *testing.T) {
 	root := t.TempDir()
 	modules := filepath.Join(root, "modules")
-	hostModules := filepath.Join(root, ".local", "machines", "box", "modules")
+	hostModules := filepath.Join(root, ".local", "hosts", "box", "modules")
 	for _, d := range []string{modules, hostModules} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatal(err)
@@ -108,62 +108,62 @@ func TestActiveHost(t *testing.T) {
 	}
 }
 
-func TestEnsureMachineFile_CreatesFromTemplate(t *testing.T) {
+func TestEnsureHostFile_CreatesFromTemplate(t *testing.T) {
 	hostDir := t.TempDir()
 	var out bytes.Buffer
-	if err := ensureMachineFile(ui.NewProgress(&out), hostDir); err != nil {
+	if err := ensureHostFile(ui.NewProgress(&out), hostDir); err != nil {
 		t.Fatal(err)
 	}
-	want, err := RenderMachine(MachineDefaults)
+	want, err := RenderHost(HostDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(hostDir, "machine.nix")
+	path := filepath.Join(hostDir, "host.nix")
 	if got := readFile(t, path); got != string(want) {
-		t.Errorf("machine.nix differs from template:\n%s", got)
+		t.Errorf("host.nix differs from template:\n%s", got)
 	}
 	if !strings.Contains(out.String(), path) {
 		t.Errorf("output %q does not name %s", out.String(), path)
 	}
 }
 
-func TestEnsureMachineFile_ExistingUntouched(t *testing.T) {
+func TestEnsureHostFile_ExistingUntouched(t *testing.T) {
 	hostDir := t.TempDir()
-	path := filepath.Join(hostDir, "machine.nix")
+	path := filepath.Join(hostDir, "host.nix")
 	const own = "{ ... }: { }\n"
 	writeFile(t, path, own)
 	var out bytes.Buffer
-	if err := ensureMachineFile(ui.NewProgress(&out), hostDir); err != nil {
+	if err := ensureHostFile(ui.NewProgress(&out), hostDir); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, path); got != own {
-		t.Errorf("machine.nix changed: %q", got)
+		t.Errorf("host.nix changed: %q", got)
 	}
 	if out.Len() != 0 {
 		t.Errorf("unexpected output %q", out.String())
 	}
 }
 
-func TestMachineTemplate_Parses(t *testing.T) {
+func TestHostTemplate_Parses(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := RenderMachine(MachineDefaults)
+	tmpl, err := RenderHost(HostDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "machine.nix")
+	path := filepath.Join(t.TempDir(), "host.nix")
 	writeFile(t, path, string(tmpl))
 	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
 		t.Fatalf("template does not parse: %v\n%s", err, out)
 	}
 }
 
-func TestMachineTemplate_NoGC(t *testing.T) {
-	tmpl, err := RenderMachine(MachineDefaults)
+func TestHostTemplate_NoGC(t *testing.T) {
+	tmpl, err := RenderHost(HostDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(tmpl), "nix.gc") {
-		t.Error("machine template must not define nix.gc")
+		t.Error("host template must not define nix.gc")
 	}
 }
 
@@ -180,9 +180,9 @@ func TestHardwareTemplate_Parses(t *testing.T) {
 	}
 }
 
-func TestCheckMachineFile(t *testing.T) {
+func TestCheckHostFile(t *testing.T) {
 	skipIfNoNix(t)
-	tmpl, err := RenderMachine(MachineDefaults)
+	tmpl, err := RenderHost(HostDefaults)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,9 +198,9 @@ func TestCheckMachineFile(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "machine.nix")
+			path := filepath.Join(t.TempDir(), "host.nix")
 			writeFile(t, path, c.content)
-			err := checkMachineFile(path)
+			err := checkHostFile(path)
 			if (err != nil) != c.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
 			}
@@ -244,8 +244,8 @@ func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
 	}
 }
 
-func TestRenderMachine_FillsValues(t *testing.T) {
-	out, err := RenderMachine(MachineValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"})
+func TestRenderHost_FillsValues(t *testing.T) {
+	out, err := RenderHost(HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestRenderMachine_FillsValues(t *testing.T) {
 		`console.useXkbConfig = true;`,
 	} {
 		if !strings.Contains(string(out), want) {
-			t.Errorf("machine.nix missing %q:\n%s", want, out)
+			t.Errorf("host.nix missing %q:\n%s", want, out)
 		}
 	}
 }

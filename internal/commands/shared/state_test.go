@@ -26,29 +26,29 @@ func TestNoConfigError(t *testing.T) {
 	}
 }
 
-func TestNoMachineError(t *testing.T) {
+func TestNoHostError(t *testing.T) {
 	cfg := t.TempDir()
-	machines := filepath.Join(cfg, ".local/machines")
+	hosts := filepath.Join(cfg, ".local/hosts")
 
-	got := NoMachineError(cfg, machines, "nixos").Error()
-	want := "I couldn't find a \"nixos\" machine in " + cfg + ".\nRun `luxos setup`, or pass --machine <name>."
+	got := NoHostError(cfg, hosts, "nixos").Error()
+	want := "I couldn't find a \"nixos\" host in " + cfg + ".\nRun `luxos setup`, or pass --host <name>."
 	if got != want {
-		t.Errorf("no machines:\ngot  %q\nwant %q", got, want)
+		t.Errorf("no hosts:\ngot  %q\nwant %q", got, want)
 	}
 
-	mustWrite(t, filepath.Join(machines, "nuremberg/modules.nix"), "{ imports = [ ]; }\n")
-	mustWrite(t, filepath.Join(machines, "cathode/modules.nix"), "{ imports = [ ]; }\n")
-	got = NoMachineError(cfg, machines, "nixos").Error()
-	want = "I couldn't find a \"nixos\" machine in " + cfg + "\n(has cathode, nuremberg).\nRun `luxos setup`, or pass --machine <name>."
+	mustWrite(t, filepath.Join(hosts, "nuremberg/modules.nix"), "{ imports = [ ]; }\n")
+	mustWrite(t, filepath.Join(hosts, "cathode/modules.nix"), "{ imports = [ ]; }\n")
+	got = NoHostError(cfg, hosts, "nixos").Error()
+	want = "I couldn't find a \"nixos\" host in " + cfg + "\n(has cathode, nuremberg).\nRun `luxos setup`, or pass --host <name>."
 	if got != want {
-		t.Errorf("with machines:\ngot  %q\nwant %q", got, want)
+		t.Errorf("with hosts:\ngot  %q\nwant %q", got, want)
 	}
 }
 
 func TestResolveHost_States(t *testing.T) {
 	t.Setenv(paths.ConfigDirEnv, "") // ResolveHost sets it; restored after the test
 	empty := t.TempDir()
-	if _, _, _, err := ResolveHost(map[string]string{"config": empty, "machine": ""}); err == nil || err.Error() != NoConfigError(empty).Error() {
+	if _, _, _, err := ResolveHost(map[string]string{"config": empty, "host": ""}); err == nil || err.Error() != NoConfigError(empty).Error() {
 		t.Errorf("empty config: %v", err)
 	}
 
@@ -57,16 +57,16 @@ func TestResolveHost_States(t *testing.T) {
 		t.Errorf("missing config folder: %v", err)
 	}
 
-	// An explicit --machine is always the no-machine error, even with no config.
-	if _, _, _, err := ResolveHost(map[string]string{"config": empty, "machine": "ghost"}); err == nil ||
-		err.Error() != NoMachineError(empty, filepath.Join(empty, ".local/machines"), "ghost").Error() {
-		t.Errorf("explicit machine: %v", err)
+	// An explicit --host is always the no-host error, even with no config.
+	if _, _, _, err := ResolveHost(map[string]string{"config": empty, "host": "ghost"}); err == nil ||
+		err.Error() != NoHostError(empty, filepath.Join(empty, ".local/hosts"), "ghost").Error() {
+		t.Errorf("explicit host: %v", err)
 	}
 
 	cfg := t.TempDir()
-	mustWrite(t, filepath.Join(cfg, ".local/machines/cathode/modules.nix"), "{ imports = [ ]; }\n")
-	_, host, dir, err := ResolveHost(map[string]string{"config": cfg, "machine": "cathode"})
-	if err != nil || host != "cathode" || dir != filepath.Join(cfg, ".local/machines/cathode") {
+	mustWrite(t, filepath.Join(cfg, ".local/hosts/cathode/modules.nix"), "{ imports = [ ]; }\n")
+	_, host, dir, err := ResolveHost(map[string]string{"config": cfg, "host": "cathode"})
+	if err != nil || host != "cathode" || dir != filepath.Join(cfg, ".local/hosts/cathode") {
 		t.Errorf("ready: %q %q %v", host, dir, err)
 	}
 }
@@ -88,20 +88,20 @@ func TestActiveHost_States(t *testing.T) {
 	}
 
 	cfg := t.TempDir()
-	mustWrite(t, filepath.Join(cfg, ".local/machines/other-box/modules.nix"), "{ imports = [ ]; }\n")
+	mustWrite(t, filepath.Join(cfg, ".local/hosts/other-box/modules.nix"), "{ imports = [ ]; }\n")
 	t.Setenv(paths.ConfigDirEnv, cfg)
 	if p, err = paths.Resolve(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ActiveHost(p); err == nil || err.Error() != NoMachineError(cfg, p.Machines, hostname).Error() {
-		t.Errorf("no machine: %v", err)
+	if _, err := ActiveHost(p); err == nil || err.Error() != NoHostError(cfg, p.Hosts, hostname).Error() {
+		t.Errorf("no host: %v", err)
 	}
 
-	mustWrite(t, filepath.Join(cfg, ".local/machines/box/modules/.keep"), "")
+	mustWrite(t, filepath.Join(cfg, ".local/hosts/box/modules/.keep"), "")
 	if err := os.MkdirAll(filepath.Join(cfg, "modules"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../.local/machines/box/modules", filepath.Join(cfg, "modules/local")); err != nil {
+	if err := os.Symlink("../.local/hosts/box/modules", filepath.Join(cfg, "modules/local")); err != nil {
 		t.Fatal(err)
 	}
 	if host, err := ActiveHost(p); err != nil || host != "box" {

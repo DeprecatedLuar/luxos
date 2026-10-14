@@ -14,7 +14,7 @@ func statusFixture(t *testing.T, selected []string, files ...string) *Host {
 	t.Helper()
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, ".local", "machines", "box")
+	hostDir := filepath.Join(root, ".local", "hosts", "box")
 	for _, f := range files {
 		mustWriteFile(t, filepath.Join(modulesDir, f), emptyModule)
 	}

@@ -18,7 +18,7 @@ import (
 const (
 	sharedDisplayDir   = "modules"
 	localDisplayDir    = "local/modules"
-	machinesDisplayDir = ".local/machines"
+	hostsDisplayDir = ".local/hosts"
 
 	pathSep     = "/"
 	shortRevLen = 7
@@ -59,7 +59,7 @@ func StatusOf(locked, online bool, note Note) Status {
 }
 
 // Decl is one place an input is declared. Unit is empty for the host's
-// machine.nix.
+// host.nix.
 type Decl struct {
 	Unit string
 	File string // display path, e.g. "modules/apps/shell.nix"
@@ -68,7 +68,7 @@ type Decl struct {
 }
 
 // Declarations returns every luxos.inputs declaration of the modules h
-// builds and of its machine.nix, by input name, sorted by file then line.
+// builds and of its host.nix, by input name, sorted by file then line.
 func Declarations(h *modules.Host) (map[string][]Decl, error) {
 	built, err := h.Built()
 	if err != nil {
@@ -121,17 +121,17 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 	return out, nil
 }
 
-// baseChannelDecl is nil when the host's machine.nix has no base channel (the
+// baseChannelDecl is nil when the host's host.nix has no base channel (the
 // rebuild preflight reports that). It belongs to no unit.
 func baseChannelDecl(hostDir string) (*Decl, error) {
-	url, line, err := nix.BaseChannel(filepath.Join(hostDir, config.MachineFile))
+	url, line, err := nix.BaseChannel(filepath.Join(hostDir, config.HostFile))
 	if errors.Is(err, nix.ErrNoBaseChannel) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	rel := filepath.Join(machinesDisplayDir, filepath.Base(hostDir), config.MachineFile)
+	rel := filepath.Join(hostsDisplayDir, filepath.Base(hostDir), config.HostFile)
 	return &Decl{File: filepath.ToSlash(rel), Line: line, URL: url}, nil
 }
 

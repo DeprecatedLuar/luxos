@@ -16,11 +16,11 @@ func mustMkdirAll(t *testing.T, path string) {
 
 func TestEnsureMirror_Create(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	if err := EnsureMirror(machinesDir, modulesDir, "host1"); err != nil {
+	if err := EnsureMirror(hostsDir, modulesDir, "host1"); err != nil {
 		t.Fatalf("EnsureMirror: %v", err)
 	}
 
@@ -38,26 +38,26 @@ func TestEnsureMirror_Create(t *testing.T) {
 		t.Fatalf("Readlink: %v", err)
 	}
 	resolved := filepath.Join(filepath.Dir(link), raw)
-	want := filepath.Join(machinesDir, "host1", "modules.nix")
+	want := filepath.Join(hostsDir, "host1", "modules.nix")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
 
-	if _, err := os.Stat(filepath.Join(machinesDir, "host1", "modules")); err != nil {
+	if _, err := os.Stat(filepath.Join(hostsDir, "host1", "modules")); err != nil {
 		t.Fatalf("host modules dir not created: %v", err)
 	}
 }
 
 func TestEnsureMirror_Repoint(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	if err := EnsureMirror(machinesDir, modulesDir, "host1"); err != nil {
+	if err := EnsureMirror(hostsDir, modulesDir, "host1"); err != nil {
 		t.Fatalf("EnsureMirror host1: %v", err)
 	}
-	if err := EnsureMirror(machinesDir, modulesDir, "host2"); err != nil {
+	if err := EnsureMirror(hostsDir, modulesDir, "host2"); err != nil {
 		t.Fatalf("EnsureMirror host2: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestEnsureMirror_Repoint(t *testing.T) {
 		t.Fatalf("Readlink: %v", err)
 	}
 	resolved := filepath.Join(filepath.Dir(link), raw)
-	want := filepath.Join(machinesDir, "host2", "modules.nix")
+	want := filepath.Join(hostsDir, "host2", "modules.nix")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -75,14 +75,14 @@ func TestEnsureMirror_Repoint(t *testing.T) {
 
 func TestEnsureMirror_RefusesRealFile(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 	if err := os.WriteFile(filepath.Join(modulesDir, "default.nix"), []byte("real"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := EnsureMirror(machinesDir, modulesDir, "host1"); err == nil {
+	if err := EnsureMirror(hostsDir, modulesDir, "host1"); err == nil {
 		t.Fatalf("expected error for real file at mirror target")
 	}
 }
@@ -90,11 +90,11 @@ func TestEnsureMirror_RefusesRealFile(t *testing.T) {
 func TestEnsureLocalLink_Create(t *testing.T) {
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	mustMkdirAll(t, configDir)
-	mustMkdirAll(t, filepath.Join(machinesDir, "host1"))
+	mustMkdirAll(t, filepath.Join(hostsDir, "host1"))
 
-	if err := ensureLocalLink(configDir, machinesDir, "host1"); err != nil {
+	if err := ensureLocalLink(configDir, hostsDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalLink: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestEnsureLocalLink_Create(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	want := filepath.Join(machinesDir, "host1")
+	want := filepath.Join(hostsDir, "host1")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -112,15 +112,15 @@ func TestEnsureLocalLink_Create(t *testing.T) {
 func TestEnsureLocalLink_Repoint(t *testing.T) {
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	mustMkdirAll(t, configDir)
-	mustMkdirAll(t, filepath.Join(machinesDir, "host1"))
-	mustMkdirAll(t, filepath.Join(machinesDir, "host2"))
+	mustMkdirAll(t, filepath.Join(hostsDir, "host1"))
+	mustMkdirAll(t, filepath.Join(hostsDir, "host2"))
 
-	if err := ensureLocalLink(configDir, machinesDir, "host1"); err != nil {
+	if err := ensureLocalLink(configDir, hostsDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalLink host1: %v", err)
 	}
-	if err := ensureLocalLink(configDir, machinesDir, "host2"); err != nil {
+	if err := ensureLocalLink(configDir, hostsDir, "host2"); err != nil {
 		t.Fatalf("EnsureLocalLink host2: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestEnsureLocalLink_Repoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	want := filepath.Join(machinesDir, "host2")
+	want := filepath.Join(hostsDir, "host2")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -138,24 +138,24 @@ func TestEnsureLocalLink_Repoint(t *testing.T) {
 func TestEnsureLocalLink_RefusesRealFile(t *testing.T) {
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	mustMkdirAll(t, configDir)
 	if err := os.WriteFile(filepath.Join(configDir, "local"), []byte("real"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := ensureLocalLink(configDir, machinesDir, "host1"); err == nil {
+	if err := ensureLocalLink(configDir, hostsDir, "host1"); err == nil {
 		t.Fatalf("expected error for real file at local link target")
 	}
 }
 
 func TestEnsureLocalModules_Create(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	if err := EnsureLocalModules(machinesDir, modulesDir, "host1"); err != nil {
+	if err := EnsureLocalModules(hostsDir, modulesDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalModules: %v", err)
 	}
 
@@ -164,7 +164,7 @@ func TestEnsureLocalModules_Create(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	want := filepath.Join(machinesDir, "host1", "modules")
+	want := filepath.Join(hostsDir, "host1", "modules")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -175,14 +175,14 @@ func TestEnsureLocalModules_Create(t *testing.T) {
 
 func TestEnsureLocalModules_Repoint(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 
-	if err := EnsureLocalModules(machinesDir, modulesDir, "host1"); err != nil {
+	if err := EnsureLocalModules(hostsDir, modulesDir, "host1"); err != nil {
 		t.Fatalf("EnsureLocalModules host1: %v", err)
 	}
-	if err := EnsureLocalModules(machinesDir, modulesDir, "host2"); err != nil {
+	if err := EnsureLocalModules(hostsDir, modulesDir, "host2"); err != nil {
 		t.Fatalf("EnsureLocalModules host2: %v", err)
 	}
 
@@ -191,7 +191,7 @@ func TestEnsureLocalModules_Repoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	want := filepath.Join(machinesDir, "host2", "modules")
+	want := filepath.Join(hostsDir, "host2", "modules")
 	if resolved != want {
 		t.Fatalf("link resolves to %s, want %s", resolved, want)
 	}
@@ -199,76 +199,76 @@ func TestEnsureLocalModules_Repoint(t *testing.T) {
 
 func TestEnsureLocalModules_RefusesRealFile(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, modulesDir)
 	if err := os.WriteFile(filepath.Join(modulesDir, "local"), []byte("real"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := EnsureLocalModules(machinesDir, modulesDir, "host1"); err == nil {
+	if err := EnsureLocalModules(hostsDir, modulesDir, "host1"); err == nil {
 		t.Fatalf("expected error for real file at local modules link target")
 	}
 }
 
 func TestEnsureLocalModules_RefusesRealDirectory(t *testing.T) {
 	root := t.TempDir()
-	machinesDir := filepath.Join(root, ".local", "machines")
+	hostsDir := filepath.Join(root, ".local", "hosts")
 	modulesDir := filepath.Join(root, "modules")
 	mustMkdirAll(t, filepath.Join(modulesDir, "local"))
 
-	if err := EnsureLocalModules(machinesDir, modulesDir, "host1"); err == nil {
+	if err := EnsureLocalModules(hostsDir, modulesDir, "host1"); err == nil {
 		t.Fatalf("expected error for real directory at local modules link target")
 	}
 }
 
 func TestEnsureHardwareLink(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, "machines")
+	hosts := filepath.Join(root, "hosts")
 	hardware := filepath.Join(root, "hardware")
 	for _, h := range []string{"a", "b"} {
-		if err := os.MkdirAll(filepath.Join(machines, h, "modules"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(hosts, h, "modules"), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// A machine without a modules/ directory is skipped.
-	if err := os.MkdirAll(filepath.Join(machines, "c"), 0755); err != nil {
+	// A host without a modules/ directory is skipped.
+	if err := os.MkdirAll(filepath.Join(hosts, "c"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	// A stale link in the active host and a link in the other host.
 	for _, h := range []string{"a", "b"} {
-		if err := os.Symlink("../../../hardware/old", filepath.Join(machines, h, "modules", "hardware-support")); err != nil {
+		if err := os.Symlink("../../../hardware/old", filepath.Join(hosts, h, "modules", "hardware-support")); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if err := ensureHardwareLink(machines, hardware, "a", "k1"); err != nil {
+	if err := ensureHardwareLink(hosts, hardware, "a", "k1"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.Readlink(filepath.Join(machines, "a", "modules", "hardware-support")); got != "../../../hardware/k1" {
+	if got, _ := os.Readlink(filepath.Join(hosts, "a", "modules", "hardware-support")); got != "../../../hardware/k1" {
 		t.Errorf("link target = %q", got)
 	}
-	if _, err := os.Lstat(filepath.Join(machines, "b", "modules", "hardware-support")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(hosts, "b", "modules", "hardware-support")); !os.IsNotExist(err) {
 		t.Errorf("other host's link not removed: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(machines, "c", "modules")); !os.IsNotExist(err) {
-		t.Errorf("skipped machine gained a modules dir: %v", err)
+	if _, err := os.Lstat(filepath.Join(hosts, "c", "modules")); !os.IsNotExist(err) {
+		t.Errorf("skipped host gained a modules dir: %v", err)
 	}
-	if err := ensureHardwareLink(machines, hardware, "a", "k1"); err != nil {
+	if err := ensureHardwareLink(hosts, hardware, "a", "k1"); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 }
 
 func TestEnsureHardwareLink_RefusesRealDirectory(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, "machines")
-	if err := os.MkdirAll(filepath.Join(machines, "a"), 0755); err != nil {
+	hosts := filepath.Join(root, "hosts")
+	if err := os.MkdirAll(filepath.Join(hosts, "a"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(machines, "b", "modules", "hardware-support"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(hosts, "b", "modules", "hardware-support"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	err := ensureHardwareLink(machines, filepath.Join(root, "hardware"), "a", "k1")
+	err := ensureHardwareLink(hosts, filepath.Join(root, "hardware"), "a", "k1")
 	if err == nil || !strings.Contains(err.Error(), "real file/dir") {
 		t.Fatalf("err = %v", err)
 	}
@@ -276,20 +276,20 @@ func TestEnsureHardwareLink_RefusesRealDirectory(t *testing.T) {
 
 func TestEnsureMirrorCreatesHostModulesDir(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, ".local", "machines")
+	hosts := filepath.Join(root, ".local", "hosts")
 	modules := filepath.Join(root, "modules")
-	for _, d := range []string{filepath.Join(machines, "box"), modules} {
+	for _, d := range []string{filepath.Join(hosts, "box"), modules} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(machines, "box", "modules.nix"), []byte("{ imports = [ ]; }\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(hosts, "box", "modules.nix"), []byte("{ imports = [ ]; }\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureMirror(machines, modules, "box"); err != nil {
+	if err := EnsureMirror(hosts, modules, "box"); err != nil {
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(filepath.Join(machines, "box", "modules"))
+	fi, err := os.Stat(filepath.Join(hosts, "box", "modules"))
 	if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0755 {
 		t.Fatalf("modules dir: %v %v", fi, err)
 	}

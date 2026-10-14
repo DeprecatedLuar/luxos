@@ -18,7 +18,7 @@ func settingsHost(t *testing.T, units map[string]string, selection ...string) *H
 	t.Helper()
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, "machines", "host1")
+	hostDir := filepath.Join(root, "hosts", "host1")
 	for path, content := range units {
 		mustWriteFile(t, filepath.Join(modulesDir, path), content)
 	}
@@ -207,41 +207,41 @@ func TestSyncSettings_BrokenUnitSkipped(t *testing.T) {
 
 func TestMoveSettings_BundleFolderMoves(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, "machines")
+	hosts := filepath.Join(root, "hosts")
 	for _, host := range []string{"host1", "host2"} {
-		mustWriteFile(t, filepath.Join(machines, host, "modules.nix"), "{ imports = [ ]; }\n")
-		mustWriteFile(t, filepath.Join(machines, host, "settings", "eduardo.nix"), "{ }\n")
-		mustWriteFile(t, filepath.Join(machines, host, "settings", "eduardo", "git.nix"), "{ }\n")
+		mustWriteFile(t, filepath.Join(hosts, host, "modules.nix"), "{ imports = [ ]; }\n")
+		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo.nix"), "{ }\n")
+		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo", "git.nix"), "{ }\n")
 	}
-	kept, err := MoveSettings(machines, "eduardo", "luar", "", []string{"host2"})
+	kept, err := MoveSettings(hosts, "eduardo", "luar", "", []string{"host2"})
 	if err != nil || len(kept) > 0 {
 		t.Fatalf("MoveSettings: %v %v", kept, err)
 	}
 	for _, p := range []string{"host1/settings/luar.nix", "host1/settings/luar/git.nix", "host2/settings/eduardo.nix", "host2/settings/eduardo/git.nix"} {
-		if _, err := os.Stat(filepath.Join(machines, p)); err != nil {
+		if _, err := os.Stat(filepath.Join(hosts, p)); err != nil {
 			t.Errorf("%s: %v", p, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(machines, "host1/settings/eduardo.nix")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(hosts, "host1/settings/eduardo.nix")); !os.IsNotExist(err) {
 		t.Errorf("old file still on host1: %v", err)
 	}
 }
 
 func TestMoveSettings_RemoveAndKept(t *testing.T) {
 	root := t.TempDir()
-	machines := filepath.Join(root, "machines")
-	mustWriteFile(t, filepath.Join(machines, "host1", "modules.nix"), "{ imports = [ ]; }\n")
-	mustWriteFile(t, filepath.Join(machines, "host1", "settings", "a.nix"), "{ }\n")
-	mustWriteFile(t, filepath.Join(machines, "host1", "settings", "b.nix"), "{ }\n")
+	hosts := filepath.Join(root, "hosts")
+	mustWriteFile(t, filepath.Join(hosts, "host1", "modules.nix"), "{ imports = [ ]; }\n")
+	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "a.nix"), "{ }\n")
+	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "b.nix"), "{ }\n")
 
-	kept, err := MoveSettings(machines, "a", "b", "host1", nil)
-	if err != nil || !reflect.DeepEqual(kept, []string{filepath.Join(machines, "host1", "settings", "a.nix")}) {
+	kept, err := MoveSettings(hosts, "a", "b", "host1", nil)
+	if err != nil || !reflect.DeepEqual(kept, []string{filepath.Join(hosts, "host1", "settings", "a.nix")}) {
 		t.Errorf("rename onto an existing file: kept = %v, err = %v", kept, err)
 	}
-	if _, err := MoveSettings(machines, "a", "", "host1", nil); err != nil {
+	if _, err := MoveSettings(hosts, "a", "", "host1", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(machines, "host1", "settings", "a.nix")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(hosts, "host1", "settings", "a.nix")); !os.IsNotExist(err) {
 		t.Errorf("remove left the file: %v", err)
 	}
 }

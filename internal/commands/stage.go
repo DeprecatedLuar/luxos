@@ -30,7 +30,7 @@ var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 // the active host's selection instead of failing.
 func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) error {
 	out.Printf("Healing modules imports...\n")
-	changes, warnings, err := modules.Heal(p.Machines, p.Modules, host, prune)
+	changes, warnings, err := modules.Heal(p.Hosts, p.Modules, host, prune)
 	for _, c := range changes {
 		out.Changef("%s", formatImportChange(c))
 	}
@@ -42,7 +42,7 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) e
 	}
 
 	out.Printf("Validating module boundaries...\n")
-	h, err := modules.Load(p.Modules, filepath.Join(p.Machines, host))
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host))
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) e
 // units' options.nix, failing on any unit that breaks a settings rule.
 func syncSettings(out *ui.Progress, p paths.Paths, host string) error {
 	out.Printf("Syncing module settings...\n")
-	h, err := modules.Load(p.Modules, filepath.Join(p.Machines, host))
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host))
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func formatImportChange(c modules.Change) string {
 // (apart from the host's flake.lock, when staging locked something new).
 // It touches nothing in dir but the entries luxos owns.
 func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) error {
-	hostDir := filepath.Join(p.Machines, host)
+	hostDir := filepath.Join(p.Hosts, host)
 
 	h, err := modules.Load(p.Modules, hostDir)
 	if err != nil {
@@ -149,7 +149,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 }
 
 // selectedInputs returns the luxos.inputs declarations of the host's
-// machine.nix and of every module it builds. They become the bootstrap flake's
+// host.nix and of every module it builds. They become the bootstrap flake's
 // inputs, so a module that imports from its own input (a nixos-hardware
 // module, say) already has that input on its first build. hwDir
 // stands in for the hardware-support module on a host without its link.
@@ -158,7 +158,7 @@ func selectedInputs(h *modules.Host, hwDir string) ([]nix.InputDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := []string{filepath.Join(h.HostDir, config.MachineFile)}
+	files := []string{filepath.Join(h.HostDir, config.HostFile)}
 	for _, m := range built {
 		mf, err := m.Files()
 		if err != nil {

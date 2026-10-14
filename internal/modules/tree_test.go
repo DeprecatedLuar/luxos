@@ -510,25 +510,25 @@ func selectionOf(items ...string) string {
 func TestLoadOtherHostLocalUnits(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	machines := filepath.Join(root, ".local", "machines")
+	hosts := filepath.Join(root, ".local", "hosts")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(machines, "a", "modules.nix"), selectionOf("./apps/git.nix"))
-	mustWriteFile(t, filepath.Join(machines, "b", "modules.nix"), selectionOf("./local/vpn.nix"))
-	mustWriteFile(t, filepath.Join(machines, "b", "modules", "vpn.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(hosts, "a", "modules.nix"), selectionOf("./apps/git.nix"))
+	mustWriteFile(t, filepath.Join(hosts, "b", "modules.nix"), selectionOf("./local/vpn.nix"))
+	mustWriteFile(t, filepath.Join(hosts, "b", "modules", "vpn.nix"), emptyModule)
 
-	h, err := Load(modulesDir, filepath.Join(machines, "b"))
+	h, err := Load(modulesDir, filepath.Join(hosts, "b"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	m, ok := h.Find("vpn")
-	if !ok || m.Path != "local/vpn.nix" || m.Abs != filepath.Join(machines, "b", "modules", "vpn.nix") {
+	if !ok || m.Path != "local/vpn.nix" || m.Abs != filepath.Join(hosts, "b", "modules", "vpn.nix") {
 		t.Fatalf("vpn = %+v, %v", m, ok)
 	}
 	if _, ok := h.Selected("vpn"); !ok {
 		t.Error("vpn not selected on b")
 	}
 
-	ha, err := Load(modulesDir, filepath.Join(machines, "a"))
+	ha, err := Load(modulesDir, filepath.Join(hosts, "a"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestLoadOtherHostLocalUnits(t *testing.T) {
 func TestLoadShadow(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, ".local", "machines", "a")
+	hostDir := filepath.Join(root, ".local", "hosts", "a")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf())
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "git.nix"), emptyModule)
@@ -559,11 +559,11 @@ func TestLoadShadow(t *testing.T) {
 }
 
 func TestHosts(t *testing.T) {
-	machines := t.TempDir()
-	mustWriteFile(t, filepath.Join(machines, "b", "modules.nix"), selectionOf())
-	mustWriteFile(t, filepath.Join(machines, "a", "modules.nix"), selectionOf())
-	mustMkdirAll(t, filepath.Join(machines, "stray"))
-	got, err := Hosts(machines)
+	hosts := t.TempDir()
+	mustWriteFile(t, filepath.Join(hosts, "b", "modules.nix"), selectionOf())
+	mustWriteFile(t, filepath.Join(hosts, "a", "modules.nix"), selectionOf())
+	mustMkdirAll(t, filepath.Join(hosts, "stray"))
+	got, err := Hosts(hosts)
 	if err != nil || !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Errorf("Hosts = %v, %v", got, err)
 	}
@@ -572,32 +572,32 @@ func TestHosts(t *testing.T) {
 func TestScopeOf(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	machines := filepath.Join(root, ".local", "machines")
+	hosts := filepath.Join(root, ".local", "hosts")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "vim.nix"), emptyModule)
 	for _, h := range []string{"a", "b", "c"} {
-		mustWriteFile(t, filepath.Join(machines, h, "modules.nix"), selectionOf())
+		mustWriteFile(t, filepath.Join(hosts, h, "modules.nix"), selectionOf())
 	}
-	mustWriteFile(t, filepath.Join(machines, "b", "modules", "git.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(machines, "stray", "modules", "x.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(hosts, "b", "modules", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(hosts, "stray", "modules", "x.nix"), emptyModule)
 
-	got, err := ScopeOf(machines, modulesDir, "a", Module{Name: "git", Path: "apps/git.nix"})
+	got, err := ScopeOf(hosts, modulesDir, "a", Module{Name: "git", Path: "apps/git.nix"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := Scope{
-		LocalDirs: []string{filepath.Join(machines, "a", "modules"), filepath.Join(machines, "c", "modules")},
+		LocalDirs: []string{filepath.Join(hosts, "a", "modules"), filepath.Join(hosts, "c", "modules")},
 		SkipHosts: []string{"b"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("shared scope = %+v, want %+v", got, want)
 	}
 
-	got, err = ScopeOf(machines, modulesDir, "a", Module{Name: "priv", Path: "local/priv.nix"})
+	got, err = ScopeOf(hosts, modulesDir, "a", Module{Name: "priv", Path: "local/priv.nix"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = Scope{Host: "a", LocalDirs: []string{filepath.Join(machines, "a", "modules")}}
+	want = Scope{Host: "a", LocalDirs: []string{filepath.Join(hosts, "a", "modules")}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("local scope = %+v, want %+v", got, want)
 	}

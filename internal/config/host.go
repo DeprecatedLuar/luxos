@@ -13,14 +13,14 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-// plsDontTouchFile, MachineFile and SelectionFile are required regular files
+// plsDontTouchFile, HostFile and SelectionFile are required regular files
 // (symlinks followed); lockFile is an optional regular file; localModulesDir
 // and SettingsDir are optional directories. Nothing else may live there.
-// MachineFile is exported so the caller that creates it from a template names
+// HostFile is exported so the caller that creates it from a template names
 // it without repeating the string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
-	MachineFile      = "machine.nix"
+	HostFile      = "host.nix"
 	SelectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"
@@ -30,36 +30,36 @@ const (
 
 	plsDontTouchMode = 0444
 
-	machineTemplate = "machine.nix.tmpl"
+	hostTemplate = "host.nix.tmpl"
 )
 
-// MachineValues fill the machine.nix template.
-type MachineValues struct {
+// HostValues fill the host.nix template.
+type HostValues struct {
 	Channel, Timezone, Locale, Keyboard string
 }
 
-// MachineDefaults fill a machine.nix rebuild creates, and stand in for values
+// HostDefaults fill a host.nix rebuild creates, and stand in for values
 // setup cannot detect.
-var MachineDefaults = MachineValues{Channel: "nixos-25.11", Timezone: "UTC", Locale: "en_US.UTF-8", Keyboard: "us"}
+var HostDefaults = HostValues{Channel: "nixos-25.11", Timezone: "UTC", Locale: "en_US.UTF-8", Keyboard: "us"}
 
-func RenderMachine(v MachineValues) ([]byte, error) {
-	return templates.Render(machineTemplate, v)
+func RenderHost(v HostValues) ([]byte, error) {
+	return templates.Render(hostTemplate, v)
 }
 
-// ErrNoMachine is a host folder without modules.nix.
-var ErrNoMachine = errors.New("no " + SelectionFile)
+// ErrNoHost is a host folder without modules.nix.
+var ErrNoHost = errors.New("no " + SelectionFile)
 
 // A host is a directory there holding modules.nix.
-func ResolveHost(machinesDir, name string) (string, error) {
-	dir := filepath.Join(machinesDir, name)
+func ResolveHost(hostsDir, name string) (string, error) {
+	dir := filepath.Join(hostsDir, name)
 	selection := filepath.Join(dir, SelectionFile)
 
 	if _, err := os.Stat(selection); err != nil {
-		old := filepath.Join(filepath.Dir(machinesDir), name)
+		old := filepath.Join(filepath.Dir(hostsDir), name)
 		if _, oldErr := os.Stat(filepath.Join(old, SelectionFile)); oldErr == nil {
 			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
 		}
-		return "", fmt.Errorf("%w under %s", ErrNoMachine, dir)
+		return "", fmt.Errorf("%w under %s", ErrNoHost, dir)
 	}
 
 	return dir, nil
@@ -76,7 +76,7 @@ func ValidateHost(hostDir string) error {
 		return err
 	}
 
-	requiredFiles := []string{plsDontTouchFile, MachineFile, SelectionFile}
+	requiredFiles := []string{plsDontTouchFile, HostFile, SelectionFile}
 
 	seen := make(map[string]bool, len(entries))
 	var problems []string
@@ -86,7 +86,7 @@ func ValidateHost(hostDir string) error {
 		path := filepath.Join(hostDir, name)
 
 		switch name {
-		case plsDontTouchFile, MachineFile, SelectionFile, lockFile:
+		case plsDontTouchFile, HostFile, SelectionFile, lockFile:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {
@@ -147,13 +147,13 @@ func ProtectHost(hostDir string) (bool, error) {
 	return true, nil
 }
 
-// ensureMachineFile writes the host's machine.nix from the starter when it is missing.
-func ensureMachineFile(out *ui.Progress, hostDir string) error {
-	tmpl, err := RenderMachine(MachineDefaults)
+// ensureHostFile writes the host's host.nix from the starter when it is missing.
+func ensureHostFile(out *ui.Progress, hostDir string) error {
+	tmpl, err := RenderHost(HostDefaults)
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(hostDir, MachineFile)
+	path := filepath.Join(hostDir, HostFile)
 	created, err := CreateFile(path, tmpl)
 	if err != nil {
 		return err
@@ -173,7 +173,7 @@ func readBaseChannel(path string) (string, error) {
 }
 
 func baseChannelHint() string {
-	tmpl, err := RenderMachine(MachineDefaults)
+	tmpl, err := RenderHost(HostDefaults)
 	if err == nil {
 		for _, line := range strings.Split(string(tmpl), "\n") {
 			if strings.Contains(line, nix.BaseChannelInput+".url") {
@@ -184,9 +184,9 @@ func baseChannelHint() string {
 	return "luxos.inputs.nixpkgs.url = \"<flake url>\";"
 }
 
-// checkMachineFile fails when the machine.nix at path holds any static or
+// checkHostFile fails when the host.nix at path holds any static or
 // dynamic path literal.
-func checkMachineFile(path string) error {
+func checkHostFile(path string) error {
 	static, dynamic, err := nix.PathsAndDynamic(path)
 	if err != nil {
 		return err
@@ -196,7 +196,7 @@ func checkMachineFile(path string) error {
 		return nil
 	}
 	return fmt.Errorf("%s holds path literals or imports: %s\n"+
-		"paths in machine.nix resolve against the staged copy at /etc/nixos/config/, not the host folder, "+
+		"paths in host.nix resolve against the staged copy at /etc/nixos/config/, not the host folder, "+
 		"and module selection belongs in modules.nix; add a module with:\n  luxos module enable <name>",
 		path, strings.Join(offenders, ", "))
 }

@@ -18,12 +18,12 @@ const (
 	parseCheckPattern    = "luxos-setup-*.nix"
 )
 
-// Machine is what setup writes for a new machine. Selection holds import
+// HostSpec is what setup writes for a new host. Selection holds import
 // paths without "./", e.g. "local/hardware-support".
-type Machine struct {
+type HostSpec struct {
 	Name         string
 	StateVersion string
-	Values       MachineValues
+	Values       HostValues
 	Selection    []string
 }
 
@@ -57,17 +57,17 @@ func CopyStarterModules(modulesDir string) error {
 	})
 }
 
-// CreateMachine writes machinesDir/<m.Name>/, which must not exist. Every file
+// CreateHost writes hostsDir/<m.Name>/, which must not exist. Every file
 // is rendered and, when nix-instantiate is available, parsed before the folder
 // is created.
-func CreateMachine(machinesDir string, m Machine) error {
-	hostDir := filepath.Join(machinesDir, m.Name)
-	files, err := checkedMachineFiles(m)
+func CreateHost(hostsDir string, m HostSpec) error {
+	hostDir := filepath.Join(hostsDir, m.Name)
+	files, err := checkedHostFiles(m)
 	if err != nil {
 		return err
 	}
 
-	if err := MkdirAll(machinesDir); err != nil {
+	if err := MkdirAll(hostsDir); err != nil {
 		return err
 	}
 	if err := Mkdir(hostDir); err != nil {
@@ -85,15 +85,15 @@ func CreateMachine(machinesDir string, m Machine) error {
 	return err
 }
 
-// CheckMachine renders m and, when nix-instantiate is available, parses every
-// file, so a caller can refuse a machine before writing anything else.
-func CheckMachine(m Machine) error {
-	_, err := checkedMachineFiles(m)
+// CheckHost renders m and, when nix-instantiate is available, parses every
+// file, so a caller can refuse a host before writing anything else.
+func CheckHost(m HostSpec) error {
+	_, err := checkedHostFiles(m)
 	return err
 }
 
-func checkedMachineFiles(m Machine) ([]machineFile, error) {
-	files, err := machineFiles(m)
+func checkedHostFiles(m HostSpec) ([]hostFile, error) {
+	files, err := hostFiles(m)
 	if err != nil {
 		return nil, err
 	}
@@ -105,13 +105,13 @@ func checkedMachineFiles(m Machine) ([]machineFile, error) {
 	return files, nil
 }
 
-type machineFile struct {
+type hostFile struct {
 	name string
 	data []byte
 }
 
-func machineFiles(m Machine) ([]machineFile, error) {
-	machine, err := RenderMachine(m.Values)
+func hostFiles(m HostSpec) ([]hostFile, error) {
+	host, err := RenderHost(m.Values)
 	if err != nil {
 		return nil, err
 	}
@@ -127,9 +127,9 @@ func machineFiles(m Machine) ([]machineFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []machineFile{
+	return []hostFile{
 		{plsDontTouchFile, stateVersion},
-		{MachineFile, machine},
+		{HostFile, host},
 		{SelectionFile, selection},
 		{filepath.Join(localModulesDir, localPackagesFile), packages},
 	}, nil

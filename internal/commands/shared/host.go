@@ -12,11 +12,11 @@ import (
 
 const (
 	configOpt  = "config"
-	machineOpt = "machine"
+	hostOpt = "host"
 )
 
 // Target applies --config and returns the paths and the host name for
-// --machine, defaulting to this computer's hostname. The config folder may be
+// --host, defaulting to this computer's hostname. The config folder may be
 // missing; an existing one must be a directory.
 func Target(opts map[string]string) (p paths.Paths, host string, err error) {
 	if opts[configOpt] != "" {
@@ -32,7 +32,7 @@ func Target(opts map[string]string) (p paths.Paths, host string, err error) {
 		}
 	}
 
-	host = opts[machineOpt]
+	host = opts[hostOpt]
 	if host == "" {
 		if host, err = os.Hostname(); err != nil {
 			return p, "", err
@@ -44,24 +44,24 @@ func Target(opts map[string]string) (p paths.Paths, host string, err error) {
 }
 
 // ResolveHost is Target plus the host folder. A missing config is
-// NoConfigError unless --machine was given; a missing host is NoMachineError.
+// NoConfigError unless --host was given; a missing host is NoHostError.
 func ResolveHost(opts map[string]string) (p paths.Paths, host, hostDir string, err error) {
 	p, host, err = Target(opts)
 	if err != nil {
 		return p, "", "", err
 	}
 
-	state, err := config.ConfigState(p.Config, p.Machines, host)
+	state, err := config.ConfigState(p.Config, p.Hosts, host)
 	if err != nil {
 		return p, "", "", err
 	}
-	if state == config.StateNoConfig && opts[machineOpt] == "" {
+	if state == config.StateNoConfig && opts[hostOpt] == "" {
 		return p, "", "", NoConfigError(p.Config)
 	}
 
-	hostDir, err = config.ResolveHost(p.Machines, host)
-	if errors.Is(err, config.ErrNoMachine) {
-		return p, "", "", NoMachineError(p.Config, p.Machines, host)
+	hostDir, err = config.ResolveHost(p.Hosts, host)
+	if errors.Is(err, config.ErrNoHost) {
+		return p, "", "", NoHostError(p.Config, p.Hosts, host)
 	}
 	if err != nil {
 		return p, "", "", err

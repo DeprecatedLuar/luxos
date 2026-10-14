@@ -333,16 +333,16 @@ func Find(ms []Module, name string) (Module, bool) {
 	return Module{}, false
 }
 
-// Hosts returns the sorted names of the directories under machinesDir that
+// Hosts returns the sorted names of the directories under hostsDir that
 // hold a selection file.
-func Hosts(machinesDir string) ([]string, error) {
-	entries, err := os.ReadDir(machinesDir)
+func Hosts(hostsDir string) ([]string, error) {
+	entries, err := os.ReadDir(hostsDir)
 	if err != nil {
 		return nil, err
 	}
 	var hosts []string
 	for _, e := range entries {
-		if isFile(filepath.Join(machinesDir, e.Name(), SelectionFile)) {
+		if isFile(filepath.Join(hostsDir, e.Name(), SelectionFile)) {
 			hosts = append(hosts, e.Name())
 		}
 	}

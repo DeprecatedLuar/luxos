@@ -77,7 +77,7 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(hostDir, "machine.nix"), []byte("{ machine = 1; }"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(hostDir, "host.nix"), []byte("{ host = 1; }"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(hostDir, ".plsdonttouch.nix"), []byte("{ state = 1; }"), 0644); err != nil {
@@ -128,7 +128,7 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
 		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
-		filepath.Join(stagingDir, "config", "machine.nix"),
+		filepath.Join(stagingDir, "config", "host.nix"),
 		filepath.Join(stagingDir, "config", ".plsdonttouch.nix"),
 		filepath.Join(stagingDir, "flake.lock"),
 	}
@@ -141,7 +141,7 @@ func TestMaterialize_Basic(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stagingDir, "config", "local")); !os.IsNotExist(err) {
 		t.Errorf("config/local must not exist: %v", err)
 	}
-	for name, want := range map[string]string{"machine.nix": "{ machine = 1; }", ".plsdonttouch.nix": "{ state = 1; }"} {
+	for name, want := range map[string]string{"host.nix": "{ host = 1; }", ".plsdonttouch.nix": "{ state = 1; }"} {
 		got, err := os.ReadFile(filepath.Join(stagingDir, "config", name))
 		if err != nil || string(got) != want {
 			t.Errorf("config/%s = %q, %v", name, got, err)
@@ -269,7 +269,7 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 	if err := os.MkdirAll(hostDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"machine.nix", ".plsdonttouch.nix", "modules.nix"} {
+	for _, name := range []string{"host.nix", ".plsdonttouch.nix", "modules.nix"} {
 		if err := os.WriteFile(filepath.Join(hostDir, name), []byte("{ }"), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -781,7 +781,7 @@ func TestMaterializeRejectsConflictingLuxosInput(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir}
 	inputs := []nix.InputDecl{
-		{File: "machine.nix", Name: "nixpkgs", URL: testNixpkgs, Line: 1, Value: map[string]any{"url": testNixpkgs}},
+		{File: "host.nix", Name: "nixpkgs", URL: testNixpkgs, Line: 1, Value: map[string]any{"url": testNixpkgs}},
 		{File: "mod.nix", Name: "luxos", URL: "github:fork/luxos", Line: 3, Value: map[string]any{"url": "github:fork/luxos"}},
 	}
 	err := Materialize(t.TempDir(), h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, nil)
@@ -851,7 +851,7 @@ func TestMaterializeIgnoresRootLinks(t *testing.T) {
 	other := filepath.Join(filepath.Dir(hostDir), "host2")
 	for rel, content := range map[string]string{
 		"modules.nix":        "{ imports = [ ]; }",
-		"machine.nix":        "{ }",
+		"host.nix":        "{ }",
 		".plsdonttouch.nix":  "{ }",
 		"modules/theirs.nix": "{ }",
 	} {

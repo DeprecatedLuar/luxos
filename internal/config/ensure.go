@@ -19,15 +19,15 @@ const (
 	systemModules = "system"
 )
 
-var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/machines/*/modules/hardware-support"}
+var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/hosts/*/modules/hardware-support"}
 
 // Ensure brings CONFIG_DIR to the state a rebuild of host expects: .gitignore,
-// the environment file, the synced framework modules, machine.nix, the host
+// the environment file, the synced framework modules, host.nix, the host
 // folder (validated and protected), this computer's hardware folder and the
-// host's link to it, the mirror and local-module links, the machine.nix
+// host's link to it, the mirror and local-module links, the host.nix
 // checks and the local link.
 func Ensure(out *ui.Progress, p paths.Paths, host string) error {
-	hostDir := filepath.Join(p.Machines, host)
+	hostDir := filepath.Join(p.Hosts, host)
 
 	out.Printf("Ensuring .gitignore...\n")
 	added, err := ensureGitignore(filepath.Join(p.Config, gitignoreFile), gitignoreLines)
@@ -66,7 +66,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 		}
 	}
 
-	if err := ensureMachineFile(out, hostDir); err != nil {
+	if err := ensureHostFile(out, hostDir); err != nil {
 		return err
 	}
 
@@ -88,36 +88,36 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	}
 	key := filepath.Base(hwDir)
 	out.Printf("Ensuring local/modules/hardware-support -> .local/hardware/%s link...\n", key)
-	if err := ensureHardwareLink(p.Machines, p.HardwareRoot, host, key); err != nil {
+	if err := ensureHardwareLink(p.Hosts, p.HardwareRoot, host, key); err != nil {
 		return err
 	}
 
 	out.Printf("Ensuring %s's modules mirror...\n", host)
-	if err := EnsureMirror(p.Machines, p.Modules, host); err != nil {
+	if err := EnsureMirror(p.Hosts, p.Modules, host); err != nil {
 		return err
 	}
 
-	out.Printf("Ensuring modules/local -> .local/machines/%s/modules link...\n", host)
-	if err := EnsureLocalModules(p.Machines, p.Modules, host); err != nil {
+	out.Printf("Ensuring modules/local -> .local/hosts/%s/modules link...\n", host)
+	if err := EnsureLocalModules(p.Hosts, p.Modules, host); err != nil {
 		return err
 	}
 
-	if err := checkMachineFile(filepath.Join(hostDir, MachineFile)); err != nil {
+	if err := checkHostFile(filepath.Join(hostDir, HostFile)); err != nil {
 		return err
 	}
-	if _, err := readBaseChannel(filepath.Join(hostDir, MachineFile)); err != nil {
+	if _, err := readBaseChannel(filepath.Join(hostDir, HostFile)); err != nil {
 		return err
 	}
 
-	out.Printf("Ensuring local -> .local/machines/%s link...\n", host)
-	if err := ensureLocalLink(p.Config, p.Machines, host); err != nil {
+	out.Printf("Ensuring local -> .local/hosts/%s link...\n", host)
+	if err := ensureLocalLink(p.Config, p.Hosts, host); err != nil {
 		return err
 	}
 	return out.Err()
 }
 
 // ActiveHost returns the active host's name, read from the modules/local link
-// to <machines>/<host>/modules.
+// to <hosts>/<host>/modules.
 func ActiveHost(modulesDir string) (string, error) {
 	real, err := filepath.EvalSymlinks(filepath.Join(modulesDir, localLinkName))
 	if err != nil {

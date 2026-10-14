@@ -19,7 +19,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-const flakeFlagSpec = "machine:value config|C:value"
+const flakeFlagSpec = "host:value config|C:value"
 
 const flakeUpdateTmpPattern = "luxos-flake-update-"
 
@@ -355,7 +355,7 @@ func flakeShow(args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return errors.New("missing input name\n  usage: luxos flake <name>... [--machine <name>] [--config|-C <dir>] [--offline] [--raw|--json]")
+		return errors.New("missing input name\n  usage: luxos flake <name>... [--host <name>] [--config|-C <dir>] [--offline] [--raw|--json]")
 	}
 	if opts["json"] != "" && opts["raw"] != "" {
 		return ui.ErrJSONConflict("--raw")

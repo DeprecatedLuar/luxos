@@ -24,7 +24,7 @@ func skipIfNoNix(t *testing.T) {
 }
 
 var testSystem = System{
-	Values:  config.MachineValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
+	Values:  config.HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
 	Release: "25.11",
 }
 
@@ -33,7 +33,7 @@ func testPaths(t *testing.T) paths.Paths {
 	return paths.Paths{
 		User:     "ana",
 		Config:   cfg,
-		Machines: filepath.Join(cfg, ".local/machines"),
+		Hosts: filepath.Join(cfg, ".local/hosts"),
 		Modules:  filepath.Join(cfg, "modules"),
 	}
 }
@@ -51,9 +51,9 @@ func newWizard(t *testing.T, p paths.Paths, input string, clone func(url, dir st
 
 func noClone(string, string) error { return errors.New("clone must not run") }
 
-func selection(t *testing.T, p paths.Paths, machine string) string {
+func selection(t *testing.T, p paths.Paths, host string) string {
 	t.Helper()
-	sel, err := modules.ReadSelection(filepath.Join(p.Machines, machine, "modules.nix"))
+	sel, err := modules.ReadSelection(filepath.Join(p.Hosts, host, "modules.nix"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,12 +76,12 @@ func TestFresh_NewConfig(t *testing.T) {
 	if got := selection(t, p, "cathode"); got != want {
 		t.Errorf("selection = %q\nwant %q", got, want)
 	}
-	machine, err := os.ReadFile(filepath.Join(p.Machines, "cathode/machine.nix"))
+	host, err := os.ReadFile(filepath.Join(p.Hosts, "cathode/host.nix"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(machine), `services.xserver.xkb.layout = "us";`) {
-		t.Errorf("edited keyboard not written:\n%s", machine)
+	if !strings.Contains(string(host), `services.xserver.xkb.layout = "us";`) {
+		t.Errorf("edited keyboard not written:\n%s", host)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana/account.nix")); err != nil {
 		t.Errorf("user unit: %v", err)
@@ -128,12 +128,12 @@ func TestFresh_CloneFailureNamesFix(t *testing.T) {
 	}
 }
 
-// cloneConfig fakes a clone holding one machine and, when withUser, ana's unit.
+// cloneConfig fakes a clone holding one host and, when withUser, ana's unit.
 func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 	return func(url, dir string) error {
-		machines := filepath.Join(dir, ".local/machines")
-		m := config.Machine{Name: "nuremberg", StateVersion: "25.05", Values: config.MachineDefaults, Selection: []string{"local/hardware-support"}}
-		if err := config.CreateMachine(machines, m); err != nil {
+		hosts := filepath.Join(dir, ".local/hosts")
+		m := config.HostSpec{Name: "nuremberg", StateVersion: "25.05", Values: config.HostDefaults, Selection: []string{"local/hardware-support"}}
+		if err := config.CreateHost(hosts, m); err != nil {
 			return err
 		}
 		if !withUser {
@@ -147,7 +147,7 @@ func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 	}
 }
 
-func TestMachineScreen_ExistingMachineGetsUser(t *testing.T) {
+func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
 	w, out := newWizard(t, p, "y\nhttps://example.com/c.git\n1\n", cloneConfig(t, false))
@@ -167,7 +167,7 @@ func TestMachineScreen_ExistingMachineGetsUser(t *testing.T) {
 	}
 }
 
-func TestMachineScreen_ExistingUserUnitReused(t *testing.T) {
+func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
 	if err := cloneConfig(t, true)("", p.Config); err != nil {
@@ -180,8 +180,8 @@ func TestMachineScreen_ExistingUserUnitReused(t *testing.T) {
 
 	for range 2 {
 		w, out := newWizard(t, p, "1\n", noClone)
-		if _, err := w.MachineScreen(); err != nil {
-			t.Fatalf("MachineScreen: %v\n%s", err, out)
+		if _, err := w.HostScreen(); err != nil {
+			t.Fatalf("HostScreen: %v\n%s", err, out)
 		}
 	}
 	if got := selection(t, p, "nuremberg"); got != "local/hardware-support users/ana" {
@@ -192,16 +192,16 @@ func TestMachineScreen_ExistingUserUnitReused(t *testing.T) {
 	}
 }
 
-func TestMachineScreen_NewMachine(t *testing.T) {
+func TestHostScreen_NewHost(t *testing.T) {
 	p := testPaths(t)
 	if err := cloneConfig(t, true)("", p.Config); err != nil {
 		t.Fatal(err)
 	}
 	// new, taken name, new name, write
 	w, out := newWizard(t, p, "n\nnuremberg\ncathode\ny\n", noClone)
-	name, err := w.MachineScreen()
+	name, err := w.HostScreen()
 	if err != nil {
-		t.Fatalf("MachineScreen: %v\n%s", err, out)
+		t.Fatalf("HostScreen: %v\n%s", err, out)
 	}
 	if name != "cathode" {
 		t.Errorf("name = %q", name)
@@ -210,7 +210,7 @@ func TestMachineScreen_NewMachine(t *testing.T) {
 		t.Errorf("taken-name message missing:\n%s", out)
 	}
 	if strings.Contains(out.String(), "desktop") {
-		t.Errorf("machine screen must not ask for a desktop:\n%s", out)
+		t.Errorf("host screen must not ask for a desktop:\n%s", out)
 	}
 	if got := selection(t, p, "cathode"); got != "local/hardware-support local/packages.nix users/ana" {
 		t.Errorf("selection = %q", got)
@@ -222,25 +222,25 @@ func TestFresh_UnparsableValueWritesNothing(t *testing.T) {
 	p := testPaths(t)
 	// no repo, name, console, change timezone to a bad value, write
 	w, out := newWizard(t, p, "n\ncathode\n4\n1\nEurope/\"Lisbon\ny\n", noClone)
-	if _, err := w.Fresh(); err == nil || !strings.Contains(err.Error(), "machine.nix") {
-		t.Fatalf("err = %v, want a parse error naming machine.nix\n%s", err, out)
+	if _, err := w.Fresh(); err == nil || !strings.Contains(err.Error(), "host.nix") {
+		t.Fatalf("err = %v, want a parse error naming host.nix\n%s", err, out)
 	}
 	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
-		t.Errorf("config folder written although the machine was refused: %v", err)
+		t.Errorf("config folder written although the host was refused: %v", err)
 	}
 }
 
-func TestMachineScreen_UnparsableValueWritesNothing(t *testing.T) {
+func TestHostScreen_UnparsableValueWritesNothing(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
 	if err := cloneConfig(t, false)("", p.Config); err != nil {
 		t.Fatal(err)
 	}
 	w, out := newWizard(t, p, "n\ncathode\n1\nEurope/\"Lisbon\ny\n", noClone)
-	if _, err := w.MachineScreen(); err == nil {
+	if _, err := w.HostScreen(); err == nil {
 		t.Fatalf("want a parse error\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana")); !os.IsNotExist(err) {
-		t.Errorf("user unit written although the machine was refused: %v", err)
+		t.Errorf("user unit written although the host was refused: %v", err)
 	}
 }

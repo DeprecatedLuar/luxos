@@ -18,7 +18,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-const packageFlagSpec = "machine:value config|C:value raw:bool json:bool"
+const packageFlagSpec = "host:value config|C:value raw:bool json:bool"
 
 const packageListFlagSpec = packageFlagSpec + " flat:bool"
 
@@ -28,7 +28,7 @@ const (
 	packageViewSep     = "\n"
 	packageViewListSep = " "
 
-	packageMissingName = "missing package name\n  usage: luxos package <name>... [--machine <name>] [--config|-C <dir>] [--raw|--json]"
+	packageMissingName = "missing package name\n  usage: luxos package <name>... [--host <name>] [--config|-C <dir>] [--raw|--json]"
 	packageUnknownName = "no package '%s' for %s\n  list them with: luxos packages"
 )
 

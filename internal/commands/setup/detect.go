@@ -29,8 +29,8 @@ const (
 
 // System is what setup reads from the running system.
 type System struct {
-	Values  config.MachineValues
-	Release string // the new machine's system.stateVersion
+	Values  config.HostValues
+	Release string // the new host's system.stateVersion
 }
 
 // Detect reads the running system under root. The release is required: a
@@ -44,7 +44,7 @@ func Detect(root string) (System, error) {
 		return System{}, fmt.Errorf("read the NixOS release: no %s in %s", strings.TrimSuffix(versionIDKey, "="), filepath.Join(root, osReleaseFile))
 	}
 
-	v := config.MachineDefaults
+	v := config.HostDefaults
 	v.Channel = channelPrefix + release
 	if tz := timezone(filepath.Join(root, localtimeFile)); tz != "" {
 		v.Timezone = tz

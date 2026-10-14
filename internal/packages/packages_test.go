@@ -41,7 +41,7 @@ func TestDiff_MergesFilesAndStates(t *testing.T) {
 }
 
 func TestDiff_NoBaselineIsAllStaged(t *testing.T) {
-	current := []nix.PackageDefs{{File: "machine.nix", Packages: []nix.Package{nvim, tlp}}}
+	current := []nix.PackageDefs{{File: "host.nix", Packages: []nix.Package{nvim, tlp}}}
 	for _, p := range Diff(nil, current) {
 		if p.State != Staged {
 			t.Errorf("%s: state %d, want Staged", p.Name, p.State)

@@ -19,11 +19,11 @@ const (
 	setupUsage       = "usage: luxos setup [--config|-C <dir>]"
 	systemRoot       = "/"
 	rebuildNowPrompt = "Rebuild now? [Y/n] "
-	nextHint         = "next: luxos rebuild switch --machine %s\n"
-	alreadySetUp     = "Setup is done: %s has a %q machine. Build it with: luxos rebuild switch\n"
+	nextHint         = "next: luxos rebuild switch --host %s\n"
+	alreadySetUp     = "Setup is done: %s has a %q host. Build it with: luxos rebuild switch\n"
 	rebuildCmd       = "rebuild"
 	rebuildAction    = "switch"
-	machineFlag      = "--machine"
+	hostFlag      = "--host"
 )
 
 var errRoot = errors.New("luxos setup writes your config and your user module, so it runs as you: run it again without sudo")
@@ -35,15 +35,15 @@ var (
 	detect     = Detect
 )
 
-// Launch runs the wizard for state and returns the machine to build. Without
+// Launch runs the wizard for state and returns the host to build. Without
 // a terminal, or when input ends, it fails with state's own error.
 func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state config.State) (string, error) {
 	if geteuid() == 0 {
 		return "", errRoot
 	}
 	stateErr := shared.NoConfigError(p.Config)
-	if state == config.StateNoMachine {
-		stateErr = shared.NoMachineError(p.Config, p.Machines, host)
+	if state == config.StateNoHost {
+		stateErr = shared.NoHostError(p.Config, p.Hosts, host)
 	}
 	if !isTerminal(os.Stdin) {
 		return "", stateErr
@@ -59,7 +59,7 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 	if state == config.StateNoConfig {
 		name, err = w.Fresh()
 	} else {
-		name, err = w.MachineScreen()
+		name, err = w.HostScreen()
 	}
 	if errors.Is(err, io.EOF) {
 		return "", stateErr
@@ -85,7 +85,7 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	state, err := config.ConfigState(p.Config, p.Machines, host)
+	state, err := config.ConfigState(p.Config, p.Hosts, host)
 	if err != nil {
 		return err
 	}
@@ -112,5 +112,5 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	return shell.Exec(exe, []string{rebuildCmd, rebuildAction, machineFlag, name})
+	return shell.Exec(exe, []string{rebuildCmd, rebuildAction, hostFlag, name})
 }

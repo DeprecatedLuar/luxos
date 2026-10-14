@@ -36,12 +36,12 @@ func ReadSelection(file string) ([]string, error) {
 
 // Importers returns every entrypoint file with a line whose name (from its
 // path, per NameFromPath) matches name — stale paths included. Read-only.
-// host == "" scans every <machinesDir>/*/modules.nix; otherwise only
-// <machinesDir>/<host>/modules.nix is considered. A host whose file isn't
+// host == "" scans every <hostsDir>/*/modules.nix; otherwise only
+// <hostsDir>/<host>/modules.nix is considered. A host whose file isn't
 // recognizable is silently skipped (same tolerance as Retarget/Heal — it
 // just can't be a hit).
-func Importers(machinesDir, name, host string) ([]string, error) {
-	files, err := entrypointsFor(machinesDir, host)
+func Importers(hostsDir, name, host string) ([]string, error) {
+	files, err := entrypointsFor(hostsDir, host)
 	if err != nil {
 		return nil, err
 	}
@@ -67,19 +67,19 @@ func Importers(machinesDir, name, host string) ([]string, error) {
 
 // RetargetSelections is the writer of host selections: rewrite every import
 // line whose name matches name to newPath, or delete it when newPath is
-// "". host == "" reaches every <machinesDir>/*/modules.nix (the cross-host
-// case, for a shared unit); otherwise only <machinesDir>/<host>/modules.nix is
+// "". host == "" reaches every <hostsDir>/*/modules.nix (the cross-host
+// case, for a shared unit); otherwise only <hostsDir>/<host>/modules.nix is
 // touched (the local-unit case). Returns every change made; a no-op
 // line (already at newPath) is left untouched and unreported, so a second
 // run returns no changes. A host whose file isn't recognizable is warned
 // about and left untouched. The entrypoints of skipHosts are never rewritten.
-func RetargetSelections(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
-	changes, _, err := retarget(machinesDir, name, newPath, host, skipHosts)
+func RetargetSelections(hostsDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
+	changes, _, err := retarget(hostsDir, name, newPath, host, skipHosts)
 	return changes, err
 }
 
-func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Change, []string, error) {
-	files, err := scopedEntrypoints(machinesDir, host, skipHosts)
+func retarget(hostsDir, name, newPath, host string, skipHosts []string) ([]Change, []string, error) {
+	files, err := scopedEntrypoints(hostsDir, host, skipHosts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -112,8 +112,8 @@ func retarget(machinesDir, name, newPath, host string, skipHosts []string) ([]Ch
 // bundle prefix becomes newPrefix, or deletes the line when newPrefix is "".
 // Host scope and skipHosts are those of Retarget; a host whose file isn't
 // recognizable is left untouched.
-func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []string) ([]Change, error) {
-	files, err := scopedEntrypoints(machinesDir, host, skipHosts)
+func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []string) ([]Change, error) {
+	files, err := scopedEntrypoints(hostsDir, host, skipHosts)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 // Heal rewrites every broken import line in every host's entrypoint,
 // per host: each host's selection lines are checked and resolved
 // against that host's own unit set (shared units plus that host's own
-// local/ units, per Walk(modulesDir, <machinesDir>/<host>/modules)).
+// local/ units, per Walk(modulesDir, <hostsDir>/<host>/modules)).
 //   - path exists (local/ prefixed against that host's local modules dir,
 //     otherwise against modulesDir): keep.
 //   - name resolves to a local/ unit: retarget scoped to this host only.
@@ -168,8 +168,8 @@ func RetargetPrefix(machinesDir, oldPrefix, newPrefix, host string, skipHosts []
 // activeHost, otherwise that host is skipped. Only the active host's
 // problems are reported; other hosts report theirs when they build.
 // Heal is idempotent.
-func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
-	files, err := hostEntrypoints(machinesDir)
+func Heal(hostsDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
+	files, err := hostEntrypoints(hostsDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -187,7 +187,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 		host := filepath.Base(filepath.Dir(file))
 		isActive := host == activeHost
 
-		us, err := Walk(modulesDir, filepath.Join(machinesDir, host, localModulesDirName))
+		us, err := Walk(modulesDir, filepath.Join(hostsDir, host, localModulesDirName))
 		if err != nil {
 			if isActive {
 				return nil, nil, err
@@ -212,7 +212,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 			}
 			var fullPath string
 			if rest, cut := strings.CutPrefix(itPath, LocalPrefix); cut {
-				fullPath = filepath.Join(machinesDir, host, localModulesDirName, rest)
+				fullPath = filepath.Join(hostsDir, host, localModulesDirName, rest)
 			} else {
 				fullPath = filepath.Join(modulesDir, itPath)
 			}
@@ -230,7 +230,7 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 					continue
 				}
 				handled[key] = true
-				rc, rw, err := retarget(machinesDir, name, found.Path, scope, nil)
+				rc, rw, err := retarget(hostsDir, name, found.Path, scope, nil)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -263,10 +263,10 @@ func Heal(machinesDir, modulesDir, activeHost string, prune bool) ([]Change, []s
 
 //──[private helpers]─────────────────────────────────────────────────────
 
-// hostEntrypoints returns every <machinesDir>/*/modules.nix that exists,
+// hostEntrypoints returns every <hostsDir>/*/modules.nix that exists,
 // sorted for deterministic iteration.
-func hostEntrypoints(machinesDir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(machinesDir, "*", SelectionFile))
+func hostEntrypoints(hostsDir string) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(hostsDir, "*", SelectionFile))
 	if err != nil {
 		return nil, err
 	}
@@ -281,8 +281,8 @@ func hostEntrypoints(machinesDir string) ([]string, error) {
 }
 
 // scopedEntrypoints is entrypointsFor without the entrypoints of skipHosts.
-func scopedEntrypoints(machinesDir, host string, skipHosts []string) ([]string, error) {
-	all, err := entrypointsFor(machinesDir, host)
+func scopedEntrypoints(hostsDir, host string, skipHosts []string) ([]string, error) {
+	all, err := entrypointsFor(hostsDir, host)
 	if err != nil {
 		return nil, err
 	}
@@ -300,13 +300,13 @@ func scopedEntrypoints(machinesDir, host string, skipHosts []string) ([]string, 
 }
 
 // entrypointsFor returns the entrypoint file(s) a host-scoped call should
-// act on: every <machinesDir>/*/modules.nix when host is "", or just
-// <machinesDir>/<host>/modules.nix (if it exists) otherwise.
-func entrypointsFor(machinesDir, host string) ([]string, error) {
+// act on: every <hostsDir>/*/modules.nix when host is "", or just
+// <hostsDir>/<host>/modules.nix (if it exists) otherwise.
+func entrypointsFor(hostsDir, host string) ([]string, error) {
 	if host == "" {
-		return hostEntrypoints(machinesDir)
+		return hostEntrypoints(hostsDir)
 	}
-	file := filepath.Join(machinesDir, host, SelectionFile)
+	file := filepath.Join(hostsDir, host, SelectionFile)
 	fi, err := os.Stat(file)
 	switch {
 	case os.IsNotExist(err):

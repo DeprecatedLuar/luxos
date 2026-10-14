@@ -34,7 +34,7 @@ func TestDetect_ReadsSystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := System{
-		Values:  config.MachineValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
+		Values:  config.HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
 		Release: "25.11",
 	}
 	if got != want {
@@ -64,7 +64,7 @@ func TestDetect_Fallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := config.MachineDefaults
+	d := config.HostDefaults
 	if got.Values.Timezone != d.Timezone || got.Values.Locale != d.Locale || got.Values.Keyboard != d.Keyboard {
 		t.Errorf("fallbacks = %+v, want defaults %+v", got.Values, d)
 	}

@@ -11,8 +11,8 @@ import (
 const localLinkName = "local"
 
 // Errors if a real file already occupies that path.
-func EnsureMirror(machinesDir, modulesDir, host string) error {
-	hostDir := filepath.Join(machinesDir, host)
+func EnsureMirror(hostsDir, modulesDir, host string) error {
+	hostDir := filepath.Join(hostsDir, host)
 	if err := MkdirAll(filepath.Join(hostDir, localModulesDir)); err != nil {
 		return err
 	}
@@ -33,9 +33,9 @@ func EnsureMirror(machinesDir, modulesDir, host string) error {
 }
 
 // Errors if a real file/dir already occupies that name.
-func ensureLocalLink(configDir, machinesDir, host string) error {
+func ensureLocalLink(configDir, hostsDir, host string) error {
 	link := filepath.Join(configDir, localLinkName)
-	target := filepath.Join(machinesDir, host)
+	target := filepath.Join(hostsDir, host)
 
 	if err := refuseRealFile(link, "reserved for the link to the active host's "+target+"; nothing else may claim it"); err != nil {
 		return err
@@ -46,8 +46,8 @@ func ensureLocalLink(configDir, machinesDir, host string) error {
 
 // Errors if a real file or directory already occupies that name — nothing
 // else may claim it.
-func EnsureLocalModules(machinesDir, modulesDir, host string) error {
-	target := filepath.Join(machinesDir, host, localModulesDir)
+func EnsureLocalModules(hostsDir, modulesDir, host string) error {
+	target := filepath.Join(hostsDir, host, localModulesDir)
 	if err := MkdirAll(target); err != nil {
 		return err
 	}
@@ -65,9 +65,9 @@ func EnsureLocalModules(machinesDir, modulesDir, host string) error {
 	return relink(link, rel)
 }
 
-// A real file or directory named hardware in any machine's modules/ is an error.
-func ensureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
-	entries, err := os.ReadDir(machinesDir)
+// A real file or directory named hardware in any host's modules/ is an error.
+func ensureHardwareLink(hostsDir, hardwareRoot, host, key string) error {
+	entries, err := os.ReadDir(hostsDir)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func ensureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 		if !e.IsDir() {
 			continue
 		}
-		link := filepath.Join(machinesDir, e.Name(), localModulesDir, HardwareUnitName)
+		link := filepath.Join(hostsDir, e.Name(), localModulesDir, HardwareUnitName)
 		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func ensureHardwareLink(machinesDir, hardwareRoot, host, key string) error {
 			return err
 		}
 	}
-	linkDir := filepath.Join(machinesDir, host, localModulesDir)
+	linkDir := filepath.Join(hostsDir, host, localModulesDir)
 	if err := MkdirAll(linkDir); err != nil {
 		return err
 	}

@@ -47,7 +47,7 @@ const (
 
 	stagedModulesDir   = "modules"
 	entrypointFile     = "default.nix"
-	stagedMachineNix   = "machine.nix"
+	stagedHostNix   = "host.nix"
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
@@ -76,7 +76,7 @@ const (
 // source file is rewritten.
 //
 // inputs are the luxos.inputs declarations of the modules h builds plus
-// the host's machine.nix; with the built-in luxos input they are merged
+// the host's host.nix; with the built-in luxos input they are merged
 // (nix.MergeInputs) into flake.nix's `inputs = { ... };` block.
 //
 // settings names the units whose settings files (config.SettingsPath) are
@@ -139,7 +139,7 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 	if err := stageModules(h, hwDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
 		return err
 	}
-	for _, name := range []string{stagedMachineNix, stagedPlsdonttouch} {
+	for _, name := range []string{stagedHostNix, stagedPlsdonttouch} {
 		if err := copyFile(filepath.Join(h.HostDir, name), filepath.Join(cfgDir, name)); err != nil {
 			return err
 		}

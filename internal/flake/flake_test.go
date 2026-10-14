@@ -196,10 +196,10 @@ func TestDeclarations(t *testing.T) {
 	}
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, ".local", "machines", "box")
+	hostDir := filepath.Join(root, ".local", "hosts", "box")
 	writeFile(t, filepath.Join(modulesDir, "apps", "shell.nix"), "{ ... }: {\n  luxos.inputs.ambxst.url = \"github:o/ambxst\";\n}\n")
 	writeFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ ... }: {\n  luxos.inputs.wg.url = \"github:o/wg\";\n}\n")
-	writeFile(t, filepath.Join(hostDir, "machine.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
+	writeFile(t, filepath.Join(hostDir, "host.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
 	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ ... }:\n{\n  imports = [\n    ./apps/shell.nix\n    ./local/vpn.nix\n  ];\n}\n")
 
 	h, err := modules.Load(modulesDir, hostDir)
@@ -213,7 +213,7 @@ func TestDeclarations(t *testing.T) {
 	want := map[string][]Decl{
 		"ambxst":  {{Unit: "apps/shell.nix", File: "modules/apps/shell.nix", Line: 2, URL: "github:o/ambxst"}},
 		"wg":      {{Unit: "local/vpn.nix", File: "local/modules/vpn.nix", Line: 2, URL: "github:o/wg"}},
-		"nixpkgs": {{File: ".local/machines/box/machine.nix", Line: 2, URL: "github:NixOS/nixpkgs/nixos-25.11"}},
+		"nixpkgs": {{File: ".local/hosts/box/host.nix", Line: 2, URL: "github:NixOS/nixpkgs/nixos-25.11"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Declarations = %+v, want %+v", got, want)

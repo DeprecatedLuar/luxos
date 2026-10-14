@@ -37,17 +37,17 @@ func TestInterrupted(t *testing.T) {
 	}
 }
 
-func TestWithMachine(t *testing.T) {
+func TestWithHost(t *testing.T) {
 	opts := map[string]string{}
-	got := withMachine(opts, []string{"switch", "--yes"}, "cathode")
-	if want := []string{"switch", "--yes", "--machine", "cathode"}; !reflect.DeepEqual(got, want) {
+	got := withHost(opts, []string{"switch", "--yes"}, "cathode")
+	if want := []string{"switch", "--yes", "--host", "cathode"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("args = %v, want %v", got, want)
 	}
-	if opts["machine"] != "cathode" {
-		t.Errorf("opts[machine] = %q", opts["machine"])
+	if opts["host"] != "cathode" {
+		t.Errorf("opts[host] = %q", opts["host"])
 	}
-	if esc := escalationArgs(got, false); esc[len(esc)-2] != "--machine" || esc[len(esc)-1] != "cathode" {
-		t.Errorf("escalation args lose the machine: %v", esc)
+	if esc := escalationArgs(got, false); esc[len(esc)-2] != "--host" || esc[len(esc)-1] != "cathode" {
+		t.Errorf("escalation args lose the host: %v", esc)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestRebuild_EmptyConfigWithoutTerminal(t *testing.T) {
 		t.Errorf("err = %v, want the no-config error", err)
 	}
 
-	err = Rebuild([]string{"--config", cfg, "--machine", "ghost", "switch"})
-	if err == nil || err.Error() != shared.NoMachineError(cfg, filepath.Join(cfg, ".local/machines"), "ghost").Error() {
-		t.Errorf("explicit machine: err = %v, want the no-machine error", err)
+	err = Rebuild([]string{"--config", cfg, "--host", "ghost", "switch"})
+	if err == nil || err.Error() != shared.NoHostError(cfg, filepath.Join(cfg, ".local/hosts"), "ghost").Error() {
+		t.Errorf("explicit host: err = %v, want the no-host error", err)
 	}
 }
