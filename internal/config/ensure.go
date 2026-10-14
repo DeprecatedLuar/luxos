@@ -19,13 +19,12 @@ const (
 	systemModules = "system"
 )
 
-var gitignoreLines = []string{"/modules/default.nix", "/modules/system", "/modules/local", "/local", "/.local/hosts/*/modules/hardware-support"}
+var gitignoreLines = []string{"/modules/system", "/modules/default.nix", "/modules/host", "/modules/machine", "/host", "/machine"}
 
 // Ensure brings CONFIG_DIR to the state a rebuild of host expects: .gitignore,
-// the environment file, the synced framework modules, host.nix, the host
-// folder (validated and protected), this computer's hardware folder and the
-// host's link to it, the mirror and local-module links, the host.nix
-// checks and the local link.
+// the environment file, the synced framework modules, modules/default.nix,
+// host.nix, the host folder (validated and protected), this computer's
+// machine folder, the scope links and the host.nix checks.
 func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	hostDir := filepath.Join(p.Hosts, host)
 
@@ -66,6 +65,17 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 		}
 	}
 
+	action, err := SyncEntry(p.Modules)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case ActionCreated:
+		out.Changef("created: %s", DefaultFile)
+	case ActionRestored:
+		out.Warnf("restored: %s", DefaultFile)
+	}
+
 	if err := ensureHostFile(out, hostDir); err != nil {
 		return err
 	}
@@ -82,23 +92,12 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 		out.Changef("  protected: %s", filepath.Join(hostDir, plsDontTouchFile))
 	}
 
-	hwDir, err := EnsureHardware(out, p)
+	machineDir, err := EnsureMachine(out, p)
 	if err != nil {
 		return err
 	}
-	key := filepath.Base(hwDir)
-	out.Printf("Ensuring local/modules/hardware-support -> .local/hardware/%s link...\n", key)
-	if err := ensureHardwareLink(p.Hosts, p.HardwareRoot, host, key); err != nil {
-		return err
-	}
-
-	out.Printf("Ensuring %s's modules mirror...\n", host)
-	if err := EnsureMirror(p.Hosts, p.Modules, host); err != nil {
-		return err
-	}
-
-	out.Printf("Ensuring modules/local -> .local/hosts/%s/modules link...\n", host)
-	if err := EnsureLocalModules(p.Hosts, p.Modules, host); err != nil {
+	out.Printf("Ensuring host and machine links...\n")
+	if err := EnsureScopeLinks(p.Config, p.Modules, hostDir, machineDir); err != nil {
 		return err
 	}
 
@@ -109,19 +108,15 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 		return err
 	}
 
-	out.Printf("Ensuring local -> .local/hosts/%s link...\n", host)
-	if err := ensureLocalLink(p.Config, p.Hosts, host); err != nil {
-		return err
-	}
 	return out.Err()
 }
 
-// ActiveHost returns the active host's name, read from the modules/local link
+// ActiveHost returns the active host's name, read from the modules/host link
 // to <hosts>/<host>/modules.
 func ActiveHost(modulesDir string) (string, error) {
-	real, err := filepath.EvalSymlinks(filepath.Join(modulesDir, localLinkName))
+	real, err := filepath.EvalSymlinks(filepath.Join(modulesDir, HostLinkName))
 	if err != nil {
-		return "", fmt.Errorf("no active host: modules/local is missing, run luxos rebuild first")
+		return "", fmt.Errorf("no active host: modules/host is missing, run luxos rebuild first")
 	}
 	return filepath.Base(filepath.Dir(real)), nil
 }

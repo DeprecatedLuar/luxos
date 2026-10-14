@@ -15,7 +15,7 @@ func testHost() HostSpec {
 		Name:         "cathode",
 		StateVersion: "25.11",
 		Values:       HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
-		Selection:    []string{"local/hardware-support", "local/packages.nix", "users/ana"},
+		Selection:    []string{"host/packages.nix", "users/ana"},
 	}
 }
 
@@ -84,9 +84,12 @@ func TestCreateHost(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(hostDir, "modules/packages.nix")); err != nil {
 		t.Errorf("modules/packages.nix: %v", err)
 	}
-	if got := readFile(t, filepath.Join(hostDir, "modules.nix")); !strings.Contains(got,
-		"  imports = [\n    ./local/hardware-support\n    ./local/packages.nix\n    ./users/ana\n  ];") {
-		t.Errorf("modules.nix = %q", got)
+	if got := readFile(t, SelectionPath(hostDir)); !strings.Contains(got,
+		"  imports = [\n    ./packages.nix\n    ../users/ana\n  ];") {
+		t.Errorf("modules/default.nix = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(hostDir, "modules.nix")); !os.IsNotExist(err) {
+		t.Errorf("root modules.nix exists (err=%v)", err)
 	}
 
 	if err := CreateHost(hosts, testHost()); err == nil {

@@ -15,7 +15,7 @@ const (
 )
 
 // ConfigState classifies configDir for host: a missing or empty folder is
-// StateNoConfig, one without hostsDir/<host>/modules.nix is StateNoHost.
+// StateNoConfig, one without hostsDir/<host>/modules/default.nix is StateNoHost.
 func ConfigState(configDir, hostsDir, host string) (State, error) {
 	entries, err := os.ReadDir(configDir)
 	if os.IsNotExist(err) {
@@ -27,7 +27,7 @@ func ConfigState(configDir, hostsDir, host string) (State, error) {
 	if len(entries) == 0 {
 		return StateNoConfig, nil
 	}
-	_, err = os.Stat(filepath.Join(hostsDir, host, SelectionFile))
+	_, err = os.Stat(SelectionPath(filepath.Join(hostsDir, host)))
 	if os.IsNotExist(err) {
 		return StateNoHost, nil
 	}
@@ -38,9 +38,15 @@ func ConfigState(configDir, hostsDir, host string) (State, error) {
 }
 
 // Hosts lists the hosts under hostsDir, sorted: every directory
-// holding modules.nix.
+// holding a selection.
 func Hosts(hostsDir string) ([]string, error) {
-	entries, err := os.ReadDir(hostsDir)
+	return scopeFolders(hostsDir)
+}
+
+// scopeFolders lists the directories under root holding a SelectionPath,
+// sorted; a missing root gives none.
+func scopeFolders(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -49,7 +55,7 @@ func Hosts(hostsDir string) ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if _, err := os.Stat(filepath.Join(hostsDir, e.Name(), SelectionFile)); err == nil {
+		if _, err := os.Stat(SelectionPath(filepath.Join(root, e.Name()))); err == nil {
 			names = append(names, e.Name())
 		}
 	}

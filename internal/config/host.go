@@ -13,17 +13,16 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-// plsDontTouchFile, HostFile and SelectionFile are required regular files
-// (symlinks followed); lockFile is an optional regular file; localModulesDir
-// and SettingsDir are optional directories. Nothing else may live there.
+// plsDontTouchFile and HostFile are required regular files (symlinks
+// followed), as is the selection modules/default.nix; lockFile is an optional
+// regular file; SettingsDir is an optional directory. Nothing else may live
+// there.
 // HostFile is exported so the caller that creates it from a template names
 // it without repeating the string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
 	HostFile         = "host.nix"
-	SelectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
-	localModulesDir  = "modules"
 	// SettingsDir holds the host's values for its configurable units.
 	SettingsDir = "settings"
 	settingsExt = ".nix"
@@ -46,17 +45,16 @@ func RenderHost(v HostValues) ([]byte, error) {
 	return templates.Render(hostTemplate, v)
 }
 
-// ErrNoHost is a host folder without modules.nix.
-var ErrNoHost = errors.New("no " + SelectionFile)
+// ErrNoHost is a host folder without modules/default.nix.
+var ErrNoHost = errors.New("no modules/default.nix")
 
-// A host is a directory there holding modules.nix.
+// A host is a directory there holding modules/default.nix.
 func ResolveHost(hostsDir, name string) (string, error) {
 	dir := filepath.Join(hostsDir, name)
-	selection := filepath.Join(dir, SelectionFile)
 
-	if _, err := os.Stat(selection); err != nil {
+	if _, err := os.Stat(SelectionPath(dir)); err != nil {
 		old := filepath.Join(filepath.Dir(hostsDir), name)
-		if _, oldErr := os.Stat(filepath.Join(old, SelectionFile)); oldErr == nil {
+		if _, oldErr := os.Stat(SelectionPath(old)); oldErr == nil {
 			return "", fmt.Errorf("host folder %s must move to %s:\n  mv %s %s", old, dir, old, dir)
 		}
 		return "", fmt.Errorf("%w under %s", ErrNoHost, dir)
@@ -76,7 +74,7 @@ func ValidateHost(hostDir string) error {
 		return err
 	}
 
-	requiredFiles := []string{plsDontTouchFile, HostFile, SelectionFile}
+	requiredFiles := []string{plsDontTouchFile, HostFile}
 
 	seen := make(map[string]bool, len(entries))
 	var problems []string
@@ -86,13 +84,13 @@ func ValidateHost(hostDir string) error {
 		path := filepath.Join(hostDir, name)
 
 		switch name {
-		case plsDontTouchFile, HostFile, SelectionFile, lockFile:
+		case plsDontTouchFile, HostFile, lockFile:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {
 				problems = append(problems, name+" does not belong here")
 			}
-		case localModulesDir, SettingsDir:
+		case ScopeModulesDir, SettingsDir:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || !info.IsDir() {
@@ -107,6 +105,9 @@ func ValidateHost(hostDir string) error {
 		if !seen[name] {
 			problems = append(problems, "missing "+name)
 		}
+	}
+	if info, err := os.Stat(SelectionPath(hostDir)); err != nil || !info.Mode().IsRegular() {
+		problems = append(problems, "missing "+filepath.Join(ScopeModulesDir, DefaultFile))
 	}
 
 	return problemsError("invalid host folder "+hostDir, problems)
@@ -197,6 +198,6 @@ func checkHostFile(path string) error {
 	}
 	return fmt.Errorf("%s holds path literals or imports: %s\n"+
 		"paths in host.nix resolve against the staged copy at /etc/nixos/config/, not the host folder, "+
-		"and module selection belongs in modules.nix; add a module with:\n  luxos module enable <name>",
+		"and module selection belongs in modules/default.nix; add a module with:\n  luxos module enable <name>",
 		path, strings.Join(offenders, ", "))
 }

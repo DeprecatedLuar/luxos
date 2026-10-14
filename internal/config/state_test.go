@@ -16,9 +16,9 @@ func TestConfigState(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := filepath.Join(root, "other")
-	writeFile(t, filepath.Join(other, ".local/hosts/cathode/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(other, ".local/hosts/cathode/modules/default.nix"), "{ imports = [ ]; }\n")
 	ready := filepath.Join(root, "ready")
-	writeFile(t, filepath.Join(ready, ".local/hosts/nixos/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(ready, ".local/hosts/nixos/modules/default.nix"), "{ imports = [ ]; }\n")
 
 	cases := []struct {
 		dir  string
@@ -42,8 +42,8 @@ func TestConfigState(t *testing.T) {
 
 func TestHosts(t *testing.T) {
 	hosts := filepath.Join(t.TempDir(), "hosts")
-	writeFile(t, filepath.Join(hosts, "nuremberg/modules.nix"), "{ imports = [ ]; }\n")
-	writeFile(t, filepath.Join(hosts, "cathode/modules.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(hosts, "nuremberg/modules/default.nix"), "{ imports = [ ]; }\n")
+	writeFile(t, filepath.Join(hosts, "cathode/modules/default.nix"), "{ imports = [ ]; }\n")
 	writeFile(t, filepath.Join(hosts, "half/host.nix"), "{ }\n")
 
 	got, err := Hosts(hosts)

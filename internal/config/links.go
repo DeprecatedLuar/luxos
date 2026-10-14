@@ -7,94 +7,35 @@ import (
 	"path/filepath"
 )
 
-// localLinkName names the link at CONFIG_DIR and at the root of modules/ to the active host.
-const localLinkName = "local"
+// Link names at CONFIG_DIR and at the root of modules/.
+const (
+	HostLinkName    = "host"
+	MachineLinkName = "machine"
+)
 
-// Errors if a real file already occupies that path.
-func EnsureMirror(hostsDir, modulesDir, host string) error {
-	hostDir := filepath.Join(hostsDir, host)
-	if err := MkdirAll(filepath.Join(hostDir, localModulesDir)); err != nil {
-		return err
+// EnsureScopeLinks points modules/host and modules/machine at the scopes'
+// modules folders, and CONFIG_DIR/host and CONFIG_DIR/machine at the
+// folders themselves, all relative. A real entry at any of them is an error.
+func EnsureScopeLinks(configDir, modulesDir, hostDir, machineDir string) error {
+	links := []struct{ link, target string }{
+		{filepath.Join(modulesDir, HostLinkName), filepath.Join(hostDir, ScopeModulesDir)},
+		{filepath.Join(modulesDir, MachineLinkName), filepath.Join(machineDir, ScopeModulesDir)},
+		{filepath.Join(configDir, HostLinkName), hostDir},
+		{filepath.Join(configDir, MachineLinkName), machineDir},
 	}
-
-	sharedDefault := filepath.Join(modulesDir, DefaultFile)
-	target := filepath.Join(hostDir, SelectionFile)
-
-	if err := refuseRealFile(sharedDefault, "reserved for the generated mirror link to "+target); err != nil {
-		return err
-	}
-
-	rel, err := filepath.Rel(filepath.Dir(sharedDefault), target)
-	if err != nil {
-		return err
-	}
-
-	return relink(sharedDefault, rel)
-}
-
-// Errors if a real file/dir already occupies that name.
-func ensureLocalLink(configDir, hostsDir, host string) error {
-	link := filepath.Join(configDir, localLinkName)
-	target := filepath.Join(hostsDir, host)
-
-	if err := refuseRealFile(link, "reserved for the link to the active host's "+target+"; nothing else may claim it"); err != nil {
-		return err
-	}
-
-	return relink(link, target)
-}
-
-// Errors if a real file or directory already occupies that name — nothing
-// else may claim it.
-func EnsureLocalModules(hostsDir, modulesDir, host string) error {
-	target := filepath.Join(hostsDir, host, localModulesDir)
-	if err := MkdirAll(target); err != nil {
-		return err
-	}
-
-	link := filepath.Join(modulesDir, localLinkName)
-	if err := refuseRealFile(link, "reserved for the link to the active host's local modules; nothing else may claim it"); err != nil {
-		return err
-	}
-
-	rel, err := filepath.Rel(filepath.Dir(link), target)
-	if err != nil {
-		return err
-	}
-
-	return relink(link, rel)
-}
-
-// A real file or directory named hardware in any host's modules/ is an error.
-func ensureHardwareLink(hostsDir, hardwareRoot, host, key string) error {
-	entries, err := os.ReadDir(hostsDir)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		link := filepath.Join(hostsDir, e.Name(), localModulesDir, HardwareUnitName)
-		if err := refuseRealFile(link, "reserved for the link to this computer's hardware folder"); err != nil {
+	for _, l := range links {
+		if err := refuseRealFile(l.link, "reserved for the link to "+l.target+"; nothing else may claim it"); err != nil {
 			return err
 		}
-		if e.Name() == host {
-			continue
+		rel, err := filepath.Rel(filepath.Dir(l.link), l.target)
+		if err != nil {
+			return err
 		}
-		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+		if err := relink(l.link, rel); err != nil {
 			return err
 		}
 	}
-	linkDir := filepath.Join(hostsDir, host, localModulesDir)
-	if err := MkdirAll(linkDir); err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(linkDir, filepath.Join(hardwareRoot, key))
-	if err != nil {
-		return err
-	}
-	return relink(filepath.Join(linkDir, HardwareUnitName), rel)
+	return nil
 }
 
 func refuseRealFile(path, reason string) error {

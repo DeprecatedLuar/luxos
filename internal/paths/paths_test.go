@@ -24,6 +24,12 @@ func TestResolve_ConfigDirOverride(t *testing.T) {
 	if want := filepath.Join(override, modulesRel); p.Modules != want {
 		t.Fatalf("Modules = %q, want %q", p.Modules, want)
 	}
+	if want := filepath.Join(override, machinesRel); p.Machines != want {
+		t.Fatalf("Machines = %q, want %q", p.Machines, want)
+	}
+	if p.RunningSelections != runningSelections {
+		t.Fatalf("RunningSelections = %q, want %q", p.RunningSelections, runningSelections)
+	}
 }
 
 func TestResolve_ConfigDirOverrideWinsOverHomeAndXDG(t *testing.T) {

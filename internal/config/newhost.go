@@ -73,7 +73,7 @@ func CreateHost(hostsDir string, m HostSpec) error {
 	if err := Mkdir(hostDir); err != nil {
 		return err
 	}
-	if err := Mkdir(filepath.Join(hostDir, localModulesDir)); err != nil {
+	if err := Mkdir(filepath.Join(hostDir, ScopeModulesDir)); err != nil {
 		return err
 	}
 	for _, f := range files {
@@ -121,7 +121,7 @@ func hostFiles(m HostSpec) ([]hostFile, error) {
 	}
 	lines := make([]string, len(m.Selection))
 	for i, p := range m.Selection {
-		lines[i] = LineOf(ScopeShared, p)
+		lines[i] = LineOf(ScopeHost, p)
 	}
 	selection, err := templates.Render(selectionTemplate, lines)
 	if err != nil {
@@ -134,8 +134,8 @@ func hostFiles(m HostSpec) ([]hostFile, error) {
 	return []hostFile{
 		{plsDontTouchFile, stateVersion},
 		{HostFile, host},
-		{SelectionFile, selection},
-		{filepath.Join(localModulesDir, localPackagesFile), packages},
+		{filepath.Join(ScopeModulesDir, DefaultFile), selection},
+		{filepath.Join(ScopeModulesDir, localPackagesFile), packages},
 	}, nil
 }
 

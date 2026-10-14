@@ -13,6 +13,9 @@ import (
 const (
 	modulesSrcDir = "modules"
 
+	// entryTemplate is modules/default.nix, which imports both selections.
+	entryTemplate = "entry/default.nix"
+
 	lockedMode = 0444
 
 	ActionCreated  = "created"
@@ -176,4 +179,29 @@ func removeExtrasWalk(dst, rel string, srcFiles, dirSet map[string]bool, changes
 		}
 	}
 	return nil
+}
+
+// SyncEntry writes modules/default.nix from the template when it is missing
+// or differs, and locks it to 0444. A symlink there is removed first, never
+// written through. Returns the action taken, "" when it already matched.
+func SyncEntry(modulesDir string) (string, error) {
+	want, err := templates.File(entryTemplate)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(modulesDir, DefaultFile)
+	replaced := false
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(path); err != nil {
+			return "", err
+		}
+		replaced = true
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	action, err := writeIfNeeded(path, want)
+	if replaced && err == nil {
+		action = ActionRestored
+	}
+	return action, err
 }

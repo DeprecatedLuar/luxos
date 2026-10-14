@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,57 +13,55 @@ import (
 func writeFiles(t *testing.T, dir string, names ...string) {
 	t.Helper()
 	for _, n := range names {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, n)), 0755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(dir, n), []byte("{ }\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
-func TestValidateHardware_Clean(t *testing.T) {
+func TestValidateMachine(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile)
-	if err := ValidateHardware(dir); err != nil {
-		t.Fatal(err)
+	if err := ValidateMachine(dir); err == nil ||
+		!strings.Contains(err.Error(), "missing "+HardwareConfigFile) ||
+		!strings.Contains(err.Error(), "missing modules/default.nix") ||
+		!strings.Contains(err.Error(), "missing modules/boot.nix") {
+		t.Fatalf("empty folder: got %v", err)
+	}
+	writeFiles(t, dir, HardwareConfigFile, "modules/default.nix", "modules/boot.nix", "notes.md")
+	if err := ValidateMachine(dir); err != nil {
+		t.Fatalf("complete folder with an extra entry: %v", err)
 	}
 }
 
-func TestValidateHardware_ExtraFileAllowed(t *testing.T) {
+func TestSeedSelectionOnlyWhenMissing(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, "extra.nix")
-	if err := ValidateHardware(dir); err != nil {
+	created, err := ensureMachineSelection(dir)
+	if err != nil || !created {
+		t.Fatalf("first: created=%v err=%v", created, err)
+	}
+	data, _ := os.ReadFile(SelectionPath(dir))
+	if !strings.Contains(string(data), "./boot.nix") {
+		t.Fatalf("seed does not select ./boot.nix:\n%s", data)
+	}
+	if err := os.WriteFile(SelectionPath(dir), []byte("{ ... }:\n{\n  imports = [ ];\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestValidateHardware_Missing(t *testing.T) {
-	dir := t.TempDir()
-	writeFiles(t, dir, HardwareConfigFile, BootFile)
-	err := ValidateHardware(dir)
-	if err == nil {
-		t.Fatal("expected error")
+	created, err = ensureMachineSelection(dir)
+	if err != nil || created {
+		t.Fatalf("second: created=%v err=%v", created, err)
 	}
-	for _, want := range []string{"missing default.nix"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q missing %q", err, want)
-		}
-	}
-}
-
-func TestValidateHardware_NotRegular(t *testing.T) {
-	dir := t.TempDir()
-	writeFiles(t, dir, HardwareConfigFile, BootFile)
-	if err := os.Mkdir(filepath.Join(dir, DefaultFile), 0755); err != nil {
-		t.Fatal(err)
-	}
-	err := ValidateHardware(dir)
-	if err == nil || !strings.Contains(err.Error(), "default.nix is not a regular file") {
-		t.Fatalf("err = %v", err)
+	data, _ = os.ReadFile(SelectionPath(dir))
+	if strings.Contains(string(data), "boot") {
+		t.Fatal("an existing selection was rewritten")
 	}
 }
 
 func TestValidateHost_HardwareEntryRejected(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, plsDontTouchFile, HostFile, SelectionFile)
+	writeFiles(t, dir, plsDontTouchFile, HostFile, filepath.Join(ScopeModulesDir, DefaultFile))
 	if err := os.Symlink("../../hardware/x", filepath.Join(dir, "hardware")); err != nil {
 		t.Fatal(err)
 	}
@@ -199,40 +198,24 @@ func TestEnsureBoot_UndetectableErrorsMentionsFile(t *testing.T) {
 	}
 }
 
-func TestLinkedHardwareDir(t *testing.T) {
+func TestLinkedMachineDir(t *testing.T) {
 	root := t.TempDir()
-	hosts := filepath.Join(root, ".local", "hosts")
+	machine := filepath.Join(root, ".local", "machines", "abcd")
+	mustMkdirAll(t, filepath.Join(machine, "modules"))
 	modulesDir := filepath.Join(root, "modules")
-	hwRoot := filepath.Join(root, ".local", "hardware")
-	if err := os.MkdirAll(filepath.Join(hwRoot, "k1"), 0755); err != nil {
+	mustMkdirAll(t, modulesDir)
+	if _, err := LinkedMachineDir(modulesDir); !errors.Is(err, ErrNoMachineLink) {
+		t.Fatalf("missing link: got %v, want ErrNoMachineLink", err)
+	}
+	if err := os.Symlink("../.local/machines/abcd/modules", filepath.Join(modulesDir, MachineLinkName)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(modulesDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// No modules/local link at all.
-	if _, err := LinkedHardwareDir(modulesDir); err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
-		t.Fatalf("without modules/local: err = %v, want the missing-link message", err)
-	}
-
-	// modules/local exists, hardware-support does not.
-	if err := EnsureLocalModules(hosts, modulesDir, "a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LinkedHardwareDir(modulesDir); err == nil || !strings.Contains(err.Error(), "run 'luxos rebuild build' real quick") {
-		t.Fatalf("without hardware-support: err = %v, want the missing-link message", err)
-	}
-
-	if err := ensureHardwareLink(hosts, hwRoot, "a", "k1"); err != nil {
-		t.Fatal(err)
-	}
-	want, err := filepath.EvalSymlinks(filepath.Join(hwRoot, "k1"))
+	want, err := filepath.EvalSymlinks(machine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := LinkedHardwareDir(modulesDir)
+	got, err := LinkedMachineDir(modulesDir)
 	if err != nil || got != want {
-		t.Errorf("LinkedHardwareDir = %q, %v; want %q", got, err, want)
+		t.Fatalf("got %q, %v; want %q", got, err, want)
 	}
 }

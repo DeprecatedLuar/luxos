@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/templates"
@@ -227,5 +228,44 @@ func TestSync_MatchingFileModeRestored(t *testing.T) {
 	}
 	if info.Mode().Perm() != lockedMode {
 		t.Fatalf("mode = %o, want %o", info.Mode().Perm(), lockedMode)
+	}
+}
+
+func TestSyncEntry(t *testing.T) {
+	dir := t.TempDir()
+	action, err := SyncEntry(dir)
+	if err != nil || action != ActionCreated {
+		t.Fatalf("first: %q %v", action, err)
+	}
+	path := filepath.Join(dir, DefaultFile)
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "./host") || !strings.Contains(string(data), "./machine") {
+		t.Fatalf("entry content:\n%s", data)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0444 {
+		t.Fatalf("mode %v, want 0444", fi.Mode().Perm())
+	}
+	if action, err = SyncEntry(dir); err != nil || action != "" {
+		t.Fatalf("unchanged: %q %v", action, err)
+	}
+}
+
+func TestSyncEntryReplacesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	hostSel := filepath.Join(dir, "modules.nix")
+	if err := os.WriteFile(hostSel, []byte("host selection"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostSel, filepath.Join(dir, DefaultFile)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncEntry(dir); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(hostSel); string(data) != "host selection" {
+		t.Fatal("SyncEntry wrote through the symlink")
+	}
+	if fi, _ := os.Lstat(filepath.Join(dir, DefaultFile)); fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("modules/default.nix is still a symlink")
 	}
 }

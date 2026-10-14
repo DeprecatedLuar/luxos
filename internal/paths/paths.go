@@ -23,31 +23,31 @@ const (
 	backupDirName   = "your-old-nixos-config-is-here"
 	configRelToHome = ".config/luxos"
 	hostsRel        = ".local/hosts"
-	hardwareRel     = ".local/hardware"
+	machinesRel     = ".local/machines"
 	modulesRel      = "modules"
 
-	staging        = "/etc/nixos"
-	sysDir         = "/sys"
-	mountsFile     = "/proc/mounts"
-	runningModules = "/run/current-system/luxos/modules.nix"
-	newStage       = "/etc/.nixos-luxos-new"
-	oldStage       = "/etc/.nixos-luxos-old"
+	staging           = "/etc/nixos"
+	sysDir            = "/sys"
+	mountsFile        = "/proc/mounts"
+	runningSelections = "/run/current-system/luxos/modules"
+	newStage          = "/etc/.nixos-luxos-new"
+	oldStage          = "/etc/.nixos-luxos-old"
 )
 
 type Paths struct {
-	Home, User     string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
-	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
-	SudoUser       bool   // $SUDO_USER was set: Home is the invoking user's, not root's
-	Backup         string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here when $SUDO_USER is set, else empty (no invoking user)
-	Hosts          string // <Config>/.local/hosts
-	Modules        string // <Config>/modules
-	Staging        string // /etc/nixos, the flake root
-	HardwareRoot   string // <Config>/.local/hardware
-	Sys            string // /sys
-	Mounts         string // /proc/mounts
-	RunningModules string // /run/current-system/luxos/modules.nix
-	NewStage       string // /etc/.nixos-luxos-new, where rebuild builds a stage before promoting it to Staging
-	OldStage       string // /etc/.nixos-luxos-old, Staging while a promotion swaps it out
+	Home, User        string // invoking user: $SUDO_USER's passwd entry when set (ignoring $HOME); else user.Current(), with $HOME overriding its HomeDir when set
+	Config            string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
+	SudoUser          bool   // $SUDO_USER was set: Home is the invoking user's, not root's
+	Backup            string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here when $SUDO_USER is set, else empty (no invoking user)
+	Hosts             string // <Config>/.local/hosts
+	Modules           string // <Config>/modules
+	Staging           string // /etc/nixos, the flake root
+	Machines          string // <Config>/.local/machines
+	Sys               string // /sys
+	Mounts            string // /proc/mounts
+	RunningSelections string // the running generation's copy of modules/host/default.nix and modules/machine/default.nix
+	NewStage          string // /etc/.nixos-luxos-new, where rebuild builds a stage before promoting it to Staging
+	OldStage          string // /etc/.nixos-luxos-old, Staging while a promotion swaps it out
 }
 
 func Resolve() (Paths, error) {
@@ -72,20 +72,20 @@ func Resolve() (Paths, error) {
 	}
 
 	return Paths{
-		Home:           u.HomeDir,
-		User:           u.Username,
-		SudoUser:       sudoUser,
-		Backup:         backup,
-		Config:         config,
-		Hosts:          filepath.Join(config, hostsRel),
-		Modules:        filepath.Join(config, modulesRel),
-		Staging:        staging,
-		HardwareRoot:   filepath.Join(config, hardwareRel),
-		Sys:            sysDir,
-		Mounts:         mountsFile,
-		RunningModules: runningModules,
-		NewStage:       newStage,
-		OldStage:       oldStage,
+		Home:              u.HomeDir,
+		User:              u.Username,
+		SudoUser:          sudoUser,
+		Backup:            backup,
+		Config:            config,
+		Hosts:             filepath.Join(config, hostsRel),
+		Modules:           filepath.Join(config, modulesRel),
+		Staging:           staging,
+		Machines:          filepath.Join(config, machinesRel),
+		Sys:               sysDir,
+		Mounts:            mountsFile,
+		RunningSelections: runningSelections,
+		NewStage:          newStage,
+		OldStage:          oldStage,
 	}, nil
 }
 

@@ -21,13 +21,13 @@ func writeRequiredFiles(t *testing.T, hostDir string) {
 	t.Helper()
 	writeFile(t, filepath.Join(hostDir, ".plsdonttouch.nix"), "{ system.stateVersion = \"24.05\"; }\n")
 	writeFile(t, filepath.Join(hostDir, "host.nix"), "{ time.timeZone = \"UTC\"; }\n")
-	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ imports = []; }\n")
+	writeFile(t, filepath.Join(hostDir, "modules", "default.nix"), "{ imports = []; }\n")
 }
 
 func TestResolveHost_Found(t *testing.T) {
 	localDir := t.TempDir()
 	hostDir := filepath.Join(localDir, "paraloid")
-	writeFile(t, filepath.Join(hostDir, "modules.nix"), "{ imports = []; }\n")
+	writeFile(t, filepath.Join(hostDir, "modules", "default.nix"), "{ imports = []; }\n")
 
 	dir, err := ResolveHost(localDir, "paraloid")
 	if err != nil {
@@ -46,7 +46,7 @@ func TestResolveHost_NotFound(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	wantDir := filepath.Join(localDir, "nuremberg")
-	if !strings.Contains(err.Error(), "no modules.nix under "+wantDir) {
+	if !strings.Contains(err.Error(), "no modules/default.nix under "+wantDir) {
 		t.Errorf("error %q missing dir mention", err.Error())
 	}
 }
@@ -84,7 +84,7 @@ func TestValidateHost_ValidWithEmptyModulesDir(t *testing.T) {
 }
 
 func TestValidateHost_MissingEach(t *testing.T) {
-	for _, missing := range []string{".plsdonttouch.nix", "host.nix", "modules.nix"} {
+	for _, missing := range []string{".plsdonttouch.nix", "host.nix", "modules/default.nix"} {
 		t.Run(missing, func(t *testing.T) {
 			dir := t.TempDir()
 			writeRequiredFiles(t, dir)
@@ -122,6 +122,9 @@ func TestValidateHost_StrayFile(t *testing.T) {
 func TestValidateHost_ModulesAsFile(t *testing.T) {
 	dir := t.TempDir()
 	writeRequiredFiles(t, dir)
+	if err := os.RemoveAll(filepath.Join(dir, "modules")); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(dir, "modules"), "not a dir\n")
 
 	err := ValidateHost(dir)
@@ -154,7 +157,7 @@ func TestValidateHost_LockAsDirectory(t *testing.T) {
 func TestValidateHost_MultipleProblemsInOneError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "host.nix"), "{ }\n")
-	writeFile(t, filepath.Join(dir, "modules.nix"), "{ imports = []; }\n")
+	writeFile(t, filepath.Join(dir, "modules", "default.nix"), "{ imports = []; }\n")
 	writeFile(t, filepath.Join(dir, "hardware.nix"), "{ }\n")
 	// .plsdonttouch.nix missing entirely.
 
@@ -212,10 +215,10 @@ func TestResolveHostOldLayoutHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldHost := filepath.Join(root, ".local", "h1")
-	if err := os.MkdirAll(oldHost, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(oldHost, "modules"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldHost, "modules.nix"), []byte("{ }\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(oldHost, "modules", "default.nix"), []byte("{ }\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

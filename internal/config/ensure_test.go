@@ -10,7 +10,6 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
-	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -23,33 +22,33 @@ func skipIfNoNix(t *testing.T) {
 	}
 }
 
-// hardwareFixture builds a fake sysfs and a hardware root whose folder already
-// holds a hardware-configuration.nix and a boot.nix.
-func hardwareFixture(t *testing.T) paths.Paths {
+// machineFixture builds a fake sysfs and a machines root whose folder already
+// holds a hardware-configuration.nix and a modules/boot.nix.
+func machineFixture(t *testing.T) paths.Paths {
 	t.Helper()
 	root := t.TempDir()
 	sysDir := filepath.Join(root, "sys")
 	writeFile(t, filepath.Join(sysDir, "class", "dmi", "id", "product_uuid"), fixtureUUID+"\n")
-	hwDir, err := HardwareDir(sysDir, filepath.Join(root, "hardware"))
+	dir, err := MachineDir(sysDir, filepath.Join(root, "machines"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(hwDir, HardwareConfigFile), "{ }\n")
-	writeFile(t, filepath.Join(hwDir, BootFile), "{ ... }: { }\n")
+	writeFile(t, filepath.Join(dir, HardwareConfigFile), "{ }\n")
+	writeFile(t, filepath.Join(dir, ScopeModulesDir, BootFile), "{ ... }: { }\n")
 	mounts := filepath.Join(root, "mounts")
 	writeFile(t, mounts, "")
-	return paths.Paths{Sys: sysDir, HardwareRoot: filepath.Join(root, "hardware"), Mounts: mounts}
+	return paths.Paths{Sys: sysDir, Machines: filepath.Join(root, "machines"), Mounts: mounts}
 }
 
-func TestHardwareDirUsesKey(t *testing.T) {
-	p := hardwareFixture(t)
+func TestMachineDirUsesKey(t *testing.T) {
+	p := machineFixture(t)
 	key, err := hardware.Key(p.Sys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := HardwareDir(p.Sys, p.HardwareRoot)
-	if err != nil || got != filepath.Join(p.HardwareRoot, key) {
-		t.Errorf("HardwareDir = %q, %v", got, err)
+	got, err := MachineDir(p.Sys, p.Machines)
+	if err != nil || got != filepath.Join(p.Machines, key) {
+		t.Errorf("MachineDir = %q, %v", got, err)
 	}
 }
 
@@ -98,9 +97,9 @@ func TestActiveHost(t *testing.T) {
 		}
 	}
 	if _, err := ActiveHost(modules); err == nil {
-		t.Fatal("want error with no modules/local link")
+		t.Fatal("want error with no modules/host link")
 	}
-	if err := os.Symlink(hostModules, filepath.Join(modules, localLinkName)); err != nil {
+	if err := os.Symlink(hostModules, filepath.Join(modules, HostLinkName)); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := ActiveHost(modules); err != nil || got != "box" {
@@ -167,19 +166,6 @@ func TestHostTemplate_NoGC(t *testing.T) {
 	}
 }
 
-func TestHardwareTemplate_Parses(t *testing.T) {
-	skipIfNoNix(t)
-	tmpl, err := templates.File(hardwareDefaultTemplate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "default.nix")
-	writeFile(t, path, string(tmpl))
-	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
-		t.Fatalf("template does not parse: %v\n%s", err, out)
-	}
-}
-
 func TestCheckHostFile(t *testing.T) {
 	skipIfNoNix(t)
 	tmpl, err := RenderHost(HostDefaults)
@@ -211,36 +197,75 @@ func TestCheckHostFile(t *testing.T) {
 	}
 }
 
-func TestEnsureHardware_DefaultCreatedOnce(t *testing.T) {
-	skipIfNoNix(t)
-	p := hardwareFixture(t)
+func TestEnsureMachine_CreatesSelectionOnce(t *testing.T) {
+	p := machineFixture(t)
 	var out bytes.Buffer
-	hw, err := EnsureHardware(ui.NewProgress(&out), p)
+	dir, err := EnsureMachine(ui.NewProgress(&out), p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	def := filepath.Join(hw, DefaultFile)
-	tmpl, err := templates.File(hardwareDefaultTemplate)
-	if err != nil {
-		t.Fatal(err)
+	sel := SelectionPath(dir)
+	if got := readFile(t, sel); !strings.Contains(got, "./boot.nix") {
+		t.Errorf("seed selection does not select ./boot.nix:\n%s", got)
 	}
-	if got := readFile(t, def); got != string(tmpl) {
-		t.Errorf("default.nix differs from the template:\n%s", got)
-	}
-	if !strings.Contains(out.String(), "created: "+def) {
-		t.Errorf("output does not report creating %s:\n%s", def, out.String())
+	if !strings.Contains(out.String(), "created: "+sel) {
+		t.Errorf("output does not report creating %s:\n%s", sel, out.String())
 	}
 
-	writeFile(t, def, "{ }\n")
+	writeFile(t, sel, "{ ... }:\n{\n  imports = [ ];\n}\n")
 	out.Reset()
-	if _, err := EnsureHardware(ui.NewProgress(&out), p); err != nil {
+	if _, err := EnsureMachine(ui.NewProgress(&out), p); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, def); got != "{ }\n" {
-		t.Errorf("edited default.nix was rewritten: %q", got)
+	if got := readFile(t, sel); !strings.Contains(got, "imports = [ ];") {
+		t.Errorf("edited selection was rewritten: %q", got)
 	}
-	if strings.Contains(out.String(), "created: "+def) {
-		t.Errorf("second run reported creating default.nix:\n%s", out.String())
+	if strings.Contains(out.String(), "created: "+sel) {
+		t.Errorf("second run reported creating the selection:\n%s", out.String())
+	}
+}
+
+func TestEnsureCreatesScopeLinksAndEntry(t *testing.T) {
+	skipIfNoNix(t)
+	p := machineFixture(t)
+	p.Config = t.TempDir()
+	p.Machines = filepath.Join(p.Config, ".local", "machines")
+	machine, err := MachineDir(p.Sys, p.Machines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(machine, HardwareConfigFile), "{ }\n")
+	writeFile(t, filepath.Join(machine, ScopeModulesDir, BootFile), "{ ... }: { }\n")
+	p.Hosts = filepath.Join(p.Config, ".local", "hosts")
+	p.Modules = filepath.Join(p.Config, "modules")
+	hostDir := filepath.Join(p.Hosts, "h1")
+	writeFile(t, filepath.Join(hostDir, ".plsdonttouch.nix"), "{ system.stateVersion = \"25.11\"; }\n")
+	writeFile(t, SelectionPath(hostDir), "{ ... }:\n{\n  imports = [ ];\n}\n")
+
+	var out bytes.Buffer
+	if err := Ensure(ui.NewProgress(&out), p, "h1"); err != nil {
+		t.Fatalf("Ensure: %v\n%s", err, out.String())
+	}
+
+	for link, target := range map[string]string{
+		filepath.Join(p.Modules, "host"):    "../.local/hosts/h1/modules",
+		filepath.Join(p.Modules, "machine"): "../.local/machines/" + filepath.Base(machine) + "/modules",
+		filepath.Join(p.Config, "host"):     ".local/hosts/h1",
+		filepath.Join(p.Config, "machine"):  ".local/machines/" + filepath.Base(machine),
+	} {
+		if got, err := os.Readlink(link); err != nil || got != target {
+			t.Errorf("%s -> %q (%v), want %q", link, got, err, target)
+		}
+	}
+	entry := filepath.Join(p.Modules, DefaultFile)
+	if info, err := os.Lstat(entry); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0444 {
+		t.Errorf("modules/default.nix: %v, %v", info, err)
+	}
+	ignore := readFile(t, filepath.Join(p.Config, ".gitignore"))
+	for _, line := range []string{"/modules/system", "/modules/default.nix", "/modules/host", "/modules/machine", "/host", "/machine"} {
+		if !strings.Contains(ignore, line+"\n") {
+			t.Errorf(".gitignore lacks %q:\n%s", line, ignore)
+		}
 	}
 }
 
