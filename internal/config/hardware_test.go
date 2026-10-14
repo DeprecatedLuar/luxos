@@ -20,7 +20,7 @@ func writeFiles(t *testing.T, dir string, names ...string) {
 
 func TestValidateHardware_Clean(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, HardwareFile)
+	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile)
 	if err := ValidateHardware(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestValidateHardware_Clean(t *testing.T) {
 
 func TestValidateHardware_ExtraFileAllowed(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, HardwareFile, "extra.nix")
+	writeFiles(t, dir, DefaultFile, HardwareConfigFile, BootFile, "extra.nix")
 	if err := ValidateHardware(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestValidateHardware_Missing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"missing default.nix", "missing hardware.nix"} {
+	for _, want := range []string{"missing default.nix"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q missing %q", err, want)
 		}
@@ -50,7 +50,7 @@ func TestValidateHardware_Missing(t *testing.T) {
 
 func TestValidateHardware_NotRegular(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, HardwareConfigFile, BootFile, HardwareFile)
+	writeFiles(t, dir, HardwareConfigFile, BootFile)
 	if err := os.Mkdir(filepath.Join(dir, DefaultFile), 0755); err != nil {
 		t.Fatal(err)
 	}

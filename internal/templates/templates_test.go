@@ -49,13 +49,10 @@ func TestSystemNix_ImportsNothing(t *testing.T) {
 	}
 }
 
-func TestSystemNix_RetentionInHostTemplate(t *testing.T) {
+func TestSystemNix_StoreOptimisation(t *testing.T) {
 	sys, err := File("framework/system.nix")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if strings.Contains(string(sys), "nix.gc") {
-		t.Error("system.nix must not define nix.gc")
 	}
 	for _, want := range []string{
 		"nix.optimise.automatic = lib.mkDefault true;",
@@ -75,7 +72,24 @@ func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
 	if strings.Contains(string(sys), "config/local/hardware-support") {
 		t.Error("system.nix must not import hardware files")
 	}
-	if strings.Contains(string(sys), "RuntimeWatchdogSec") {
-		t.Error("system.nix must not set RuntimeWatchdogSec")
+}
+
+func TestSystemDefaultsWatchdogAndGC(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "20s";`,
+		`automatic = lib.mkDefault true;`,
+		`dates = lib.mkDefault "weekly";`,
+		`options = lib.mkDefault "--delete-older-than 14d";`,
+	} {
+		if !strings.Contains(string(sys), want) {
+			t.Errorf("system.nix lacks %q", want)
+		}
+	}
+	if _, err := File("starters/hardware.nix"); err == nil {
+		t.Error("starters/hardware.nix still embedded")
 	}
 }

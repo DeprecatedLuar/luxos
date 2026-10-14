@@ -121,6 +121,15 @@ in
     "kernel.panic" = lib.mkDefault 10;
   };
 
+  # Resets a hung machine; systemd ignores it without a watchdog device.
+  systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "20s";
+
+  nix.gc = {
+    automatic = lib.mkDefault true;
+    dates = lib.mkDefault "weekly";
+    options = lib.mkDefault "--delete-older-than 14d";
+  };
+
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.registry.nixpkgs.flake = inputs.nixpkgs;
   nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];

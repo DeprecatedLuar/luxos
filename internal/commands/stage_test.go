@@ -193,8 +193,7 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("want Ensuring hardware before Materializing, got:\n%s", out.String())
 	}
 
-	// The pre-written hardware-configuration.nix was left alone; hardware.nix
-	// was created from the template.
+	// The pre-written hardware-configuration.nix was left alone.
 	hwConfig := filepath.Join(hw, "hardware-configuration.nix")
 	if got := mustReadFile(t, hwConfig); got != hardwareConfigContent {
 		t.Errorf("hardware-configuration.nix = %q, want %q", got, hardwareConfigContent)
@@ -202,20 +201,13 @@ func TestRun_EndToEnd(t *testing.T) {
 	if strings.Contains(out.String(), "created: "+hwConfig) {
 		t.Errorf("output reported creating %s, got:\n%s", hwConfig, out.String())
 	}
-	hwTmpl, err := templates.File("starters/hardware.nix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := mustReadFile(t, filepath.Join(hw, "hardware.nix")); got != string(hwTmpl) {
-		t.Errorf("hardware.nix differs from the template:\n%s", got)
-	}
 
 	// The host's modules/ links to it, and it is staged under config/modules/local/hardware-support.
 	target, err := os.Readlink(filepath.Join(p.Hosts, host, "modules", "hardware-support"))
 	if err != nil || target != "../../../hardware/"+filepath.Base(hw) {
 		t.Errorf("hardware link = %q (%v)", target, err)
 	}
-	for _, name := range []string{"default.nix", "hardware-configuration.nix", "boot.nix", "hardware.nix"} {
+	for _, name := range []string{"default.nix", "hardware-configuration.nix", "boot.nix"} {
 		staged := filepath.Join(p.Staging, "config", "modules", "local", "hardware-support", name)
 		if _, err := os.Stat(staged); err != nil {
 			t.Errorf("expected %s staged: %v", staged, err)

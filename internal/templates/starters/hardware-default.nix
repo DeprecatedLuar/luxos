@@ -5,6 +5,5 @@
   imports = [
     ./hardware-configuration.nix
     ./boot.nix
-    ./hardware.nix
   ];
 }
