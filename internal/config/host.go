@@ -20,7 +20,7 @@ import (
 // it without repeating the string.
 const (
 	plsDontTouchFile = ".plsdonttouch.nix"
-	HostFile      = "host.nix"
+	HostFile         = "host.nix"
 	SelectionFile    = "modules.nix"
 	lockFile         = "flake.lock"
 	localModulesDir  = "modules"

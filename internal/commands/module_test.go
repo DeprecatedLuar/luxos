@@ -142,7 +142,7 @@ func twoHostScopeFixture(t *testing.T) paths.Paths {
 		Home:           root,
 		User:           "test",
 		Config:         config,
-		Hosts:       local,
+		Hosts:          local,
 		Modules:        modules,
 		Staging:        filepath.Join(root, "staging"),
 		RunningModules: filepath.Join(root, "run-modules.nix"),

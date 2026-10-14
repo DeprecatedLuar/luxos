@@ -12,6 +12,9 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
+// selectionAttr is the only top-level name a selection may set.
+const selectionAttr = "imports"
+
 // bundleModulesInfix separates a bundle's path from its submodules' in an
 // import path.
 const bundleModulesInfix = "/modules/"
@@ -32,6 +35,32 @@ func ReadSelection(file string) ([]string, error) {
 		return nil, shapeError(file)
 	}
 	return paths, nil
+}
+
+// CheckSelection fails when file sets anything but its imports list, or when
+// that list holds an entry that is not a ./path line of its own.
+func CheckSelection(file string) error {
+	shape, err := nix.ReadSelectionShape(file)
+	if err != nil {
+		return err
+	}
+	var others []string
+	for _, a := range shape.Attrs {
+		if a != selectionAttr {
+			others = append(others, a)
+		}
+	}
+	if len(others) > 0 {
+		return fmt.Errorf("%s may hold only its imports list and comments; it also sets %s\n  move them into a module: luxos module add <category/name>", file, strings.Join(others, ", "))
+	}
+	lines, err := ReadSelection(file)
+	if err != nil {
+		return err
+	}
+	if shape.Imports != len(lines) {
+		return fmt.Errorf("%s: imports holds %d entries but %d are ./path lines; write one ./path per line", file, shape.Imports, len(lines))
+	}
+	return nil
 }
 
 // Importers returns every entrypoint file with a line whose name (from its

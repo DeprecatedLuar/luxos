@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	noConfigFormat  = "There's no luxos config at %s yet.\nRun `luxos setup` to create one, or pass --config <dir>."
-	noHostFormat = "I couldn't find a %q host in %s"
-	noHostHas    = "\n(has %s)."
-	noHostNone   = "."
-	noHostTail   = "\nRun `luxos setup`, or pass --host <name>."
-	hostListSep  = ", "
+	noConfigFormat = "There's no luxos config at %s yet.\nRun `luxos setup` to create one, or pass --config <dir>."
+	noHostFormat   = "I couldn't find a %q host in %s"
+	noHostHas      = "\n(has %s)."
+	noHostNone     = "."
+	noHostTail     = "\nRun `luxos setup`, or pass --host <name>."
+	hostListSep    = ", "
 )
 
 func NoConfigError(configDir string) error {

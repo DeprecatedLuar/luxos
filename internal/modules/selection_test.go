@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -537,5 +538,31 @@ func TestEnableDisable(t *testing.T) {
 	got, err = ReadSelection(sel)
 	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection, got) {
 		t.Errorf("selection = %v (h: %v), %v", got, h.Selection, err)
+	}
+}
+
+func TestCheckSelection(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.nix")
+	mustWriteFile(t, ok, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n")
+	if err := CheckSelection(ok); err != nil {
+		t.Fatalf("clean selection: %v", err)
+	}
+	extra := filepath.Join(dir, "extra.nix")
+	mustWriteFile(t, extra, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n  services.x.enable = true;\n}\n")
+	err := CheckSelection(extra)
+	if err == nil || !strings.Contains(err.Error(), extra) || !strings.Contains(err.Error(), "services") {
+		t.Fatalf("extra attribute: got %v", err)
+	}
+}
+
+func TestCheckSelectionHiddenEntry(t *testing.T) {
+	skipIfNoNix(t)
+	f := filepath.Join(t.TempDir(), "s.nix")
+	mustWriteFile(t, f, "{ ... }:\n{\n  imports = [\n    ./a.nix ./b.nix\n  ];\n}\n")
+	err := CheckSelection(f)
+	if err == nil || !strings.Contains(err.Error(), "one ./path per line") {
+		t.Fatalf("got %v, want the one-path-per-line error", err)
 	}
 }

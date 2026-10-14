@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	configOpt  = "config"
-	hostOpt = "host"
+	configOpt = "config"
+	hostOpt   = "host"
 )
 
 // Target applies --config and returns the paths and the host name for

@@ -47,7 +47,8 @@ const (
 
 	stagedModulesDir   = "modules"
 	entrypointFile     = "default.nix"
-	stagedHostNix   = "host.nix"
+	selectionTemplate  = "modules.nix.tmpl"
+	stagedHostNix      = "host.nix"
 	stagedPlsdonttouch = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
@@ -205,7 +206,15 @@ func stageModules(h *modules.Host, hwDir, dst string) error {
 	}
 
 	entry := filepath.Join(dst, entrypointFile)
-	if err := copyFile(filepath.Join(h.HostDir, modules.SelectionFile), entry); err != nil {
+	lines := make([]string, 0, len(h.Selection))
+	for _, p := range h.Selection {
+		lines = append(lines, stagedSelectionPath(h, p))
+	}
+	rendered, err := templates.Render(selectionTemplate, lines)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(entry, rendered, fileMode); err != nil {
 		return err
 	}
 
@@ -224,17 +233,17 @@ func stageModules(h *modules.Host, hwDir, dst string) error {
 		if err != nil {
 			return err
 		}
-
-		name := m.Name
-		_, ok, err := nix.RetargetImports(entry, func(p string) bool { return modules.NameFromPath(p) == name }, staged)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("cannot retarget imports of shadow '%s': %s has no recognizable imports block", name, entry)
-		}
 	}
 	return nil
+}
+
+// stagedSelectionPath is where a selection line points in the stage: a
+// shadowed name points at its shadow's staged location.
+func stagedSelectionPath(h *modules.Host, path string) string {
+	if m, ok := h.Find(modules.NameFromPath(path)); ok && m.Shadows != "" {
+		return m.StagedPath()
+	}
+	return path
 }
 
 func checkNoDanglingLinks(root string) error {

@@ -22,7 +22,7 @@ const (
 	configDirName   = "luxos"
 	backupDirName   = "your-old-nixos-config-is-here"
 	configRelToHome = ".config/luxos"
-	hostsRel     = ".local/hosts"
+	hostsRel        = ".local/hosts"
 	hardwareRel     = ".local/hardware"
 	modulesRel      = "modules"
 
@@ -39,7 +39,7 @@ type Paths struct {
 	Config         string // $LUXOS_CONFIG_DIR, else $XDG_CONFIG_HOME/luxos, else <Home>/.config/luxos
 	SudoUser       bool   // $SUDO_USER was set: Home is the invoking user's, not root's
 	Backup         string // $LUXOS_BACKUP_DIR, else <Home>/your-old-nixos-config-is-here when $SUDO_USER is set, else empty (no invoking user)
-	Hosts       string // <Config>/.local/hosts
+	Hosts          string // <Config>/.local/hosts
 	Modules        string // <Config>/modules
 	Staging        string // /etc/nixos, the flake root
 	HardwareRoot   string // <Config>/.local/hardware
@@ -77,7 +77,7 @@ func Resolve() (Paths, error) {
 		SudoUser:       sudoUser,
 		Backup:         backup,
 		Config:         config,
-		Hosts:       filepath.Join(config, hostsRel),
+		Hosts:          filepath.Join(config, hostsRel),
 		Modules:        filepath.Join(config, modulesRel),
 		Staging:        staging,
 		HardwareRoot:   filepath.Join(config, hardwareRel),

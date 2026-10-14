@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	sharedDisplayDir   = "modules"
-	localDisplayDir    = "local/modules"
-	hostsDisplayDir = ".local/hosts"
+	sharedDisplayDir = "modules"
+	localDisplayDir  = "local/modules"
+	hostsDisplayDir  = ".local/hosts"
 
 	pathSep     = "/"
 	shortRevLen = 7

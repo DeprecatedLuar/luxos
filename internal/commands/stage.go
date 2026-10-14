@@ -29,6 +29,11 @@ var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 // the active host's module boundaries. prune removes unresolvable lines from
 // the active host's selection instead of failing.
 func healAndValidate(out *ui.Progress, p paths.Paths, host string, prune bool) error {
+	out.Printf("Checking %s's selection...\n", host)
+	if err := modules.CheckSelection(filepath.Join(p.Hosts, host, modules.SelectionFile)); err != nil {
+		return err
+	}
+
 	out.Printf("Healing modules imports...\n")
 	changes, warnings, err := modules.Heal(p.Hosts, p.Modules, host, prune)
 	for _, c := range changes {

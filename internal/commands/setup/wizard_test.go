@@ -31,10 +31,10 @@ var testSystem = System{
 func testPaths(t *testing.T) paths.Paths {
 	cfg := filepath.Join(t.TempDir(), "luxos")
 	return paths.Paths{
-		User:     "ana",
-		Config:   cfg,
-		Hosts: filepath.Join(cfg, ".local/hosts"),
-		Modules:  filepath.Join(cfg, "modules"),
+		User:    "ana",
+		Config:  cfg,
+		Hosts:   filepath.Join(cfg, ".local/hosts"),
+		Modules: filepath.Join(cfg, "modules"),
 	}
 }
 

@@ -25,7 +25,8 @@ func hwDirOf(hostDir string) string {
 // a nixpkgs pin at nixpkgsURL ("" declares no input), no GPUs, and us as the
 // host's modules.
 func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, environmentFile, nixpkgsURL string) error {
-	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, Modules: us}
+	selection, _ := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
+	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, Modules: us, Selection: selection}
 	var inputs []nix.InputDecl
 	if nixpkgsURL != "" {
 		inputs = []nix.InputDecl{{Name: "nixpkgs", URL: nixpkgsURL, Value: map[string]any{"url": nixpkgsURL}}}
@@ -60,7 +61,7 @@ func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile strin
 		t.Fatal(err)
 	}
 	// The host's selection, which the mirror symlink points at.
-	if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte("{ imports = [ ./system/desktop.nix ]; }"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte("{ ... }:\n{\n  imports = [\n    ./system/desktop.nix\n  ];\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// Mirror symlink under modulesDir, like config.EnsureMirror creates.
@@ -168,7 +169,7 @@ func TestMaterialize_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if string(data) != "{ imports = [ ./system/desktop.nix ]; }" {
+	if string(data) != "{ ... }:\n{\n  imports = [\n    ./system/desktop.nix\n  ];\n}\n" {
 		t.Fatalf("mirror content = %q", data)
 	}
 }
@@ -850,8 +851,8 @@ func TestMaterializeIgnoresRootLinks(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	other := filepath.Join(filepath.Dir(hostDir), "host2")
 	for rel, content := range map[string]string{
-		"modules.nix":        "{ imports = [ ]; }",
-		"host.nix":        "{ }",
+		"modules.nix":        "{ ... }:\n{\n  imports = [\n  ];\n}\n",
+		"host.nix":           "{ }",
 		".plsdonttouch.nix":  "{ }",
 		"modules/theirs.nix": "{ }",
 	} {
@@ -875,7 +876,7 @@ func TestMaterializeIgnoresRootLinks(t *testing.T) {
 		t.Errorf("host1's module leaked into host2's stage (err=%v)", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(mods, "default.nix"))
-	if string(got) != "{ imports = [ ]; }" {
+	if string(got) != "{ ... }:\n{\n  imports = [\n  ];\n}\n" {
 		t.Errorf("default.nix = %q, want host2's selection", got)
 	}
 }
@@ -902,5 +903,30 @@ func TestMaterialize_StagesSettings(t *testing.T) {
 	conf, err := os.ReadFile(filepath.Join(stagingDir, "framework", "configuration.nix"))
 	if err != nil || !strings.Contains(string(conf), "../config/settings/eduardo/git.nix") {
 		t.Errorf("configuration.nix does not import the settings file:\n%s", conf)
+	}
+}
+
+func TestMaterializeSelectionIgnoresComments(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	stagedEntry := func(selection string) []byte {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte(selection), 0644); err != nil {
+			t.Fatal(err)
+		}
+		stagingDir := filepath.Join(t.TempDir(), "staging")
+		if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+			t.Fatalf("Materialize: %v", err)
+		}
+		got, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", "default.nix"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	plain := stagedEntry("{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n")
+	commented := stagedEntry("# note\n{ ... }:\n{\n  imports = [\n\n    ./a.nix # why\n  ];\n}\n")
+	if string(plain) != string(commented) {
+		t.Errorf("comments reached the stage:\n%s\nvs\n%s", plain, commented)
 	}
 }

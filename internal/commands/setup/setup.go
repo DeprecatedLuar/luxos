@@ -23,7 +23,7 @@ const (
 	alreadySetUp     = "Setup is done: %s has a %q host. Build it with: luxos rebuild switch\n"
 	rebuildCmd       = "rebuild"
 	rebuildAction    = "switch"
-	hostFlag      = "--host"
+	hostFlag         = "--host"
 )
 
 var errRoot = errors.New("luxos setup writes your config and your user module, so it runs as you: run it again without sudo")
