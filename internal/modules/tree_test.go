@@ -1,9 +1,11 @@
 package modules
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -38,7 +40,7 @@ func TestWalk_FileUnit(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestWalk_FolderUnitNotDescended(t *testing.T) {
 	// unit — the walk must not descend into it.
 	mustWriteFile(t, filepath.Join(root, "wayland", "extra.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestWalk_CategoryDescent(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "services", "sshd.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "services", "nested", "default.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -94,7 +96,7 @@ func TestWalk_RootDefaultNixSkipped(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -116,7 +118,7 @@ func TestWalk_SymlinkedDirectoryFollowed(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -131,7 +133,7 @@ func TestWalk_DuplicateAcrossCategories(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "a", "shared.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "b", "shared.nix"), "{ }")
 
-	_, err := Walk(root, "")
+	_, _, err := Walk(root, "", "")
 	if err == nil {
 		t.Fatalf("expected error for duplicate name")
 	}
@@ -153,7 +155,7 @@ func TestWalk_SortedByName(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "alpha.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "mid.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -172,14 +174,14 @@ func TestWalk_SortedByName(t *testing.T) {
 	}
 }
 
-func TestWalk_LocalUnitsPrefixed(t *testing.T) {
+func TestWalk_HostUnitsPrefixed(t *testing.T) {
 	root := t.TempDir()
 	local := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "foo.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "cat", "bar.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -187,12 +189,12 @@ func TestWalk_LocalUnitsPrefixed(t *testing.T) {
 		t.Fatalf("got %d units, want 3: %+v", len(us), us)
 	}
 	foo := unitByName(t, us, "foo")
-	if foo.Path != "local/foo.nix" {
-		t.Errorf("foo Path = %q, want local/foo.nix", foo.Path)
+	if foo.Path != "host/foo.nix" {
+		t.Errorf("foo Path = %q, want host/foo.nix", foo.Path)
 	}
 	bar := unitByName(t, us, "bar")
-	if bar.Path != filepath.Join("local", "cat", "bar.nix") {
-		t.Errorf("bar Path = %q, want local/cat/bar.nix", bar.Path)
+	if bar.Path != filepath.Join("host", "cat", "bar.nix") {
+		t.Errorf("bar Path = %q, want host/cat/bar.nix", bar.Path)
 	}
 	hyprland := unitByName(t, us, "hyprland")
 	if hyprland.Path != "hyprland.nix" {
@@ -205,7 +207,7 @@ func TestWalk_MissingLocalDirIsFine(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 	missingLocal := filepath.Join(t.TempDir(), "does-not-exist")
 
-	us, err := Walk(root, missingLocal)
+	us, _, err := Walk(root, missingLocal, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -220,11 +222,11 @@ func TestWalk_LocalFileShadowsSharedFolder(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "desktop", "ambxst", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "ambxst.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Module{{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/ambxst", Abs: filepath.Join(local, "ambxst.nix")}}
+	want := []Module{{Name: "ambxst", Path: "host/ambxst.nix", Shadows: "desktop/ambxst", Abs: filepath.Join(local, "ambxst.nix"), Scope: config.ScopeHost}}
 	if !reflect.DeepEqual(us, want) {
 		t.Errorf("got %+v, want %+v", us, want)
 	}
@@ -236,11 +238,11 @@ func TestWalk_LocalFolderShadowsSharedFile(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "cat", "foo.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "foo", "default.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Module{{Name: "foo", Path: "local/foo", Shadows: "cat/foo.nix", Abs: filepath.Join(local, "foo")}}
+	want := []Module{{Name: "foo", Path: "host/foo", Shadows: "cat/foo.nix", Abs: filepath.Join(local, "foo"), Scope: config.ScopeHost}}
 	if !reflect.DeepEqual(us, want) {
 		t.Errorf("got %+v, want %+v", us, want)
 	}
@@ -252,12 +254,12 @@ func TestWalk_LocalShadowsSystemUnit(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "system", "audio.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "audio.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	u, ok := Find(us, "audio")
-	if !ok || u.Path != "local/audio.nix" || u.Shadows != "system/audio.nix" || len(us) != 1 {
+	if !ok || u.Path != "host/audio.nix" || u.Shadows != "system/audio.nix" || len(us) != 1 {
 		t.Errorf("got %+v", us)
 	}
 }
@@ -268,7 +270,7 @@ func TestWalk_LocalLocalDuplicateIsError(t *testing.T) {
 	mustWriteFile(t, filepath.Join(local, "a", "foo.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(local, "b", "foo.nix"), "{ }")
 
-	_, err := Walk(root, local)
+	_, _, err := Walk(root, local, "")
 	if err == nil || !strings.Contains(err.Error(), "duplicate module name 'foo':") {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
@@ -284,21 +286,21 @@ func TestFind(t *testing.T) {
 	}
 }
 
-func TestWalk_RootLocalNeverWalked(t *testing.T) {
+func TestWalk_ReservedRootEntriesNeverWalked(t *testing.T) {
 	root := t.TempDir()
 	local := t.TempDir()
-	// A real "local" directory sitting at modulesDir's own root (as the
-	// mirror link's target would be) must never be descended into here,
-	// even though it isn't a symlink in this fixture.
-	mustWriteFile(t, filepath.Join(root, "local", "should-not-appear.nix"), "{ }")
+	// Real directories named like the scope links, sitting at modulesDir's
+	// own root, must never be descended into.
+	mustWriteFile(t, filepath.Join(root, "host", "should-not-appear.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(root, "machine", "should-not-appear.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(root, "hyprland.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
 	if len(us) != 1 {
-		t.Fatalf("got %d units, want 1 (root local/ must never be walked): %+v", len(us), us)
+		t.Fatalf("got %d units, want 1 (root host/ and machine/ must never be walked): %+v", len(us), us)
 	}
 	if us[0].Name != "hyprland" {
 		t.Errorf("Name = %q, want hyprland", us[0].Name)
@@ -330,7 +332,7 @@ func TestNameFromPath_Bundles(t *testing.T) {
 		{"users/eduardo/modules/git.nix", "eduardo/git"},
 		{"users/eduardo/modules/cli/git.nix", "eduardo/git"},
 		{"a/eduardo/modules/nvim/modules/lsp/default.nix", "eduardo/nvim/lsp"},
-		{"local/eduardo/modules/git.nix", "eduardo/git"},
+		{"host/eduardo/modules/git.nix", "eduardo/git"},
 		{"desktop/hyprland.nix", "hyprland"},
 		{"modules/foo.nix", "foo"},
 		{"users/eduardo/modules/git/default.nix", "eduardo/git"},
@@ -384,7 +386,7 @@ func TestWalk_BundleSubmodulesQualified(t *testing.T) {
 	bundleFixture(t, root, "users")
 	mustWriteFile(t, filepath.Join(root, "users", "eduardo", "plumbing.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -409,7 +411,7 @@ func TestWalk_NestedBundle(t *testing.T) {
 	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "modules", "lsp.nix"), "{ }")
 
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -425,7 +427,7 @@ func TestWalk_SameSubmoduleNameInTwoBundles(t *testing.T) {
 		mustWriteFile(t, filepath.Join(root, "users", b, "default.nix"), "{ }")
 		mustWriteFile(t, filepath.Join(root, "users", b, "modules", "git.nix"), "{ }")
 	}
-	us, err := Walk(root, "")
+	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -439,7 +441,7 @@ func TestWalk_DuplicateInsideOneBundleErrors(t *testing.T) {
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "a", "git.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "b", "git.nix"), "{ }")
-	_, err := Walk(root, "")
+	_, _, err := Walk(root, "", "")
 	if err == nil || !strings.Contains(err.Error(), "duplicate module name 'eduardo/git'") {
 		t.Fatalf("err = %v", err)
 	}
@@ -450,7 +452,7 @@ func TestWalk_BundleModulesWithDefaultNixErrors(t *testing.T) {
 	b := filepath.Join(root, "users", "eduardo")
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "default.nix"), "{ }")
-	_, err := Walk(root, "")
+	_, _, err := Walk(root, "", "")
 	if err == nil || !strings.Contains(err.Error(), "users/eduardo/modules has its own default.nix: a bundle's modules/ folder is not a module") {
 		t.Fatalf("err = %v", err)
 	}
@@ -459,7 +461,7 @@ func TestWalk_BundleModulesWithDefaultNixErrors(t *testing.T) {
 func TestWalk_ModulesFolderUnderCategoryErrors(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "users", "modules", "git.nix"), "{ }")
-	_, err := Walk(root, "")
+	_, _, err := Walk(root, "", "")
 	if err == nil || !strings.Contains(err.Error(), "users/modules: a folder named modules is only allowed directly inside a module (a bundle)") {
 		t.Fatalf("err = %v", err)
 	}
@@ -474,14 +476,14 @@ func TestWalk_LocalBundleShadowsSharedBundle(t *testing.T) {
 	mustWriteFile(t, filepath.Join(b, "modules", "git.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "extra.nix"), "{ }")
 
-	us, err := Walk(root, local)
+	us, _, err := Walk(root, local, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	if u := unitByName(t, us, "eduardo"); u.Path != "local/eduardo" || u.Shadows != "users/eduardo" {
+	if u := unitByName(t, us, "eduardo"); u.Path != "host/eduardo" || u.Shadows != "users/eduardo" {
 		t.Errorf("bundle = %+v", u)
 	}
-	if u := unitByName(t, us, "eduardo/git"); u.Path != "local/eduardo/modules/git.nix" || u.Shadows != "users/eduardo/modules/git.nix" {
+	if u := unitByName(t, us, "eduardo/git"); u.Path != "host/eduardo/modules/git.nix" || u.Shadows != "users/eduardo/modules/git.nix" {
 		t.Errorf("git = %+v", u)
 	}
 	if u := unitByName(t, us, "eduardo/extra"); u.Shadows != "users/eduardo/modules/extra.nix" {
@@ -506,34 +508,34 @@ func selectionOf(items ...string) string {
 	return s + "  ];\n}\n"
 }
 
-// A plain tree, no symlinks: modules/local and modules/default.nix do not exist.
-func TestLoadOtherHostLocalUnits(t *testing.T) {
+// A plain tree, no symlinks: modules/host and modules/machine do not exist.
+func TestLoadOtherHostUnits(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
 	hosts := filepath.Join(root, ".local", "hosts")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(hosts, "a", "modules.nix"), selectionOf("./apps/git.nix"))
-	mustWriteFile(t, filepath.Join(hosts, "b", "modules.nix"), selectionOf("./local/vpn.nix"))
+	mustWriteFile(t, config.SelectionPath(filepath.Join(hosts, "a")), selectionOf("../apps/git.nix"))
+	mustWriteFile(t, config.SelectionPath(filepath.Join(hosts, "b")), selectionOf("./vpn.nix"))
 	mustWriteFile(t, filepath.Join(hosts, "b", "modules", "vpn.nix"), emptyModule)
 
-	h, err := Load(modulesDir, filepath.Join(hosts, "b"))
+	h, err := Load(modulesDir, filepath.Join(hosts, "b"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m, ok := h.Find("vpn")
-	if !ok || m.Path != "local/vpn.nix" || m.Abs != filepath.Join(hosts, "b", "modules", "vpn.nix") {
+	if !ok || m.Path != "host/vpn.nix" || m.Abs != filepath.Join(hosts, "b", "modules", "vpn.nix") {
 		t.Fatalf("vpn = %+v, %v", m, ok)
 	}
 	if _, ok := h.Selected("vpn"); !ok {
 		t.Error("vpn not selected on b")
 	}
 
-	ha, err := Load(modulesDir, filepath.Join(hosts, "a"))
+	ha, err := Load(modulesDir, filepath.Join(hosts, "a"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := ha.Find("vpn"); ok {
-		t.Error("host a sees b's local unit")
+		t.Error("host a sees b's unit")
 	}
 }
 
@@ -542,30 +544,22 @@ func TestLoadShadow(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	hostDir := filepath.Join(root, ".local", "hosts", "a")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf())
+	mustWriteFile(t, config.SelectionPath(hostDir), selectionOf())
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "git.nix"), emptyModule)
 
-	h, err := Load(modulesDir, hostDir)
+	h, err := Load(modulesDir, hostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m, _ := h.Find("git")
-	if m.Path != "local/git.nix" || m.Shadows != "apps/git.nix" {
+	if m.Path != "host/git.nix" || m.Shadows != "apps/git.nix" {
 		t.Fatalf("git = %+v", m)
 	}
 	if len(h.Modules) != 1 {
-		t.Errorf("shadowed shared unit still listed: %+v", h.Modules)
+		t.Errorf("hidden shared unit still listed: %+v", h.Modules)
 	}
-}
-
-func TestHosts(t *testing.T) {
-	hosts := t.TempDir()
-	mustWriteFile(t, filepath.Join(hosts, "b", "modules.nix"), selectionOf())
-	mustWriteFile(t, filepath.Join(hosts, "a", "modules.nix"), selectionOf())
-	mustMkdirAll(t, filepath.Join(hosts, "stray"))
-	got, err := Hosts(hosts)
-	if err != nil || !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Errorf("Hosts = %v, %v", got, err)
+	if len(h.Hidden) != 1 || h.Hidden[0].Path != "apps/git.nix" {
+		t.Errorf("Hidden = %+v, want the shared git", h.Hidden)
 	}
 }
 
@@ -573,32 +567,164 @@ func TestScopeOf(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
 	hosts := filepath.Join(root, ".local", "hosts")
+	machines := filepath.Join(root, ".local", "machines")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "vim.nix"), emptyModule)
 	for _, h := range []string{"a", "b", "c"} {
-		mustWriteFile(t, filepath.Join(hosts, h, "modules.nix"), selectionOf())
+		mustWriteFile(t, config.SelectionPath(filepath.Join(hosts, h)), selectionOf())
+	}
+	for _, m := range []string{"k1", "k2"} {
+		mustWriteFile(t, config.SelectionPath(filepath.Join(machines, m)), selectionOf())
 	}
 	mustWriteFile(t, filepath.Join(hosts, "b", "modules", "git.nix"), emptyModule)
+	mustWriteFile(t, filepath.Join(machines, "k2", "modules", "git.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(hosts, "stray", "modules", "x.nix"), emptyModule)
 
-	got, err := ScopeOf(hosts, modulesDir, "a", Module{Name: "git", Path: "apps/git.nix"})
+	h := &Host{Name: "a", HostDir: filepath.Join(hosts, "a"), MachineDir: filepath.Join(machines, "k1")}
+	got, err := ScopeOf(hosts, machines, h, Module{Name: "git", Path: "apps/git.nix"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sel := func(scope, root, name string) SelectionFile {
+		return SelectionFile{Scope: scope, File: config.SelectionPath(filepath.Join(root, name))}
+	}
 	want := Scope{
-		LocalDirs: []string{filepath.Join(hosts, "a", "modules"), filepath.Join(hosts, "c", "modules")},
-		SkipHosts: []string{"b"},
+		Selections: []SelectionFile{
+			sel(config.ScopeHost, hosts, "a"), sel(config.ScopeHost, hosts, "c"), sel(config.ScopeMachine, machines, "k1"),
+		},
+		UnitDirs: []string{
+			filepath.Join(hosts, "a", "modules"), filepath.Join(hosts, "c", "modules"), filepath.Join(machines, "k1", "modules"),
+		},
+		SettingsDirs: []string{filepath.Join(hosts, "a"), filepath.Join(hosts, "c"), filepath.Join(machines, "k1")},
+		Skipped:      []string{filepath.Join(hosts, "b"), filepath.Join(machines, "k2")},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("shared scope = %+v, want %+v", got, want)
 	}
 
-	got, err = ScopeOf(hosts, modulesDir, "a", Module{Name: "priv", Path: "local/priv.nix"})
+	got, err = ScopeOf(hosts, machines, h, Module{Name: "priv", Path: "host/priv.nix", Scope: config.ScopeHost})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = Scope{Host: "a", LocalDirs: []string{filepath.Join(hosts, "a", "modules")}}
+	want = Scope{
+		Selections:   []SelectionFile{sel(config.ScopeHost, hosts, "a")},
+		UnitDirs:     []string{filepath.Join(hosts, "a", "modules")},
+		SettingsDirs: []string{filepath.Join(hosts, "a"), filepath.Join(machines, "k1")},
+	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("local scope = %+v, want %+v", got, want)
+		t.Errorf("host scope = %+v, want %+v", got, want)
+	}
+
+	got, err = ScopeOf(hosts, machines, h, Module{Name: "boot", Path: "machine/boot.nix", Scope: config.ScopeMachine})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = Scope{
+		Selections:   []SelectionFile{sel(config.ScopeMachine, machines, "k1")},
+		UnitDirs:     []string{filepath.Join(machines, "k1", "modules")},
+		SettingsDirs: []string{filepath.Join(machines, "k1")},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("machine scope = %+v, want %+v", got, want)
+	}
+}
+
+// scopes builds modules/, a host folder and a machine folder under one root
+// and returns their paths.
+func scopes(t *testing.T) (modulesDir, hostDir, machineDir string) {
+	t.Helper()
+	root := t.TempDir()
+	modulesDir = filepath.Join(root, "modules")
+	hostDir = filepath.Join(root, ".local", "hosts", "h1")
+	machineDir = filepath.Join(root, ".local", "machines", "abcd")
+	mustMkdirAll(t, modulesDir)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
+	return
+}
+
+func TestWalkScopes(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "packages.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+
+	us, hidden, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), filepath.Join(machineDir, "modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hidden) != 0 {
+		t.Fatalf("hidden = %+v", hidden)
+	}
+	for name, want := range map[string]Module{
+		"luar":     {Path: "users/luar.nix", Scope: ""},
+		"packages": {Path: "host/packages.nix", Scope: "host"},
+		"boot":     {Path: "machine/boot.nix", Scope: "machine"},
+	} {
+		u := unitByName(t, us, name)
+		if u.Path != want.Path || u.Scope != want.Scope {
+			t.Errorf("%s: path %q scope %q, want %q %q", name, u.Path, u.Scope, want.Path, want.Scope)
+		}
+	}
+}
+
+func TestWalkPrecedenceMachineHostShared(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "laptop.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "laptop.nix"), "{ }")
+
+	us, hidden, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), filepath.Join(machineDir, "modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := unitByName(t, us, "laptop")
+	if u.Scope != "machine" || u.Shadows != "devices/laptop.nix" {
+		t.Fatalf("winner %+v, want the machine unit shadowing devices/laptop.nix", u)
+	}
+	if u.StagedPath() != "devices/laptop.nix" {
+		t.Errorf("StagedPath = %q", u.StagedPath())
+	}
+	var hiddenPaths []string
+	for _, h := range hidden {
+		hiddenPaths = append(hiddenPaths, h.Path)
+	}
+	sort.Strings(hiddenPaths)
+	if want := []string{"devices/laptop.nix", "host/laptop.nix"}; !reflect.DeepEqual(hiddenPaths, want) {
+		t.Errorf("hidden %v, want %v", hiddenPaths, want)
+	}
+}
+
+func TestWalkSkipsReservedRootEntries(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	if err := os.Symlink(filepath.Join(hostDir, "modules"), filepath.Join(modulesDir, "host")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(machineDir, "modules"), filepath.Join(modulesDir, "machine")); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(modulesDir, "default.nix"), "{ imports = [ ./host ./machine ]; }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "packages.nix"), "{ }")
+	us, _, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), filepath.Join(machineDir, "modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(us) != 1 || us[0].Path != "host/packages.nix" {
+		t.Fatalf("got %+v, want only host/packages.nix", us)
+	}
+}
+
+func TestLoadReadsBothSelections(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n    ../users/luar.nix\n  ];\n}\n")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "default.nix"), "{ ... }:\n{\n  imports = [\n    ./boot.nix\n    ../users/luar.nix\n  ];\n}\n")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"users/luar.nix", "machine/boot.nix"}; !reflect.DeepEqual(h.Selection(), want) {
+		t.Fatalf("Selection() = %v, want %v", h.Selection(), want)
 	}
 }

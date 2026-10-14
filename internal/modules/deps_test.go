@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,11 +81,11 @@ func TestValidate_Boundary(t *testing.T) {
 	}
 
 	violationsFor := func(modulesDir string) map[string]string {
-		us, err := Walk(modulesDir, "")
+		us, _, err := Walk(modulesDir, "", "")
 		if err != nil {
 			t.Fatalf("Walk(%s): %v", modulesDir, err)
 		}
-		vs, err := (&Host{ModulesDir: modulesDir, Modules: us, Selection: allUnitPaths(us)}).Validate()
+		vs, err := (&Host{ModulesDir: modulesDir, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: allUnitPaths(us)}}}).Validate()
 		if err != nil {
 			t.Fatalf("Validate(%s): %v", modulesDir, err)
 		}
@@ -149,11 +150,11 @@ func TestValidate_Boundary(t *testing.T) {
 		mods := filepath.Join(clean, "modules")
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ]; }`)
 		write(t, filepath.Join(mods, "a.nix"), `{ }`)
-		us, err := Walk(mods, "")
+		us, _, err := Walk(mods, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		vs, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix"}}).Validate()
+		vs, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix"}}}}).Validate()
 		if err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -180,11 +181,11 @@ func TestValidate_OnlyImportedClosure(t *testing.T) {
 	write(t, filepath.Join(mods, "dep", "inner.nix"), `{ imports = [ ../../outside.nix ]; }`)
 	write(t, filepath.Join(mods, "unused.nix"), `let n = "x"; in { imports = [ ./${n}.nix ../elsewhere.nix ]; }`)
 
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vs, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"host.nix"}}).Validate()
+	vs, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"host.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -199,7 +200,7 @@ func TestValidate_OnlyImportedClosure(t *testing.T) {
 		t.Errorf("unused.nix is imported by nothing but was flagged: %v", vs)
 	}
 
-	if _, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"missing.nix"}}).Validate(); err == nil {
+	if _, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"missing.nix"}}}}).Validate(); err == nil {
 		t.Error("Validate with an unresolvable root: want error, got nil")
 	}
 }
@@ -216,11 +217,11 @@ func TestClosure(t *testing.T) {
 	write(t, filepath.Join(mods, "b.nix"), `{ }`)
 	write(t, filepath.Join(mods, "c.nix"), `{ }`) // unreferenced, never a key
 
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix"}}).Closure()
+	got, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix"}}}}).Closure()
 	if err != nil {
 		t.Fatalf("Closure: %v", err)
 	}
@@ -240,11 +241,11 @@ func TestClosure_UnresolvableNameSkipped(t *testing.T) {
 	mods := t.TempDir()
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "missing" ]; }`)
 
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix"}}).Closure()
+	got, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix"}}}}).Closure()
 	if err != nil {
 		t.Fatalf("Closure: want no error for an unresolvable name (display-only, best-effort), got %v", err)
 	}
@@ -258,11 +259,11 @@ func TestClosure_UnparseableFileSkipped(t *testing.T) {
 	mods := t.TempDir()
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ...`) // unterminated, fails to parse
 
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix"}}).Closure(); err != nil {
+	if _, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix"}}}}).Closure(); err != nil {
 		t.Fatalf("Closure: want no error for a file that fails to parse (display-only, best-effort), got %v", err)
 	}
 }
@@ -449,7 +450,7 @@ func TestModulesFunction(t *testing.T) {
 	write(t, filepath.Join(M, "cyc/a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "b" ]; config.marks = [ "a" ]; }`)
 	write(t, filepath.Join(M, "cyc/b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "a" ]; config.marks = [ "b" ]; }`)
 
-	us, err := Walk(M, "")
+	us, _, err := Walk(M, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
@@ -569,11 +570,11 @@ func TestVerification_UnresolvedNameNamesFileAndName(t *testing.T) {
 	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ]; }`)
 	write(t, filepath.Join(mods, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "waylnd" ]; }`)
 
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	violations, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix"}}).Validate()
+	violations, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -681,61 +682,61 @@ func TestRetarget_ScopedToOneHostsLocalModulesDir(t *testing.T) {
 	}
 }
 
-func TestValidate_SharedModuleReferencingLocalModuleIsAViolation(t *testing.T) {
+func TestValidate_SharedModuleReferencingHostModuleIsAViolation(t *testing.T) {
 	skipIfNoNix(t)
 	mods := t.TempDir()
 
 	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./shared.nix ]; }`)
 	write(t, filepath.Join(mods, "shared.nix"), `{ luxos, ... }: { imports = luxos.modules [ "priv" ]; }`)
 
-	local := filepath.Join(mods, "local")
+	local := t.TempDir()
 	write(t, filepath.Join(local, "priv.nix"), `{ }`)
 
-	us, err := Walk(mods, local)
+	us, _, err := Walk(mods, local, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	violations, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"shared.nix"}}).Validate()
+	violations, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"shared.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	found := false
 	for _, v := range violations {
-		if v.File == "shared.nix" && strings.Contains(v.Message, "shared module references local module 'priv'") {
+		if v.File == "shared.nix" && strings.Contains(v.Message, "shared module references host module 'priv'") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a shared-references-local violation, got %v", violations)
+		t.Errorf("expected a shared-references-host violation, got %v", violations)
 	}
 }
 
-func TestValidate_LocalModuleReferencingSharedModuleIsFine(t *testing.T) {
+func TestValidate_HostModuleReferencingSharedModuleIsFine(t *testing.T) {
 	skipIfNoNix(t)
 	mods := t.TempDir()
 
-	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./local/priv.nix ]; }`)
+	write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./host/priv.nix ]; }`)
 	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
 
-	local := filepath.Join(mods, "local")
+	local := t.TempDir()
 	write(t, filepath.Join(local, "priv.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
 
-	us, err := Walk(mods, local)
+	us, _, err := Walk(mods, local, "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	violations, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"local/priv.nix"}}).Validate()
+	violations, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"host/priv.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	for _, v := range violations {
-		if strings.Contains(v.Message, "shared module references local module") {
-			t.Errorf("unexpected boundary violation for local -> shared reference: %v", v)
+		if strings.Contains(v.Message, "shared module references host module") {
+			t.Errorf("unexpected boundary violation for host -> shared reference: %v", v)
 		}
 	}
 }
 
-func TestValidate_ShadowedNameIsNotSharedToLocalViolation(t *testing.T) {
+func TestValidate_ShadowedNameIsNotSharedToHostViolation(t *testing.T) {
 	skipIfNoNix(t)
 	root := t.TempDir()
 	mods := filepath.Join(root, "modules")
@@ -745,18 +746,15 @@ func TestValidate_ShadowedNameIsNotSharedToLocalViolation(t *testing.T) {
 	write(t, filepath.Join(localDir, "foo.nix"), `{ }`)
 	write(t, filepath.Join(localDir, "bar.nix"), `{ }`)
 	write(t, filepath.Join(mods, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "bar" ]; }`)
-	if err := os.Symlink(localDir, filepath.Join(mods, "local")); err != nil {
-		t.Fatal(err)
-	}
-	us, err := Walk(mods, localDir)
+	us, _, err := Walk(mods, localDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vs, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"a.nix", "b.nix"}}).Validate()
+	vs, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"a.nix", "b.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(vs) != 1 || vs[0].File != "b.nix" || !strings.Contains(vs[0].Message, "shared module references local module 'bar'") {
+	if len(vs) != 1 || vs[0].File != "b.nix" || !strings.Contains(vs[0].Message, "shared module references host module 'bar'") {
 		t.Errorf("want only the non-shadow violation in b.nix, got %v", vs)
 	}
 }
@@ -765,11 +763,11 @@ func TestValidate_SelfReferenceIsViolation(t *testing.T) {
 	skipIfNoNix(t)
 	mods := t.TempDir()
 	write(t, filepath.Join(mods, "foo.nix"), `{ luxos, ... }: { imports = luxos.modules [ "foo" ]; }`)
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vs, err := (&Host{ModulesDir: mods, Modules: us, Selection: []string{"foo.nix"}}).Validate()
+	vs, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: []string{"foo.nix"}}}}).Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,11 +779,11 @@ func TestValidate_SelfReferenceIsViolation(t *testing.T) {
 
 func validateBundle(t *testing.T, mods string, roots []string) []Violation {
 	t.Helper()
-	us, err := Walk(mods, "")
+	us, _, err := Walk(mods, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	vs, err := (&Host{ModulesDir: mods, Modules: us, Selection: roots}).Validate()
+	vs, err := (&Host{ModulesDir: mods, Modules: us, Selections: []Selection{{Scope: config.ScopeHost, Paths: roots}}}).Validate()
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -908,10 +906,10 @@ func TestBuiltUsesHostLocalUnits(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	hostDir := filepath.Join(root, ".local", "hosts", "b")
 	mustWriteFile(t, filepath.Join(modulesDir, "apps", "git.nix"), emptyModule)
-	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf("./local/vpn.nix"))
+	mustWriteFile(t, config.SelectionPath(hostDir), selectionOf("./vpn.nix"))
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "vpn.nix"), "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"git\" ];\n}\n")
 
-	h, err := Load(modulesDir, hostDir)
+	h, err := Load(modulesDir, hostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -929,5 +927,35 @@ func TestBuiltUsesHostLocalUnits(t *testing.T) {
 	vpn, _ := h.Find("vpn")
 	if vpn.Abs != filepath.Join(hostDir, "modules", "vpn.nix") {
 		t.Errorf("vpn.Abs = %q", vpn.Abs)
+	}
+}
+
+func TestValidateHostReferencesMachineUnit(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "a.nix"), "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"dgpu\" ];\n}\n")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "dgpu.nix"), "{ }")
+	mustWriteFile(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n")
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 1 || !strings.Contains(vs[0].Message, "may only reference shared") || vs[0].File != "host/a.nix" {
+		t.Fatalf("violations %+v", vs)
+	}
+}
+
+func TestValidateMachineReferencesShadowedSharedName(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "laptop.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "x.nix"), "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"laptop\" ];\n}\n")
+	mustWriteFile(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ./x.nix\n  ];\n}\n")
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	vs, err := h.Validate()
+	if err != nil || len(vs) != 0 {
+		t.Fatalf("a shared name shadowed by the host is allowed: %v %+v", err, vs)
 	}
 }

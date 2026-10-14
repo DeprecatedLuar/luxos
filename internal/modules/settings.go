@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,9 +50,26 @@ func optionsOf(m Module) (string, bool) {
 	return path, isFile(path)
 }
 
-// Settings checks every unit of ms that has an options.nix, and h's settings
-// file for it, against the settings rules. Units without one are left out.
+// SettingsFile is the settings file in effect for m: the machine's for a
+// machine unit or when the machine has one for m, the host's otherwise.
+func (h *Host) SettingsFile(m Module) string {
+	if h.MachineDir != "" {
+		machineFile := config.SettingsPath(h.MachineDir, m.Name)
+		if m.Scope == config.ScopeMachine || isFile(machineFile) {
+			return machineFile
+		}
+	}
+	return config.SettingsPath(h.HostDir, m.Name)
+}
+
+// Settings checks every unit of ms that has an options.nix, and the settings
+// file in effect for it, against the settings rules. Units without one are
+// left out.
 func (h *Host) Settings(ms []Module) ([]UnitSettings, error) {
+	return h.settings(ms, h.SettingsFile)
+}
+
+func (h *Host) settings(ms []Module, fileOf func(Module) string) ([]UnitSettings, error) {
 	var out []UnitSettings
 	var files []string
 	for _, m := range ms {
@@ -59,7 +77,7 @@ func (h *Host) Settings(ms []Module) ([]UnitSettings, error) {
 		if !ok {
 			continue
 		}
-		out = append(out, UnitSettings{Module: m, Options: opts, File: config.SettingsPath(h.HostDir, m.Name)})
+		out = append(out, UnitSettings{Module: m, Options: opts, File: fileOf(m)})
 		files = append(files, opts)
 	}
 	if len(out) == 0 {
@@ -148,7 +166,7 @@ func importsOptions(m Module) (string, error) {
 // naming no unit is skipped (heal reports it).
 func (h *Host) selected() []Module {
 	var out []Module
-	for _, line := range h.Selection {
+	for _, line := range h.Selection() {
 		if m, ok := h.Find(NameFromPath(line)); ok {
 			out = append(out, m)
 		}
@@ -177,21 +195,29 @@ type SettingsReport struct {
 // assignment is commented out. A unit breaking a rule, or whose file cannot
 // be read or written, is skipped and returned in Broken.
 func SyncSettings(h *Host) (SettingsReport, error) {
-	return syncSettings(h, h.selected())
+	return syncSettings(h, h.selected(), h.SettingsFile)
 }
 
-// SyncUnitSettings syncs h's settings file of m, selected or not, and returns its path.
-func SyncUnitSettings(h *Host, m Module) (string, SettingsReport, error) {
+// SyncUnitSettings syncs the settings file of m, selected or not, and returns
+// its path: the machine's when toMachine, otherwise the one in effect.
+func SyncUnitSettings(h *Host, m Module, toMachine bool) (string, SettingsReport, error) {
 	if _, ok := optionsOf(m); !ok {
 		return "", SettingsReport{}, fmt.Errorf("module '%s' has no settings", m.Name)
 	}
-	rep, err := syncSettings(h, []Module{m})
-	return config.SettingsPath(h.HostDir, m.Name), rep, err
+	fileOf := h.SettingsFile
+	if toMachine {
+		if h.MachineDir == "" {
+			return "", SettingsReport{}, errors.New("no machine folder: run luxos rebuild build first")
+		}
+		fileOf = func(Module) string { return config.SettingsPath(h.MachineDir, m.Name) }
+	}
+	rep, err := syncSettings(h, []Module{m}, fileOf)
+	return fileOf(m), rep, err
 }
 
-func syncSettings(h *Host, ms []Module) (SettingsReport, error) {
+func syncSettings(h *Host, ms []Module, fileOf func(Module) string) (SettingsReport, error) {
 	var rep SettingsReport
-	us, err := h.Settings(ms)
+	us, err := h.settings(ms, fileOf)
 	if err != nil {
 		return rep, err
 	}
@@ -329,24 +355,18 @@ func joinPaths(paths [][]string) []string {
 }
 
 // MoveSettings renames unit name's settings file, and the folder of its
-// submodules' settings when it is a bundle, to newName in every host in
-// scope (host and skipHosts as for RetargetSelections); newName "" deletes
-// them. A missing entry is skipped. An entry whose target already exists is
-// left in place and returned in kept.
-func MoveSettings(hostsDir, name, newName, host string, skipHosts []string) (kept []string, err error) {
-	entrypoints, err := scopedEntrypoints(hostsDir, host, skipHosts)
-	if err != nil {
-		return nil, err
-	}
-	for _, ep := range entrypoints {
-		hostDir := filepath.Dir(ep)
+// submodules' settings when it is a bundle, to newName in every folder of
+// scopeDirs; newName "" deletes them. A missing entry is skipped. An entry
+// whose target already exists is left in place and returned in kept.
+func MoveSettings(scopeDirs []string, name, newName string) (kept []string, err error) {
+	for _, dir := range scopeDirs {
 		pairs := [][2]string{
-			{config.SettingsPath(hostDir, name), ""},
-			{config.SettingsFolder(hostDir, name), ""},
+			{config.SettingsPath(dir, name), ""},
+			{config.SettingsFolder(dir, name), ""},
 		}
 		if newName != "" {
-			pairs[0][1] = config.SettingsPath(hostDir, newName)
-			pairs[1][1] = config.SettingsFolder(hostDir, newName)
+			pairs[0][1] = config.SettingsPath(dir, newName)
+			pairs[1][1] = config.SettingsFolder(dir, newName)
 		}
 		for _, pair := range pairs {
 			from, to := pair[0], pair[1]
@@ -378,16 +398,21 @@ func MoveSettings(hostsDir, name, newName, host string, skipHosts []string) (kep
 	return kept, nil
 }
 
-// StagedSettings returns the names of h's selected units that have an
-// options.nix and a settings file, in selection order.
-func (h *Host) StagedSettings() []string {
-	var out []string
+// StagedSetting is a selected unit's settings file in effect.
+type StagedSetting struct {
+	Name, File string
+}
+
+// StagedSettings returns, in selection order, the selected units that have an
+// options.nix and a settings file in effect.
+func (h *Host) StagedSettings() []StagedSetting {
+	var out []StagedSetting
 	for _, m := range h.selected() {
 		if _, ok := optionsOf(m); !ok {
 			continue
 		}
-		if isFile(config.SettingsPath(h.HostDir, m.Name)) {
-			out = append(out, m.Name)
+		if file := h.SettingsFile(m); isFile(file) {
+			out = append(out, StagedSetting{Name: m.Name, File: file})
 		}
 	}
 	return out

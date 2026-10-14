@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,11 +26,11 @@ func settingsHost(t *testing.T, units map[string]string, selection ...string) *H
 	var b strings.Builder
 	b.WriteString("{ ... }:\n{\n  imports = [\n")
 	for _, s := range selection {
-		b.WriteString("    ./" + s + "\n")
+		b.WriteString("    ../" + s + "\n")
 	}
 	b.WriteString("  ];\n}\n")
-	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), b.String())
-	h, err := Load(modulesDir, hostDir)
+	mustWriteFile(t, config.SelectionPath(hostDir), b.String())
+	h, err := Load(modulesDir, hostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +210,11 @@ func TestMoveSettings_BundleFolderMoves(t *testing.T) {
 	root := t.TempDir()
 	hosts := filepath.Join(root, "hosts")
 	for _, host := range []string{"host1", "host2"} {
-		mustWriteFile(t, filepath.Join(hosts, host, "modules.nix"), "{ imports = [ ]; }\n")
+		mustWriteFile(t, config.SelectionPath(filepath.Join(hosts, host)), "{ imports = [ ]; }\n")
 		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo.nix"), "{ }\n")
 		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo", "git.nix"), "{ }\n")
 	}
-	kept, err := MoveSettings(hosts, "eduardo", "luar", "", []string{"host2"})
+	kept, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "eduardo", "luar")
 	if err != nil || len(kept) > 0 {
 		t.Fatalf("MoveSettings: %v %v", kept, err)
 	}
@@ -230,15 +231,15 @@ func TestMoveSettings_BundleFolderMoves(t *testing.T) {
 func TestMoveSettings_RemoveAndKept(t *testing.T) {
 	root := t.TempDir()
 	hosts := filepath.Join(root, "hosts")
-	mustWriteFile(t, filepath.Join(hosts, "host1", "modules.nix"), "{ imports = [ ]; }\n")
+	mustWriteFile(t, config.SelectionPath(filepath.Join(hosts, "host1")), "{ imports = [ ]; }\n")
 	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "a.nix"), "{ }\n")
 	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "b.nix"), "{ }\n")
 
-	kept, err := MoveSettings(hosts, "a", "b", "host1", nil)
+	kept, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "a", "b")
 	if err != nil || !reflect.DeepEqual(kept, []string{filepath.Join(hosts, "host1", "settings", "a.nix")}) {
 		t.Errorf("rename onto an existing file: kept = %v, err = %v", kept, err)
 	}
-	if _, err := MoveSettings(hosts, "a", "", "host1", nil); err != nil {
+	if _, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "a", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(hosts, "host1", "settings", "a.nix")); !os.IsNotExist(err) {
@@ -257,8 +258,9 @@ func TestStagedSettings(t *testing.T) {
 	}, "laptop", "nofile")
 	mustWriteFile(t, filepath.Join(h.HostDir, "settings", "laptop.nix"), "{ }\n")
 	mustWriteFile(t, filepath.Join(h.HostDir, "settings", "off.nix"), "{ }\n")
-	if got := h.StagedSettings(); !reflect.DeepEqual(got, []string{"laptop"}) {
-		t.Errorf("StagedSettings = %v, want [laptop]", got)
+	want := []StagedSetting{{Name: "laptop", File: filepath.Join(h.HostDir, "settings", "laptop.nix")}}
+	if got := h.StagedSettings(); !reflect.DeepEqual(got, want) {
+		t.Errorf("StagedSettings = %v, want %v", got, want)
 	}
 }
 
@@ -273,7 +275,7 @@ func TestSyncUnitSettings_Unselected(t *testing.T) {
 	if !ok {
 		t.Fatal("laptop not found")
 	}
-	file, rep, err := SyncUnitSettings(h, m)
+	file, rep, err := SyncUnitSettings(h, m, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +297,7 @@ func TestSyncUnitSettings_NoOptions(t *testing.T) {
 	if !ok {
 		t.Fatal("plain not found")
 	}
-	if _, _, err := SyncUnitSettings(h, m); err == nil || !strings.Contains(err.Error(), "has no settings") {
+	if _, _, err := SyncUnitSettings(h, m, false); err == nil || !strings.Contains(err.Error(), "has no settings") {
 		t.Errorf("err = %v, want 'has no settings'", err)
 	}
 	if _, err := os.Stat(filepath.Join(h.HostDir, "settings", "plain.nix")); !os.IsNotExist(err) {
@@ -327,5 +329,22 @@ func TestSyncSettings_DescriptionCommentsCreateAppendRefresh(t *testing.T) {
 	}
 	if got, want := readString(t, file), "{\n  laptop.mode = \"b\"; # a | b\n  laptop.limit = 80;\n}\n"; got != want {
 		t.Errorf("healed = %q, want %q", got, want)
+	}
+}
+
+func TestSettingsFileInEffect(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	shared := Module{Name: "laptop", Scope: ""}
+	machine := Module{Name: "dgpu", Scope: "machine"}
+	if got := h.SettingsFile(shared); got != config.SettingsPath(hostDir, "laptop") {
+		t.Errorf("shared without machine file: %s", got)
+	}
+	if got := h.SettingsFile(machine); got != config.SettingsPath(machineDir, "dgpu") {
+		t.Errorf("machine unit: %s", got)
+	}
+	mustWriteFile(t, config.SettingsPath(machineDir, "laptop"), "{ }")
+	if got := h.SettingsFile(shared); got != config.SettingsPath(machineDir, "laptop") {
+		t.Errorf("shared with machine file: %s", got)
 	}
 }

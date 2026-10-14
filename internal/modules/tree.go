@@ -15,22 +15,20 @@ import (
 )
 
 const (
-	// SelectionFile is a host's selection, in its host folder.
-	SelectionFile = config.SelectionFile
-	// LocalPrefix is the path prefix of a host-local module.
-	LocalPrefix = "local/"
+	// HostPrefix and MachinePrefix start the paths of a host's and a machine's own units.
+	HostPrefix    = config.ScopeHost + nameSep
+	MachinePrefix = config.ScopeMachine + nameSep
 )
 
 // entrypointName is the file name that turns a directory into a unit (and
-// that the walk root's own copy is skipped for).
+// that a walk root's own copy is skipped for).
 const entrypointName = config.DefaultFile
 
-// localName is never descended into when walking modulesDir; a host's local
-// units are discovered separately, from its own folder, and prefixed LocalPrefix.
-const localName = "local"
+// reservedRoot are the entries of modules/ that are never shared units.
+var reservedRoot = map[string]bool{entrypointName: true, config.HostLinkName: true, config.MachineLinkName: true}
 
-// localModulesDirName is a host folder's directory of local units.
-const localModulesDirName = "modules"
+// scopeOrder is shadow precedence, highest first.
+var scopeOrder = []string{config.ScopeMachine, config.ScopeHost, config.ScopeShared}
 
 // bundleModulesDir is the subdirectory of a folder unit that holds its
 // submodules; the unit is then a bundle.
@@ -42,49 +40,61 @@ const nameSep = "/"
 const nixExt = ".nix"
 
 // Module is one unit: a <name>.nix file or a folder with its own default.nix.
-// Path is relative to the modules dir, with no leading "./" and LocalPrefix on a
-// host-local unit. A submodule's Name is qualified by its bundle ("eduardo/git").
-// Shadows is the modules-relative path of the shared unit a local unit
-// hides, or, for a submodule of a shadowing bundle, the path it takes when
-// the bundle is staged in the shared bundle's place; "" otherwise.
-// Abs is the location on disk: under the modules dir, or under the host's
-// local modules dir for a local unit.
+// Path is relative to the modules dir, with no leading "./" and the scope
+// prefix ("host/", "machine/") on a unit of a scope. A submodule's Name is
+// qualified by its bundle ("eduardo/git"). Shadows is the modules-relative path
+// of the lowest-scope unit a unit hides, or, for a submodule of a shadowing
+// bundle, the path it takes when the bundle is staged in the hidden bundle's
+// place; "" otherwise. Abs is the location on disk. Scope is
+// config.ScopeShared, ScopeHost or ScopeMachine.
 type Module struct {
 	Name    string
 	Path    string
 	Shadows string
 	Abs     string
+	Scope   string
+}
+
+// Selection is one selection file with its modules-relative paths.
+type Selection struct {
+	Scope, File string
+	Paths       []string
 }
 
 // Host is one host's view of the module tree.
 type Host struct {
-	Name       string
-	ModulesDir string
-	HostDir    string
-	Modules    []Module // sorted by name; shadowed shared units removed
-	Selection  []string // import paths as written in the selection, no "./"
+	Name, ModulesDir, HostDir, MachineDir string      // MachineDir "" when unknown
+	Modules                               []Module    // sorted by name; hidden units removed
+	Hidden                                []Module    // units a higher scope hides
+	Selections                            []Selection // host first, then machine when MachineDir != ""
 }
 
-// Load reads one host: the shared units under modulesDir, the local units
-// under hostDir/modules (a missing folder gives none) and the selection in
-// hostDir/modules.nix. It never reads modulesDir/local or modulesDir/default.nix,
-// so the result does not depend on which host the links point at.
-func Load(modulesDir, hostDir string) (*Host, error) {
-	ms, err := Walk(modulesDir, filepath.Join(hostDir, localModulesDirName))
+// Load reads one host's view: the shared units, the host's and the
+// machine's own units, and both selections. machineDir "" leaves the machine
+// scope out. Nothing is read through modules/host or modules/machine.
+func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
+	machineModules := ""
+	if machineDir != "" {
+		machineModules = filepath.Join(machineDir, config.ScopeModulesDir)
+	}
+	units, hidden, err := Walk(modulesDir, filepath.Join(hostDir, config.ScopeModulesDir), machineModules)
 	if err != nil {
 		return nil, err
 	}
-	selection, err := ReadSelection(filepath.Join(hostDir, SelectionFile), config.ScopeShared)
-	if err != nil {
-		return nil, err
+	h := &Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, MachineDir: machineDir, Modules: units, Hidden: hidden}
+	scopes := []struct{ scope, dir string }{{config.ScopeHost, hostDir}, {config.ScopeMachine, machineDir}}
+	for _, s := range scopes {
+		if s.dir == "" {
+			continue
+		}
+		file := config.SelectionPath(s.dir)
+		paths, err := ReadSelection(file, s.scope)
+		if err != nil {
+			return nil, err
+		}
+		h.Selections = append(h.Selections, Selection{Scope: s.scope, File: file, Paths: paths})
 	}
-	return &Host{
-		Name:       filepath.Base(hostDir),
-		ModulesDir: modulesDir,
-		HostDir:    hostDir,
-		Modules:    ms,
-		Selection:  selection,
-	}, nil
+	return h, nil
 }
 
 // Find returns the module called name.
@@ -92,9 +102,34 @@ func (h *Host) Find(name string) (Module, bool) {
 	return Find(h.Modules, name)
 }
 
-// Selected returns the selection line naming name, as written (possibly stale).
+// Selection is every selected path, host first, each once.
+func (h *Host) Selection() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range h.Selections {
+		for _, p := range s.Paths {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// SelectionOf returns the selection of scope, nil when absent.
+func (h *Host) SelectionOf(scope string) *Selection {
+	for i := range h.Selections {
+		if h.Selections[i].Scope == scope {
+			return &h.Selections[i]
+		}
+	}
+	return nil
+}
+
+// Selected returns the selection path naming name (possibly stale).
 func (h *Host) Selected(name string) (string, bool) {
-	for _, path := range h.Selection {
+	for _, path := range h.Selection() {
 		if NameFromPath(path) == name {
 			return path, true
 		}
@@ -102,89 +137,104 @@ func (h *Host) Selected(name string) (string, bool) {
 	return "", false
 }
 
-// Walk discovers every unit for a host: the shared units under modulesDir
-// plus, when localModulesDir is given, that host's own local units.
-// Over modulesDir:
-//   - the root's own default.nix is skipped;
-//   - the root's own "local" entry (the reserved link to the active host's
-//     local modules) is skipped, so it is never descended into here;
-//   - a *.nix file is a unit;
-//   - a directory with its own default.nix is a unit, not descended into;
-//   - a directory without one is a transparent category and is descended
-//     into;
-//   - symlinks are followed (os.Stat, not Lstat).
-//
-// localModulesDir is walked the same way (its own root "default.nix"/"local"
-// entries have no special meaning there), and every unit found under it has
-// its Path prefixed "local/". A missing localModulesDir yields no local
-// units; an empty localModulesDir ("") skips the local walk entirely.
-//
-// The result is sorted by Name (byte order). A name claimed by more than one
-// shared unit, or by more than one local unit, is a hard error listing every
-// path that claims it. A local unit whose name a shared unit also claims
-// shadows it: it gets Shadows set to the shared path and the shared unit is
-// dropped from the result.
-func Walk(modulesDir, localModulesDir string) ([]Module, error) {
-	var shared []Module
-	if err := walkDir(modulesDir, modulesDir, "", true, &shared); err != nil {
+// walkScope walks one scope's units: the shared tree when scope is
+// ScopeShared, otherwise a scope's modules folder, whose units get the scope
+// prefix. "" or a missing folder gives none.
+func walkScope(dir, scope string) ([]Module, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) && scope != config.ScopeShared {
+			return nil, nil
+		}
 		return nil, err
 	}
-
-	var local []Module
-	if localModulesDir != "" {
-		if _, err := os.Stat(localModulesDir); err == nil {
-			var localRaw []Module
-			if err := walkDir(localModulesDir, localModulesDir, "", false, &localRaw); err != nil {
-				return nil, err
-			}
-			for _, u := range localRaw {
-				local = append(local, Module{Name: u.Name, Path: LocalPrefix + u.Path, Abs: filepath.Join(localModulesDir, u.Path)})
-			}
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
+	skip := map[string]bool{entrypointName: true}
+	if scope == config.ScopeShared {
+		skip = reservedRoot
 	}
-
-	if err := checkDuplicates(shared); err != nil {
+	var raw []Module
+	if err := walkDir(dir, dir, "", skip, &raw); err != nil {
 		return nil, err
 	}
-	if err := checkDuplicates(local); err != nil {
+	for i := range raw {
+		raw[i].Abs = filepath.Join(dir, raw[i].Path)
+		raw[i].Scope = scope
+		if scope != config.ScopeShared {
+			raw[i].Path = scope + nameSep + raw[i].Path
+		}
+	}
+	if err := checkDuplicates(raw); err != nil {
 		return nil, err
 	}
-
-	sharedByName := make(map[string]Module, len(shared))
-	for _, u := range shared {
-		sharedByName[u.Name] = u
-	}
-	shadowed := make(map[string]bool)
-	for _, l := range local {
-		if Parent(l.Name) != "" {
-			continue
-		}
-		orig, ok := sharedByName[l.Name]
-		if !ok {
-			continue
-		}
-		shadowed[l.Name] = true
-		for i, u := range local {
-			switch {
-			case u.Name == l.Name:
-				local[i].Shadows = orig.Path
-			case Top(u.Name) == l.Name:
-				local[i].Shadows = filepath.Join(filepath.Dir(orig.Path), filepath.Base(l.Path), strings.TrimPrefix(u.Path, l.Path))
-			}
-		}
-	}
-
-	raw := make([]Module, 0, len(shared)+len(local))
-	for _, u := range shared {
-		if !shadowed[Top(u.Name)] {
-			raw = append(raw, u)
-		}
-	}
-	raw = append(raw, local...)
-	sort.Slice(raw, func(i, j int) bool { return raw[i].Name < raw[j].Name })
 	return raw, nil
+}
+
+// Walk discovers the units of the shared tree under modulesDir and of the
+// host's and machine's modules folders ("" for none). A top-level name in
+// more than one scope is won by the highest (machine, host, shared): the
+// winner and its submodules get Shadows, the location they take in the
+// stage, from the lowest scope's unit of that name; every other scope's unit
+// of that name, submodules included, is returned in hidden.
+func Walk(modulesDir, hostModulesDir, machineModulesDir string) (units, hidden []Module, err error) {
+	dirs := map[string]string{
+		config.ScopeShared:  modulesDir,
+		config.ScopeHost:    hostModulesDir,
+		config.ScopeMachine: machineModulesDir,
+	}
+	byScope := map[string][]Module{}
+	for _, scope := range scopeOrder {
+		if byScope[scope], err = walkScope(dirs[scope], scope); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	present := map[string][]string{} // top-level name -> scopes holding it, precedence order
+	for _, scope := range scopeOrder {
+		for _, u := range byScope[scope] {
+			if Parent(u.Name) == "" {
+				present[u.Name] = append(present[u.Name], scope)
+			}
+		}
+	}
+
+	hide := map[string]map[string]bool{} // scope -> hidden top-level names
+	for name, scopes := range present {
+		if len(scopes) < 2 {
+			continue
+		}
+		winner, orig := scopes[0], scopes[len(scopes)-1]
+		origUnit, _ := Find(byScope[orig], name)
+		winUnit, _ := Find(byScope[winner], name)
+		for i, u := range byScope[winner] {
+			switch {
+			case u.Name == name:
+				byScope[winner][i].Shadows = origUnit.Path
+			case Top(u.Name) == name:
+				byScope[winner][i].Shadows = filepath.Join(filepath.Dir(origUnit.Path), filepath.Base(winUnit.Path), strings.TrimPrefix(u.Path, winUnit.Path))
+			}
+		}
+		for _, s := range scopes[1:] {
+			if hide[s] == nil {
+				hide[s] = map[string]bool{}
+			}
+			hide[s][name] = true
+		}
+	}
+
+	for _, scope := range scopeOrder {
+		for _, u := range byScope[scope] {
+			if hide[scope][Top(u.Name)] {
+				hidden = append(hidden, u)
+			} else {
+				units = append(units, u)
+			}
+		}
+	}
+	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
+	sort.Slice(hidden, func(i, j int) bool { return hidden[i].Path < hidden[j].Path })
+	return units, hidden, nil
 }
 
 func checkDuplicates(us []Module) error {
@@ -221,9 +271,8 @@ func checkDuplicates(us []Module) error {
 // walkDir emits (unsorted, duplicates left in) units found under dir into
 // *out. root is the fixed walk root, used to compute relative paths.
 // prefix is the qualified-name prefix of the bundle being walked ("" outside
-// one). skipLocalRoot, when true, also skips an entry named localName at the
-// walk root (used for the shared modulesDir walk only).
-func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error {
+// one). skipRoot names the entries skipped at the walk root.
+func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -239,10 +288,7 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 			continue
 		}
 
-		if dir == root && entry.Name() == entrypointName {
-			continue
-		}
-		if dir == root && skipLocalRoot && entry.Name() == localName {
+		if dir == root && skipRoot[entry.Name()] {
 			continue
 		}
 
@@ -255,7 +301,7 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 				name := prefix + entry.Name()
 				*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
 				if IsBundle(entryPath) {
-					if err := walkBundle(root, entryPath, relPath, name, skipLocalRoot, out); err != nil {
+					if err := walkBundle(root, entryPath, relPath, name, skipRoot, out); err != nil {
 						return err
 					}
 				}
@@ -263,7 +309,7 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 				if entry.Name() == bundleModulesDir {
 					return fmt.Errorf("%s: a folder named modules is only allowed directly inside a module (a bundle)", relPath)
 				}
-				if err := walkDir(root, entryPath, prefix, skipLocalRoot, out); err != nil {
+				if err := walkDir(root, entryPath, prefix, skipRoot, out); err != nil {
 					return err
 				}
 			}
@@ -285,12 +331,12 @@ func walkDir(root, dir, prefix string, skipLocalRoot bool, out *[]Module) error 
 
 // walkBundle emits the submodules under a bundle's modules/ folder, named
 // under the bundle's qualified name.
-func walkBundle(root, bundleDir, rel, name string, skipLocalRoot bool, out *[]Module) error {
+func walkBundle(root, bundleDir, rel, name string, skipRoot map[string]bool, out *[]Module) error {
 	modulesDir := filepath.Join(bundleDir, bundleModulesDir)
 	if isFile(filepath.Join(modulesDir, entrypointName)) {
 		return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
 	}
-	return walkDir(root, modulesDir, name+nameSep, skipLocalRoot, out)
+	return walkDir(root, modulesDir, name+nameSep, skipRoot, out)
 }
 
 // IsBundle reports whether dir is a folder unit with a modules/ subdirectory.
@@ -331,23 +377,6 @@ func Find(ms []Module, name string) (Module, bool) {
 		}
 	}
 	return Module{}, false
-}
-
-// Hosts returns the sorted names of the directories under hostsDir that
-// hold a selection file.
-func Hosts(hostsDir string) ([]string, error) {
-	entries, err := os.ReadDir(hostsDir)
-	if err != nil {
-		return nil, err
-	}
-	var hosts []string
-	for _, e := range entries {
-		if isFile(filepath.Join(hostsDir, e.Name(), SelectionFile)) {
-			hosts = append(hosts, e.Name())
-		}
-	}
-	sort.Strings(hosts)
-	return hosts, nil
 }
 
 // NameFromPath derives a unit's name from an import path: strip a trailing

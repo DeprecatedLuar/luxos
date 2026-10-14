@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -22,6 +21,16 @@ const bundleModulesInfix = "/modules/"
 // New == "" means the line was removed.
 type Change struct {
 	File, Old, New string
+}
+
+// SelectionFile is one selection on disk and the scope its lines are relative to.
+type SelectionFile struct {
+	Scope, File string
+}
+
+// Move is a selection line put into the selection of the scope its unit lives in.
+type Move struct {
+	Name, From, To string
 }
 
 // ReadSelection returns the modules-relative paths of the lines of file, the
@@ -73,30 +82,46 @@ func CheckSelection(file string) error {
 	return nil
 }
 
-// Importers returns every entrypoint file with a line whose name (from its
-// path, per NameFromPath) matches name — stale paths included. Read-only.
-// host == "" scans every <hostsDir>/*/modules.nix; otherwise only
-// <hostsDir>/<host>/modules.nix is considered. A host whose file isn't
-// recognizable is silently skipped (same tolerance as Retarget/Heal — it
-// just can't be a hit).
-func Importers(hostsDir, name, host string) ([]string, error) {
-	files, err := entrypointsFor(hostsDir, host)
-	if err != nil {
-		return nil, err
+// AllSelections returns every host's and every machine's selection, hosts
+// first, each sorted by folder name.
+func AllSelections(hostsDir, machinesDir string) ([]SelectionFile, error) {
+	var out []SelectionFile
+	for _, root := range []struct{ scope, dir string }{{config.ScopeHost, hostsDir}, {config.ScopeMachine, machinesDir}} {
+		names, err := scopeFolders(root.scope, root.dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range names {
+			out = append(out, SelectionFile{Scope: root.scope, File: config.SelectionPath(filepath.Join(root.dir, n))})
+		}
 	}
+	return out, nil
+}
 
+func scopeFolders(scope, dir string) ([]string, error) {
+	if scope == config.ScopeHost {
+		return config.Hosts(dir)
+	}
+	return config.Machines(dir)
+}
+
+// Importers returns every file of files with a line whose name (from its
+// path, per NameFromPath) matches name, stale paths included. Read-only. A
+// file that isn't recognizable is silently skipped (same tolerance as
+// Retarget and Heal: it just can't be a hit).
+func Importers(files []SelectionFile, name string) ([]string, error) {
 	var out []string
-	for _, file := range files {
-		lines, ok, err := nix.ListImports(file)
+	for _, f := range files {
+		lines, ok, err := nix.ListImports(f.File)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
-		for _, p := range pathsOf(config.ScopeShared, lines) {
+		for _, p := range pathsOf(f.Scope, lines) {
 			if NameFromPath(p) == name {
-				out = append(out, file)
+				out = append(out, f.File)
 				break
 			}
 		}
@@ -104,65 +129,52 @@ func Importers(hostsDir, name, host string) ([]string, error) {
 	return out, nil
 }
 
-// RetargetSelections is the writer of host selections: rewrite every import
-// line whose name matches name to newPath, or delete it when newPath is
-// "". host == "" reaches every <hostsDir>/*/modules.nix (the cross-host
-// case, for a shared unit); otherwise only <hostsDir>/<host>/modules.nix is
-// touched (the local-unit case). Returns every change made; a no-op
-// line (already at newPath) is left untouched and unreported, so a second
-// run returns no changes. A host whose file isn't recognizable is warned
-// about and left untouched. The entrypoints of skipHosts are never rewritten.
-func RetargetSelections(hostsDir, name, newPath, host string, skipHosts []string) ([]Change, error) {
-	changes, _, err := retarget(hostsDir, name, newPath, host, skipHosts)
+// RetargetSelections is the writer of selections: rewrite every import line
+// of files whose name matches name to newPath (modules-relative), or delete
+// it when newPath is "". Returns every change made; a no-op line (already at
+// newPath) is left untouched and unreported, so a second run returns no
+// changes. A file that isn't recognizable is left untouched.
+func RetargetSelections(files []SelectionFile, name, newPath string) ([]Change, error) {
+	changes, _, err := retarget(files, name, newPath)
 	return changes, err
 }
 
-func retarget(hostsDir, name, newPath, host string, skipHosts []string) ([]Change, []string, error) {
-	files, err := scopedEntrypoints(hostsDir, host, skipHosts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	match := func(line string) bool { return NameFromPath(config.PathOf(config.ScopeShared, line)) == name }
-	newLine := ""
-	if newPath != "" {
-		newLine = config.LineOf(config.ScopeShared, strings.TrimPrefix(newPath, "./"))
-	}
+func retarget(files []SelectionFile, name, newPath string) ([]Change, []string, error) {
+	newPath = strings.TrimPrefix(newPath, "./")
 
 	var changes []Change
 	var warnings []string
 
-	for _, file := range files {
-		old, ok, err := nix.RetargetImports(file, match, newLine)
+	for _, f := range files {
+		match := func(line string) bool { return NameFromPath(config.PathOf(f.Scope, line)) == name }
+		newLine := ""
+		if newPath != "" {
+			newLine = config.LineOf(f.Scope, newPath)
+		}
+		old, ok, err := nix.RetargetImports(f.File, match, newLine)
 		if err != nil {
 			return nil, nil, err
 		}
 		if !ok {
-			warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping", file))
+			warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping", f.File))
 			continue
 		}
-		for _, o := range pathsOf(config.ScopeShared, old) {
-			changes = append(changes, Change{File: file, Old: o, New: newPath})
+		for _, o := range pathsOf(f.Scope, old) {
+			changes = append(changes, Change{File: f.File, Old: o, New: newPath})
 		}
 	}
 
 	return changes, warnings, nil
 }
 
-// RetargetPrefix rewrites every import line that selects a submodule of the
-// bundle at oldPrefix (a path starting with oldPrefix + "/modules/") so the
-// bundle prefix becomes newPrefix, or deletes the line when newPrefix is "".
-// Host scope and skipHosts are those of Retarget; a host whose file isn't
-// recognizable is left untouched.
-func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []string) ([]Change, error) {
-	files, err := scopedEntrypoints(hostsDir, host, skipHosts)
-	if err != nil {
-		return nil, err
-	}
-
+// RetargetPrefix rewrites every import line of files that selects a submodule
+// of the bundle at oldPrefix (a path starting with oldPrefix + "/modules/") so
+// the bundle prefix becomes newPrefix, or deletes the line when newPrefix is
+// "". A file that isn't recognizable is left untouched.
+func RetargetPrefix(files []SelectionFile, oldPrefix, newPrefix string) ([]Change, error) {
 	var changes []Change
-	for _, file := range files {
-		lines, ok, err := nix.ListImports(file)
+	for _, f := range files {
+		lines, ok, err := nix.ListImports(f.File)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +182,7 @@ func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []str
 			continue
 		}
 		done := make(map[string]bool)
-		for _, path := range pathsOf(config.ScopeShared, lines) {
+		for _, path := range pathsOf(f.Scope, lines) {
 			if !strings.HasPrefix(path, oldPrefix+bundleModulesInfix) || done[path] {
 				continue
 			}
@@ -179,231 +191,274 @@ func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []str
 			if newPrefix != "" {
 				newPath = newPrefix + strings.TrimPrefix(path, oldPrefix)
 			}
-			line := config.LineOf(config.ScopeShared, path)
+			line := config.LineOf(f.Scope, path)
 			newLine := ""
 			if newPath != "" {
-				newLine = config.LineOf(config.ScopeShared, newPath)
+				newLine = config.LineOf(f.Scope, newPath)
 			}
-			old, _, err := nix.RetargetImports(file, func(l string) bool { return l == line }, newLine)
+			old, _, err := nix.RetargetImports(f.File, func(l string) bool { return l == line }, newLine)
 			if err != nil {
 				return nil, err
 			}
-			for _, o := range pathsOf(config.ScopeShared, old) {
-				changes = append(changes, Change{File: file, Old: o, New: newPath})
+			for _, o := range pathsOf(f.Scope, old) {
+				changes = append(changes, Change{File: f.File, Old: o, New: newPath})
 			}
 		}
 	}
 	return changes, nil
 }
 
-// Heal rewrites every broken import line in every host's entrypoint,
-// per host: each host's selection lines are checked and resolved
-// against that host's own unit set (shared units plus that host's own
-// local/ units, per Walk(modulesDir, <hostsDir>/<host>/modules)).
-//   - path exists (local/ prefixed against that host's local modules dir,
-//     otherwise against modulesDir): keep.
-//   - name resolves to a local/ unit: retarget scoped to this host only.
-//   - name resolves to a shared unit: retarget in every host referencing
-//     it (once per name).
-//   - name resolves to nothing, active host: error (collecting every such
-//     line into one), or with prune: remove and report as a Change.
-//   - name resolves to nothing, other host: untouched, unreported.
-//   - path is config.HardwareUnitPath on a non-active host: skipped, since
-//     the hardware link exists only in the active host's modules.
-//
-// A host whose own Walk fails errors the whole call when it's
-// activeHost, otherwise that host is skipped. Only the active host's
-// problems are reported; other hosts report theirs when they build.
-// Heal is idempotent.
-func Heal(hostsDir, modulesDir, activeHost string, prune bool) ([]Change, []string, error) {
-	files, err := hostEntrypoints(hostsDir)
+// Heal first moves every cross-scope line of the active host's and this
+// machine's selections (a ../machine/x line in the host's, a ../host/x line
+// in the machine's) into the other one. It then checks every selection of
+// every host and machine folder against the shared units plus that folder's
+// own: a line naming no file that resolves by name is rewritten, in every
+// selection for a shared unit and in its own for a scoped one. A name
+// resolving to nothing fails on the active host's and this machine's
+// selections (prune removes it instead) and is left alone elsewhere, as are
+// cross-scope lines of other folders. A folder whose own Walk fails errors
+// the whole call when it is active, otherwise it is skipped. Heal is
+// idempotent.
+func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prune bool) ([]Move, []Change, []string, error) {
+	activeHostSel := config.SelectionPath(filepath.Join(hostsDir, activeHost))
+	activeMachineSel := ""
+	if machineDir != "" {
+		activeMachineSel = config.SelectionPath(machineDir)
+	}
+
+	moves, err := moveCrossScope(activeHostSel, activeMachineSel)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+
+	files, err := AllSelections(hostsDir, machinesDir)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	var changes []Change
 	var warnings []string
-	var unresolved []string // "file: ./path" for active-host unresolved names
+	var unresolved []string
 
-	// Retargets already applied, keyed by name for a shared unit and by host
-	// and name for a local one: retarget itself reaches every relevant host,
+	// Retargets already applied, keyed by name for a shared unit and by file
+	// and name for a scoped one: retarget itself reaches every relevant file,
 	// so a name on more than one broken line is retargeted once.
 	handled := make(map[string]bool)
 
-	for _, file := range files {
-		host := filepath.Base(filepath.Dir(file))
-		isActive := host == activeHost
+	for _, f := range files {
+		active := f.File == activeHostSel || f.File == activeMachineSel
+		folderModules := filepath.Join(filepath.Dir(filepath.Dir(f.File)), config.ScopeModulesDir)
 
-		us, err := Walk(modulesDir, filepath.Join(hostsDir, host, localModulesDirName))
+		var us []Module
+		if f.Scope == config.ScopeHost {
+			us, _, err = Walk(modulesDir, folderModules, "")
+		} else {
+			us, _, err = Walk(modulesDir, "", folderModules)
+		}
 		if err != nil {
-			if isActive {
-				return nil, nil, err
+			if active {
+				return nil, nil, nil, err
 			}
 			continue
 		}
 
-		lines, ok, err := nix.ListImports(file)
+		lines, ok, err := nix.ListImports(f.File)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		paths := pathsOf(config.ScopeShared, lines)
 		if !ok {
-			if isActive {
-				warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping heal", file))
+			if active {
+				warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping heal", f.File))
 			}
 			continue
 		}
 
-		for _, itPath := range paths {
-			if !isActive && itPath == config.HardwareUnitPath {
+		for _, line := range lines {
+			p := config.PathOf(f.Scope, line)
+			if crossScope(f.Scope, p) {
 				continue
 			}
 			var fullPath string
-			if rest, cut := strings.CutPrefix(itPath, LocalPrefix); cut {
-				fullPath = filepath.Join(hostsDir, host, localModulesDirName, rest)
+			if rest, cut := strings.CutPrefix(p, f.Scope+nameSep); f.Scope != config.ScopeShared && cut {
+				fullPath = filepath.Join(folderModules, rest)
 			} else {
-				fullPath = filepath.Join(modulesDir, itPath)
+				fullPath = filepath.Join(modulesDir, p)
 			}
 			if _, err := os.Stat(fullPath); err == nil {
 				continue
 			}
 
-			name := NameFromPath(itPath)
+			name := NameFromPath(p)
 			if found, ok := Find(us, name); ok {
-				scope, key := "", name
-				if strings.HasPrefix(found.Path, LocalPrefix) {
-					scope, key = host, host+"\x00"+name
+				targets, key := []SelectionFile{f}, f.File+"\x00"+name
+				if found.Scope == config.ScopeShared {
+					targets, key = files, name
 				}
 				if handled[key] {
 					continue
 				}
 				handled[key] = true
-				rc, rw, err := retarget(hostsDir, name, found.Path, scope, nil)
+				rc, rw, err := retarget(targets, name, found.Path)
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, nil, err
 				}
 				changes = append(changes, rc...)
 				warnings = append(warnings, rw...)
 				continue
 			}
 
-			if !isActive {
+			if !active {
 				continue
 			}
 			if prune {
-				if err := nix.RemoveImport(file, config.LineOf(config.ScopeShared, itPath)); err != nil {
-					return nil, nil, err
+				if err := nix.RemoveImport(f.File, line); err != nil {
+					return nil, nil, nil, err
 				}
-				changes = append(changes, Change{File: file, Old: itPath, New: ""})
+				changes = append(changes, Change{File: f.File, Old: p, New: ""})
 			} else {
-				unresolved = append(unresolved, fmt.Sprintf("%s: ./%s does not exist and '%s' does not resolve to any module", file, itPath, name))
+				unresolved = append(unresolved, fmt.Sprintf("%s: %s does not exist and '%s' does not resolve to any module", f.File, line, name))
 			}
 		}
 	}
 
 	if len(unresolved) > 0 {
 		msg := strings.Join(unresolved, "\n") + "\n  Fix the import by hand, or rerun with --prune to remove it."
-		return changes, warnings, errors.New(msg)
+		return moves, changes, warnings, errors.New(msg)
 	}
 
-	return changes, warnings, nil
+	return moves, changes, warnings, nil
 }
 
-//──[private helpers]─────────────────────────────────────────────────────
-
-// hostEntrypoints returns every <hostsDir>/*/modules.nix that exists,
-// sorted for deterministic iteration.
-func hostEntrypoints(hostsDir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(hostsDir, "*", SelectionFile))
-	if err != nil {
-		return nil, err
+// crossScope reports whether path p, written in a selection of scope, names
+// a unit of the other scope.
+func crossScope(scope, p string) bool {
+	switch scope {
+	case config.ScopeHost:
+		return strings.HasPrefix(p, MachinePrefix)
+	case config.ScopeMachine:
+		return strings.HasPrefix(p, HostPrefix)
 	}
-	var files []string
-	for _, m := range matches {
-		if isFile(m) {
-			files = append(files, m)
-		}
-	}
-	sort.Strings(files)
-	return files, nil
+	return false
 }
 
-// scopedEntrypoints is entrypointsFor without the entrypoints of skipHosts.
-func scopedEntrypoints(hostsDir, host string, skipHosts []string) ([]string, error) {
-	all, err := entrypointsFor(hostsDir, host)
-	if err != nil {
-		return nil, err
-	}
-	skip := make(map[string]bool, len(skipHosts))
-	for _, h := range skipHosts {
-		skip[h] = true
-	}
-	var files []string
-	for _, f := range all {
-		if !skip[filepath.Base(filepath.Dir(f))] {
-			files = append(files, f)
-		}
-	}
-	return files, nil
-}
-
-// entrypointsFor returns the entrypoint file(s) a host-scoped call should
-// act on: every <hostsDir>/*/modules.nix when host is "", or just
-// <hostsDir>/<host>/modules.nix (if it exists) otherwise.
-func entrypointsFor(hostsDir, host string) ([]string, error) {
-	if host == "" {
-		return hostEntrypoints(hostsDir)
-	}
-	file := filepath.Join(hostsDir, host, SelectionFile)
-	fi, err := os.Stat(file)
-	switch {
-	case os.IsNotExist(err):
-		return nil, nil
-	case err != nil:
-		return nil, err
-	case fi.IsDir():
+// moveCrossScope moves each line of hostFile naming a machine unit into
+// machineFile, and each line of machineFile naming a host unit into hostFile.
+// machineFile "" leaves the machine side out.
+func moveCrossScope(hostFile, machineFile string) ([]Move, error) {
+	if machineFile == "" {
 		return nil, nil
 	}
-	return []string{file}, nil
+	var moves []Move
+	for _, pair := range []struct {
+		from, to           string
+		fromScope, toScope string
+	}{
+		{hostFile, machineFile, config.ScopeHost, config.ScopeMachine},
+		{machineFile, hostFile, config.ScopeMachine, config.ScopeHost},
+	} {
+		lines, ok, err := nix.ListImports(pair.from)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		for _, line := range lines {
+			p := config.PathOf(pair.fromScope, line)
+			if !crossScope(pair.fromScope, p) {
+				continue
+			}
+			if err := nix.RemoveImport(pair.from, line); err != nil {
+				return nil, err
+			}
+			present, err := selectionHas(pair.to, pair.toScope, p)
+			if err != nil {
+				return nil, err
+			}
+			if !present {
+				if err := nix.AddImport(pair.to, config.LineOf(pair.toScope, p)); err != nil {
+					return nil, err
+				}
+			}
+			moves = append(moves, Move{Name: NameFromPath(p), From: pair.from, To: pair.to})
+		}
+	}
+	return moves, nil
+}
+
+// selectionHas reports whether file, a selection of scope, has a line for path p.
+func selectionHas(file, scope, p string) (bool, error) {
+	paths, err := ReadSelection(file, scope)
+	if err != nil {
+		return false, err
+	}
+	for _, have := range paths {
+		if have == p {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func shapeError(file string) error {
 	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
 }
 
-// Enable adds the selection line of the module called name to h's selection
-// file and to h.Selection. It reports false when name is already selected.
-func Enable(h *Host, name string) (bool, error) {
+// Enable adds name's line to the selection it belongs in: a machine unit's
+// to the machine selection, any other to the host's, or to the machine's
+// when toMachine (a shared unit only). Reports false when already there.
+func Enable(h *Host, name string, toMachine bool) (bool, error) {
 	m, ok := h.Find(name)
 	if !ok {
 		return false, fmt.Errorf("unknown module '%s'", name)
 	}
-	if _, on := h.Selected(name); on {
-		return false, nil
+	scope := config.ScopeHost
+	switch {
+	case m.Scope == config.ScopeMachine:
+		scope = config.ScopeMachine
+	case toMachine && m.Scope == config.ScopeHost:
+		return false, fmt.Errorf("'%s' is a host module; the machine selection holds only shared and machine modules", name)
+	case toMachine:
+		scope = config.ScopeMachine
 	}
-	if err := nix.AddImport(filepath.Join(h.HostDir, SelectionFile), config.LineOf(config.ScopeShared, m.Path)); err != nil {
+	sel := h.SelectionOf(scope)
+	if sel == nil {
+		return false, fmt.Errorf("no %s selection: run luxos rebuild build first", scope)
+	}
+	for _, p := range sel.Paths {
+		if NameFromPath(p) == name {
+			return false, nil
+		}
+	}
+	if err := nix.AddImport(sel.File, config.LineOf(scope, m.Path)); err != nil {
 		return false, err
 	}
-	h.Selection = append(h.Selection, m.Path)
+	sel.Paths = append(sel.Paths, m.Path)
 	return true, nil
 }
 
-// Disable removes the selection line naming name from h's selection file and
-// from h.Selection. It reports false when name is not selected.
-func Disable(h *Host, name string) (bool, error) {
-	path, on := h.Selected(name)
-	if !on {
-		return false, nil
-	}
-	if err := nix.RemoveImport(filepath.Join(h.HostDir, SelectionFile), config.LineOf(config.ScopeShared, path)); err != nil {
-		return false, err
-	}
-	kept := h.Selection[:0]
-	for _, sel := range h.Selection {
-		if sel != path {
-			kept = append(kept, sel)
+// Disable removes name's line from every selection holding it and returns
+// those files.
+func Disable(h *Host, name string) ([]string, error) {
+	var files []string
+	for i := range h.Selections {
+		sel := &h.Selections[i]
+		kept := sel.Paths[:0]
+		removed := false
+		for _, p := range sel.Paths {
+			if NameFromPath(p) != name {
+				kept = append(kept, p)
+				continue
+			}
+			if err := nix.RemoveImport(sel.File, config.LineOf(sel.Scope, p)); err != nil {
+				return files, err
+			}
+			removed = true
+		}
+		sel.Paths = kept
+		if removed {
+			files = append(files, sel.File)
 		}
 	}
-	h.Selection = kept
-	return true, nil
+	return files, nil
 }

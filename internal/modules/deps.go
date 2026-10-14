@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
@@ -50,7 +51,7 @@ func (h *Host) walk(visit func(m Module, file string) []string) error {
 			queue = append(queue, m)
 		}
 	}
-	for _, sel := range h.Selection {
+	for _, sel := range h.Selection() {
 		enqueue(NameFromPath(sel))
 	}
 	for len(queue) > 0 {
@@ -81,16 +82,17 @@ func (h *Host) walk(visit func(m Module, file string) []string) error {
 // nix-instantiate missing); a file that itself fails to parse is reported as
 // a Violation instead.
 func (h *Host) Validate() ([]Violation, error) {
-	selected := make(map[string]bool, len(h.Selection))
-	for _, sel := range h.Selection {
+	selection := h.Selection()
+	selected := make(map[string]bool, len(selection))
+	for _, sel := range selection {
 		selected[NameFromPath(sel)] = true
 	}
 
 	var violations []Violation
-	for _, sel := range h.Selection {
+	for _, sel := range selection {
 		name := NameFromPath(sel)
 		if _, ok := h.Find(name); !ok {
-			return nil, fmt.Errorf("import ./%s does not resolve to any module under %s/", sel, bundleModulesDir)
+			return nil, fmt.Errorf("import %s does not resolve to any module under %s/", sel, bundleModulesDir)
 		}
 		if parent := Parent(name); parent != "" && !selected[parent] {
 			violations = append(violations, Violation{
@@ -108,8 +110,8 @@ func (h *Host) Validate() ([]Violation, error) {
 			walkErr = err
 			return nil
 		}
-		if strings.HasPrefix(m.Path, LocalPrefix) {
-			rel = LocalPrefix + rel
+		if m.Scope != config.ScopeShared {
+			rel = m.Scope + nameSep + rel
 		}
 
 		report := func(format string, args ...any) {
@@ -135,7 +137,7 @@ func (h *Host) Validate() ([]Violation, error) {
 				continue
 			}
 			if IsBundle(owner) && (p == ownerModules || strings.HasPrefix(p, ownerModules+"/")) {
-				report("references %s inside its bundle's modules/ (submodules are selected in the host's modules.nix)", p)
+				report("references %s inside its bundle's modules/ (submodules are selected in the selection)", p)
 			}
 		}
 		for _, p := range dynamic {
@@ -160,8 +162,8 @@ func (h *Host) Validate() ([]Violation, error) {
 				report("luxos.modules: '%s' is a submodule, private to its bundle; reference '%s' instead", name, Top(name))
 				continue
 			}
-			if !strings.HasPrefix(m.Path, LocalPrefix) && strings.HasPrefix(dep.Path, LocalPrefix) && dep.Shadows == "" {
-				report("luxos.modules: shared module references local module '%s'", name)
+			if crossesScope(m, dep) {
+				report("luxos.modules: %s references %s module '%s'; host and machine modules may only reference shared ones", scopeLabel(m), dep.Scope, name)
 			}
 			follow = append(follow, name)
 		}
@@ -234,7 +236,7 @@ func (h *Host) Built() ([]Module, error) {
 		return nil, err
 	}
 	names := map[string]bool{}
-	for _, sel := range h.Selection {
+	for _, sel := range h.Selection() {
 		names[NameFromPath(sel)] = true
 	}
 	for name := range pulled {
@@ -251,39 +253,35 @@ func (h *Host) Built() ([]Module, error) {
 	return out, nil
 }
 
-// Dependents returns every module file under modulesDir (root "local"
-// entry skipped) plus every localModulesDirs entry, whose
+// Dependents returns every module file under modulesDir (its reserved root
+// entries skipped) plus every unitDirs entry (its selection skipped), whose
 // luxos.modules list contains name. Read-only; a file whose luxos.modules
 // use isn't the recognized shape (or that fails to parse) is silently
-// skipped — it just can't be a hit. A missing localModulesDirs entry is
-// silently skipped too.
-func Dependents(modulesDir string, localModulesDirs []string, name string) ([]string, error) {
+// skipped — it just can't be a hit. A missing unitDirs entry is silently
+// skipped too.
+func Dependents(modulesDir string, unitDirs []string, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
-	files, err := findAllNix(root, localName)
+	files, err := findAllNix(root, reservedRoot)
 	if err != nil {
 		return nil, err
 	}
-	for _, d := range localModulesDirs {
+	for _, d := range unitDirs {
 		if _, err := os.Stat(d); err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return nil, err
 		}
-		lf, err := findAllNix(d, "")
+		lf, err := findAllNix(d, map[string]bool{entrypointName: true})
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, lf...)
 	}
 	sort.Strings(files)
-	rootDefault := filepath.Join(root, entrypointName)
 
 	var out []string
 	for _, file := range files {
-		if file == rootDefault {
-			continue
-		}
 		names, _, err := nix.ModuleNames(file)
 		if err != nil {
 			continue
@@ -306,8 +304,8 @@ func Dependents(modulesDir string, localModulesDirs []string, name string) ([]st
 // anywhere refuses the whole operation before anything changes.
 // nix.RetargetModuleName refuses any candidate that differs from the
 // original by more than the one substitution.
-func RetargetRefs(modulesDir string, localModulesDirs []string, name, newName string) ([]Change, error) {
-	files, err := Dependents(modulesDir, localModulesDirs, name)
+func RetargetRefs(modulesDir string, unitDirs []string, name, newName string) ([]Change, error) {
+	files, err := Dependents(modulesDir, unitDirs, name)
 	if err != nil {
 		return nil, err
 	}
@@ -350,25 +348,41 @@ func (m Module) Files() ([]string, error) {
 		return []string{m.Abs}, nil
 	}
 	if IsBundle(m.Abs) {
-		return findAllNix(m.Abs, bundleModulesDir)
+		return findAllNix(m.Abs, map[string]bool{bundleModulesDir: true})
 	}
-	return findAllNix(m.Abs, "")
+	return findAllNix(m.Abs, nil)
 }
 
 // Root returns the modules directory m lives under: the shared modules dir,
-// or its host's local modules dir for a local module.
+// or the modules folder of its host or machine.
 func (m Module) Root() string {
-	rel := filepath.ToSlash(strings.TrimPrefix(m.Path, LocalPrefix))
+	rel := filepath.ToSlash(strings.TrimPrefix(m.Path, m.Scope+nameSep))
 	return strings.TrimSuffix(m.Abs, "/"+rel)
+}
+
+// crossesScope reports whether m may not reference dep: dep belongs to a
+// host or machine scope other than m's and no shared unit of that name exists.
+func crossesScope(m, dep Module) bool {
+	if dep.Scope == config.ScopeShared || dep.Scope == m.Scope {
+		return false
+	}
+	return dep.Shadows == "" || strings.HasPrefix(dep.Shadows, HostPrefix) || strings.HasPrefix(dep.Shadows, MachinePrefix)
+}
+
+func scopeLabel(m Module) string {
+	if m.Scope == config.ScopeShared {
+		return "shared module"
+	}
+	return m.Scope + " module"
 }
 
 // findAllNix returns every *.nix file under root (following symlinks, like
 // `find -L root -type f -name '*.nix'`), sorted in byte order. A broken
-// symlink or vanished entry is skipped. skipRootEntry, when non-empty, is
-// the name of one entry at root's own top level (not any nested occurrence)
-// that is skipped entirely rather than walked — used to keep modulesDir's
-// reserved "local" link out of a walk rooted at modulesDir itself.
-func findAllNix(root, skipRootEntry string) ([]string, error) {
+// symlink or vanished entry is skipped. skipRoot names the entries at root's
+// own top level (not any nested occurrence) that are skipped entirely rather
+// than walked — used to keep modulesDir's reserved links and entry file out of
+// a walk rooted at modulesDir itself.
+func findAllNix(root string, skipRoot map[string]bool) ([]string, error) {
 	var out []string
 	var walk func(dir string) error
 	walk = func(dir string) error {
@@ -377,7 +391,7 @@ func findAllNix(root, skipRootEntry string) ([]string, error) {
 			return err
 		}
 		for _, e := range entries {
-			if dir == root && skipRootEntry != "" && e.Name() == skipRootEntry {
+			if dir == root && skipRoot[e.Name()] {
 				continue
 			}
 			p := filepath.Join(dir, e.Name())

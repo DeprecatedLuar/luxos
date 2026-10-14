@@ -2,6 +2,7 @@ package modules
 
 import (
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,11 +13,21 @@ import (
 
 // ---- Retarget ----
 
-func setupTwoHosts(t *testing.T) (hostsDir string, host1, host2 string) {
+const sharedScope = config.ScopeShared
+
+func sharedFiles(files ...string) []SelectionFile {
+	out := make([]SelectionFile, len(files))
+	for i, f := range files {
+		out[i] = SelectionFile{Scope: sharedScope, File: f}
+	}
+	return out
+}
+
+func setupTwoHosts(t *testing.T) (host1, host2 string) {
 	t.Helper()
-	hostsDir = t.TempDir()
-	host1 = filepath.Join(hostsDir, "host1", "modules.nix")
-	host2 = filepath.Join(hostsDir, "host2", "modules.nix")
+	hostsDir := t.TempDir()
+	host1 = filepath.Join(hostsDir, "host1", "modules", "default.nix")
+	host2 = filepath.Join(hostsDir, "host2", "modules", "default.nix")
 	mustWriteFile(t, host1, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	mustWriteFile(t, host2, "{ ... }:\n{\n  imports = [\n    ./a/foo.nix\n  ];\n}\n")
 	return
@@ -24,9 +35,10 @@ func setupTwoHosts(t *testing.T) (hostsDir string, host1, host2 string) {
 
 func TestRetarget_Rename(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, host2 := setupTwoHosts(t)
+	host1, host2 := setupTwoHosts(t)
+	files := sharedFiles(host1, host2)
 
-	changes, err := RetargetSelections(hostsDir, "foo", "b/foo.nix", "", nil)
+	changes, err := RetargetSelections(files, "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -35,17 +47,17 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f, config.ScopeShared)
+		got, err := ReadSelection(f, sharedScope)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/foo.nix"}) {
-			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v", f, got)
+			t.Errorf("ReadSelection(%s) = %v", f, got)
 		}
 	}
 
 	// Second run: no changes (idempotent).
-	changes2, err := RetargetSelections(hostsDir, "foo", "b/foo.nix", "", nil)
+	changes2, err := RetargetSelections(files, "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -56,9 +68,10 @@ func TestRetarget_Rename(t *testing.T) {
 
 func TestRetarget_Delete(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, host2 := setupTwoHosts(t)
+	host1, host2 := setupTwoHosts(t)
+	files := sharedFiles(host1, host2)
 
-	changes, err := RetargetSelections(hostsDir, "foo", "", "", nil)
+	changes, err := RetargetSelections(files, "foo", "")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -72,16 +85,16 @@ func TestRetarget_Delete(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f, config.ScopeShared)
+		got, err := ReadSelection(f, sharedScope)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if len(got) != 0 {
-			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want empty", f, got)
+			t.Errorf("ReadSelection(%s) = %v, want empty", f, got)
 		}
 	}
 
-	changes2, err := RetargetSelections(hostsDir, "foo", "", "", nil)
+	changes2, err := RetargetSelections(files, "foo", "")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -90,11 +103,11 @@ func TestRetarget_Delete(t *testing.T) {
 	}
 }
 
-func TestRetarget_HostScoped(t *testing.T) {
+func TestRetarget_OnlyGivenFiles(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, host2 := setupTwoHosts(t)
+	host1, host2 := setupTwoHosts(t)
 
-	changes, err := RetargetSelections(hostsDir, "foo", "b/foo.nix", "host1", nil)
+	changes, err := RetargetSelections(sharedFiles(host1), "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -102,49 +115,64 @@ func TestRetarget_HostScoped(t *testing.T) {
 		t.Fatalf("changes = %v, want exactly one change to host1", changes)
 	}
 
-	got1, err := ReadSelection(host1, config.ScopeShared)
+	got2, err := ReadSelection(host2, sharedScope)
 	if err != nil {
-		t.Fatalf("ReadSelection(host1, config.ScopeShared): %v", err)
-	}
-	if !reflect.DeepEqual(got1, []string{"b/foo.nix"}) {
-		t.Errorf("ReadSelection(host1, config.ScopeShared) = %v", got1)
-	}
-
-	got2, err := ReadSelection(host2, config.ScopeShared)
-	if err != nil {
-		t.Fatalf("ReadSelection(host2, config.ScopeShared): %v", err)
+		t.Fatalf("ReadSelection(host2): %v", err)
 	}
 	if !reflect.DeepEqual(got2, []string{"a/foo.nix"}) {
-		t.Errorf("ReadSelection(host2, config.ScopeShared) = %v, want untouched", got2)
+		t.Errorf("ReadSelection(host2) = %v, want untouched", got2)
+	}
+}
+
+func TestRetarget_ScopedLines(t *testing.T) {
+	skipIfNoNix(t)
+	f := filepath.Join(t.TempDir(), "default.nix")
+	mustWriteFile(t, f, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n    ../a/bar.nix\n  ];\n}\n")
+	files := []SelectionFile{{Scope: config.ScopeHost, File: f}}
+	if _, err := RetargetSelections(files, "foo", "host/new/foo.nix"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RetargetSelections(files, "bar", "b/bar.nix"); err != nil {
+		t.Fatal(err)
+	}
+	lines, _, _ := nix.ListImports(f)
+	if want := []string{"./new/foo.nix", "../b/bar.nix"}; !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines %v, want %v", lines, want)
 	}
 }
 
 // ---- Heal ----
 
-func setupHealFixture(t *testing.T) (hostsDir, modulesDir string) {
+// healFixture lays out modules/, hosts and machines under one root, with an
+// empty selection for the active host and the active machine.
+func healFixture(t *testing.T) (modulesDir, hostsDir, machinesDir, machineDir string) {
 	t.Helper()
 	root := t.TempDir()
-	hostsDir = filepath.Join(root, "local")
 	modulesDir = filepath.Join(root, "modules")
-
-	// The real unit now lives at "a/foo.nix".
-	mustWriteFile(t, filepath.Join(modulesDir, "a", "foo.nix"), "{ }")
-
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
-	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
-
-	other := filepath.Join(hostsDir, "other-host", "modules.nix")
-	mustWriteFile(t, other, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n")
-
+	hostsDir = filepath.Join(root, ".local", "hosts")
+	machinesDir = filepath.Join(root, ".local", "machines")
+	machineDir = filepath.Join(machinesDir, "m1")
+	mustMkdirAll(t, modulesDir)
+	empty := "{ ... }:\n{\n  imports = [\n  ];\n}\n"
+	mustWriteFile(t, config.SelectionPath(filepath.Join(hostsDir, "active-host")), empty)
+	mustWriteFile(t, config.SelectionPath(machineDir), empty)
 	return
+}
+
+func hostSelection(hostsDir, host string) string {
+	return config.SelectionPath(filepath.Join(hostsDir, host))
 }
 
 func TestHeal_Move(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, modulesDir := setupHealFixture(t)
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "a", "foo.nix"), "{ }")
+	body := "{ ... }:\n{\n  imports = [\n    ../old/foo.nix\n  ];\n}\n"
+	activeFile := hostSelection(hostsDir, "active-host")
+	mustWriteFile(t, activeFile, body)
+	mustWriteFile(t, hostSelection(hostsDir, "other-host"), body)
 
-	changes, warnings, err := Heal(hostsDir, modulesDir, "active-host", false)
+	_, changes, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -155,16 +183,16 @@ func TestHeal_Move(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host)", changes)
 	}
 
-	got, err := ReadSelection(activeFile, config.ScopeShared)
+	got, err := ReadSelection(activeFile, config.ScopeHost)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"a/foo.nix"}) {
-		t.Errorf("ReadSelection(active, config.ScopeShared) = %v", got)
+		t.Errorf("ReadSelection(active) = %v", got)
 	}
 
 	// Idempotent: second run makes no changes.
-	changes2, warnings2, err := Heal(hostsDir, modulesDir, "active-host", false)
+	_, changes2, warnings2, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal (2nd): %v", err)
 	}
@@ -175,40 +203,31 @@ func TestHeal_Move(t *testing.T) {
 
 func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
-
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
+	activeFile := hostSelection(hostsDir, "active-host")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	_, _, err := Heal(hostsDir, modulesDir, "active-host", false)
+	_, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err == nil {
 		t.Fatalf("Heal: want error for unresolved active import")
 	}
 
-	// Untouched.
-	got, err := ReadSelection(activeFile, config.ScopeShared)
+	got, err := ReadSelection(activeFile, config.ScopeHost)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("ReadSelection(active, config.ScopeShared) = %v, want untouched", got)
+	if !reflect.DeepEqual(got, []string{"host/ghost.nix"}) {
+		t.Errorf("ReadSelection(active) = %v, want untouched", got)
 	}
 }
 
 func TestHeal_UnresolvedActivePruned(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
-
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
+	activeFile := hostSelection(hostsDir, "active-host")
 	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	changes, _, err := Heal(hostsDir, modulesDir, "active-host", true)
+	_, changes, _, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, true)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -216,66 +235,53 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 		t.Fatalf("changes = %v, want one removal", changes)
 	}
 
-	got, err := ReadSelection(activeFile, config.ScopeShared)
+	got, err := ReadSelection(activeFile, config.ScopeHost)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("ReadSelection(active, config.ScopeShared) = %v, want empty after prune", got)
+		t.Errorf("ReadSelection(active) = %v, want empty after prune", got)
 	}
 }
 
 func TestHeal_UnresolvedOtherHostSilent(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
-
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
-	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [];\n}\n")
-
-	otherFile := filepath.Join(hostsDir, "other-host", "modules.nix")
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
+	otherFile := hostSelection(hostsDir, "other-host")
 	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./ghost.nix\n  ];\n}\n")
 
-	changes, warnings, err := Heal(hostsDir, modulesDir, "active-host", false)
+	moves, changes, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
-	if len(changes) != 0 {
-		t.Errorf("changes = %v, want none", changes)
-	}
-	if len(warnings) != 0 {
-		t.Errorf("warnings = %v, want none", warnings)
+	if len(moves) != 0 || len(changes) != 0 || len(warnings) != 0 {
+		t.Errorf("moves=%v changes=%v warnings=%v, want none", moves, changes, warnings)
 	}
 
-	got, err := ReadSelection(otherFile, config.ScopeShared)
+	got, err := ReadSelection(otherFile, config.ScopeHost)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("ReadSelection(other, config.ScopeShared) = %v, want untouched", got)
+	if !reflect.DeepEqual(got, []string{"host/ghost.nix"}) {
+		t.Errorf("ReadSelection(other) = %v, want untouched", got)
 	}
 }
 
-func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
+func TestHeal_TwoHostsIndependentHostUnits(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
 
-	// Both hosts select "local/foo" but each host's "foo" lives at a
-	// different path within its own local modules dir.
+	// Both hosts select "foo" but each host's "foo" lives at a different
+	// path within its own modules folder.
 	mustWriteFile(t, filepath.Join(hostsDir, "host1", "modules", "a", "foo.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(hostsDir, "host2", "modules", "b", "foo.nix"), "{ }")
+	body := "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n  ];\n}\n"
+	host1File := hostSelection(hostsDir, "host1")
+	host2File := hostSelection(hostsDir, "host2")
+	mustWriteFile(t, host1File, body)
+	mustWriteFile(t, host2File, body)
 
-	host1File := filepath.Join(hostsDir, "host1", "modules.nix")
-	mustWriteFile(t, host1File, "{ ... }:\n{\n  imports = [\n    ./local/old/foo.nix\n  ];\n}\n")
-	host2File := filepath.Join(hostsDir, "host2", "modules.nix")
-	mustWriteFile(t, host2File, "{ ... }:\n{\n  imports = [\n    ./local/old/foo.nix\n  ];\n}\n")
-
-	changes, warnings, err := Heal(hostsDir, modulesDir, "host1", false)
+	_, changes, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "host1", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -286,37 +292,27 @@ func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host, independently resolved)", changes)
 	}
 
-	got1, err := ReadSelection(host1File, config.ScopeShared)
-	if err != nil {
-		t.Fatalf("ReadSelection(host1, config.ScopeShared): %v", err)
+	got1, err := ReadSelection(host1File, config.ScopeHost)
+	if err != nil || !reflect.DeepEqual(got1, []string{"host/a/foo.nix"}) {
+		t.Errorf("ReadSelection(host1) = %v, %v, want [host/a/foo.nix]", got1, err)
 	}
-	if !reflect.DeepEqual(got1, []string{"local/a/foo.nix"}) {
-		t.Errorf("ReadSelection(host1, config.ScopeShared) = %v, want [local/a/foo.nix]", got1)
-	}
-
-	got2, err := ReadSelection(host2File, config.ScopeShared)
-	if err != nil {
-		t.Fatalf("ReadSelection(host2, config.ScopeShared): %v", err)
-	}
-	if !reflect.DeepEqual(got2, []string{"local/b/foo.nix"}) {
-		t.Errorf("ReadSelection(host2, config.ScopeShared) = %v, want [local/b/foo.nix]", got2)
+	got2, err := ReadSelection(host2File, config.ScopeHost)
+	if err != nil || !reflect.DeepEqual(got2, []string{"host/b/foo.nix"}) {
+		t.Errorf("ReadSelection(host2) = %v, %v, want [host/b/foo.nix]", got2, err)
 	}
 }
 
 func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
 	mustWriteFile(t, filepath.Join(modulesDir, "b", "shared.nix"), "{ }")
+	body := "{ ... }:\n{\n  imports = [\n    ../a/shared.nix\n  ];\n}\n"
+	host1File := hostSelection(hostsDir, "active-host")
+	host2File := hostSelection(hostsDir, "host2")
+	mustWriteFile(t, host1File, body)
+	mustWriteFile(t, host2File, body)
 
-	host1File := filepath.Join(hostsDir, "host1", "modules.nix")
-	mustWriteFile(t, host1File, "{ ... }:\n{\n  imports = [\n    ./a/shared.nix\n  ];\n}\n")
-	host2File := filepath.Join(hostsDir, "host2", "modules.nix")
-	mustWriteFile(t, host2File, "{ ... }:\n{\n  imports = [\n    ./a/shared.nix\n  ];\n}\n")
-
-	_, warnings, err := Heal(hostsDir, modulesDir, "host1", false)
+	_, _, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -325,35 +321,30 @@ func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 	}
 
 	for _, f := range []string{host1File, host2File} {
-		got, err := ReadSelection(f, config.ScopeShared)
+		got, err := ReadSelection(f, config.ScopeHost)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
+			t.Fatalf("ReadSelection(%s): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/shared.nix"}) {
-			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want [b/shared.nix]", f, got)
+			t.Errorf("ReadSelection(%s) = %v, want [b/shared.nix]", f, got)
 		}
 	}
 }
 
-func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing.T) {
+func TestHeal_HostPathOnOtherHostNotCheckedAgainstActiveFolder(t *testing.T) {
 	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
+	modulesDir, hostsDir, machinesDir, machineDir := healFixture(t)
 
-	// active-host has a local "foo.nix"; other-host does not, and its own
-	// "./local/foo.nix" line must not be treated as existing just because
-	// the active host's local dir happens to have a "foo.nix".
+	// active-host has a host unit "foo.nix"; other-host does not, and its own
+	// "./foo.nix" line must not be treated as existing just because the
+	// active host's folder happens to have a "foo.nix".
 	mustWriteFile(t, filepath.Join(hostsDir, "active-host", "modules", "foo.nix"), "{ }")
+	body := "{ ... }:\n{\n  imports = [\n    ./foo.nix\n  ];\n}\n"
+	mustWriteFile(t, hostSelection(hostsDir, "active-host"), body)
+	otherFile := hostSelection(hostsDir, "other-host")
+	mustWriteFile(t, otherFile, body)
 
-	activeFile := filepath.Join(hostsDir, "active-host", "modules.nix")
-	mustWriteFile(t, activeFile, "{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
-
-	otherFile := filepath.Join(hostsDir, "other-host", "modules.nix")
-	mustWriteFile(t, otherFile, "{ ... }:\n{\n  imports = [\n    ./local/foo.nix\n  ];\n}\n")
-
-	changes, warnings, err := Heal(hostsDir, modulesDir, "active-host", false)
+	_, changes, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "active-host", machineDir, false)
 	if err != nil {
 		t.Fatalf("Heal: %v", err)
 	}
@@ -364,39 +355,13 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 		t.Errorf("warnings = %v, want none (other hosts are not reported)", warnings)
 	}
 
-	got, err := ReadSelection(otherFile, config.ScopeShared)
-	if err != nil {
-		t.Fatalf("ReadSelection(other, config.ScopeShared): %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"local/foo.nix"}) {
-		t.Errorf("ReadSelection(other, config.ScopeShared) = %v, want untouched", got)
+	got, err := ReadSelection(otherFile, config.ScopeHost)
+	if err != nil || !reflect.DeepEqual(got, []string{"host/foo.nix"}) {
+		t.Errorf("ReadSelection(other) = %v, %v, want untouched", got, err)
 	}
 }
 
 // ---- helpers ----
-
-func TestHeal_HardwareUnitSkippedOnOtherHost(t *testing.T) {
-	skipIfNoNix(t)
-	root := t.TempDir()
-	hostsDir := filepath.Join(root, "local")
-	modulesDir := filepath.Join(root, "modules")
-	mustMkdirAll(t, modulesDir)
-	content := "{ ... }:\n{\n  imports = [\n    ./local/hardware-support\n  ];\n}\n"
-	mustWriteFile(t, filepath.Join(hostsDir, "active-host", "modules.nix"), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
-	otherFile := filepath.Join(hostsDir, "other-host", "modules.nix")
-	mustWriteFile(t, otherFile, content)
-
-	changes, warnings, err := Heal(hostsDir, modulesDir, "active-host", false)
-	if err != nil {
-		t.Fatalf("Heal: %v", err)
-	}
-	if len(changes) != 0 || len(warnings) != 0 {
-		t.Errorf("changes=%v warnings=%v, want none", changes, warnings)
-	}
-	if got := mustReadFile(t, otherFile); got != content {
-		t.Errorf("other host file changed: %q", got)
-	}
-}
 
 func skipIfNoNix(t *testing.T) {
 	t.Helper()
@@ -414,31 +379,31 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func TestRetarget_SkipHosts(t *testing.T) {
+func TestRetarget_SkippedFileUntouched(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, host2 := setupTwoHosts(t)
+	host1, host2 := setupTwoHosts(t)
 
-	changes, err := RetargetSelections(hostsDir, "foo", "b/foo.nix", "", []string{"host1"})
+	changes, err := RetargetSelections(sharedFiles(host2), "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
 	if len(changes) != 1 || changes[0].File != host2 {
 		t.Fatalf("changes = %v, want exactly one change to host2", changes)
 	}
-	got1, err := ReadSelection(host1, config.ScopeShared)
+	got1, err := ReadSelection(host1, sharedScope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reflect.DeepEqual(got1, []string{"b/foo.nix"}) {
-		t.Errorf("skipped host was rewritten: %v", got1)
+		t.Errorf("file outside the given set was rewritten: %v", got1)
 	}
 }
 
-func bundleHosts(t *testing.T) (hostsDir, host1, host2 string) {
+func bundleHosts(t *testing.T) (host1, host2 string) {
 	t.Helper()
-	hostsDir = t.TempDir()
-	host1 = filepath.Join(hostsDir, "host1", "modules.nix")
-	host2 = filepath.Join(hostsDir, "host2", "modules.nix")
+	hostsDir := t.TempDir()
+	host1 = filepath.Join(hostsDir, "host1", "modules", "default.nix")
+	host2 = filepath.Join(hostsDir, "host2", "modules", "default.nix")
 	body := "{ ... }:\n{\n  imports = [\n    ./users/luar\n    ./users/luar/modules/git.nix\n    ./users/luar/modules/cli/zsh.nix\n    ./users/luarx/modules/git.nix\n  ];\n}\n"
 	mustWriteFile(t, host1, body)
 	mustWriteFile(t, host2, body)
@@ -447,9 +412,9 @@ func bundleHosts(t *testing.T) (hostsDir, host1, host2 string) {
 
 func TestRetargetPrefix_Rename(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, host2 := bundleHosts(t)
+	host1, host2 := bundleHosts(t)
 
-	changes, err := RetargetPrefix(hostsDir, "users/luar", "users/lua", "", nil)
+	changes, err := RetargetPrefix(sharedFiles(host1, host2), "users/luar", "users/lua")
 	if err != nil {
 		t.Fatalf("RetargetPrefix: %v", err)
 	}
@@ -458,24 +423,24 @@ func TestRetargetPrefix_Rename(t *testing.T) {
 	}
 	want := []string{"users/luar", "users/lua/modules/git.nix", "users/lua/modules/cli/zsh.nix", "users/luarx/modules/git.nix"}
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f, config.ScopeShared)
+		got, err := ReadSelection(f, sharedScope)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want %v", f, got, want)
+			t.Errorf("ReadSelection(%s) = %v, want %v", f, got, want)
 		}
 	}
 }
 
 func TestRetargetPrefix_Remove(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, host1, _ := bundleHosts(t)
+	host1, _ := bundleHosts(t)
 
-	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "", nil); err != nil {
+	if _, err := RetargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
 		t.Fatalf("RetargetPrefix: %v", err)
 	}
-	got, err := ReadSelection(host1, config.ScopeShared)
+	got, err := ReadSelection(host1, sharedScope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,60 +450,58 @@ func TestRetargetPrefix_Remove(t *testing.T) {
 	}
 }
 
-func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
+func TestRetargetPrefix_OnlyGivenFiles(t *testing.T) {
 	skipIfNoNix(t)
-	hostsDir, _, host2 := bundleHosts(t)
+	host1, host2 := bundleHosts(t)
 
-	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "host1", nil); err != nil {
+	if _, err := RetargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
 		t.Fatal(err)
 	}
-	got2, _ := ReadSelection(host2, config.ScopeShared)
+	got2, _ := ReadSelection(host2, sharedScope)
 	if len(got2) != 4 {
-		t.Errorf("host2 touched by host-scoped call: %v", got2)
-	}
-
-	hostsDir, host1, host2 := bundleHosts(t)
-	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "", []string{"host2"}); err != nil {
-		t.Fatal(err)
-	}
-	got1, _ := ReadSelection(host1, config.ScopeShared)
-	got2, _ = ReadSelection(host2, config.ScopeShared)
-	if len(got1) != 2 || len(got2) != 4 {
-		t.Errorf("host1 = %v, host2 = %v", got1, got2)
+		t.Errorf("file outside the given set touched: %v", got2)
 	}
 }
 
 func TestEnableDisable(t *testing.T) {
-	skipIfNoNix(t)
-	h := statusFixture(t, []string{"a.nix"}, "a.nix", "b.nix")
-	sel := filepath.Join(h.HostDir, SelectionFile)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "a.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "b.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := config.SelectionPath(hostDir)
 
-	if _, err := Enable(h, "missing"); err == nil {
+	if _, err := Enable(h, "missing", false); err == nil {
 		t.Error("Enable of an unknown module did not fail")
 	}
-	if changed, err := Enable(h, "a"); err != nil || changed {
-		t.Errorf("Enable(a) = %v, %v; want false (already selected)", changed, err)
+	if changed, err := Enable(h, "a", false); err != nil || !changed {
+		t.Fatalf("Enable(a) = %v, %v; want true", changed, err)
 	}
-	if changed, err := Enable(h, "b"); err != nil || !changed {
+	if changed, err := Enable(h, "a", false); err != nil || changed {
+		t.Errorf("second Enable(a) = %v, %v; want false (already selected)", changed, err)
+	}
+	if changed, err := Enable(h, "b", false); err != nil || !changed {
 		t.Fatalf("Enable(b) = %v, %v; want true", changed, err)
 	}
-	got, err := ReadSelection(sel, config.ScopeShared)
+	got, err := ReadSelection(sel, config.ScopeHost)
 	if err != nil || !reflect.DeepEqual(got, []string{"a.nix", "b.nix"}) {
 		t.Errorf("selection = %v, %v", got, err)
 	}
-	if !reflect.DeepEqual(h.Selection, got) {
-		t.Errorf("h.Selection = %v, want %v", h.Selection, got)
+	if !reflect.DeepEqual(h.Selection(), got) {
+		t.Errorf("h.Selection() = %v, want %v", h.Selection(), got)
 	}
 
-	if changed, err := Disable(h, "a"); err != nil || !changed {
-		t.Fatalf("Disable(a) = %v, %v; want true", changed, err)
+	if files, err := Disable(h, "a"); err != nil || len(files) != 1 {
+		t.Fatalf("Disable(a) = %v, %v; want one file", files, err)
 	}
-	if changed, err := Disable(h, "a"); err != nil || changed {
-		t.Errorf("second Disable(a) = %v, %v; want false", changed, err)
+	if files, err := Disable(h, "a"); err != nil || len(files) != 0 {
+		t.Errorf("second Disable(a) = %v, %v; want none", files, err)
 	}
-	got, err = ReadSelection(sel, config.ScopeShared)
-	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection, got) {
-		t.Errorf("selection = %v (h: %v), %v", got, h.Selection, err)
+	got, err = ReadSelection(sel, config.ScopeHost)
+	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection(), got) {
+		t.Errorf("selection = %v (h: %v), %v", got, h.Selection(), err)
 	}
 }
 
@@ -565,5 +528,122 @@ func TestCheckSelectionHiddenEntry(t *testing.T) {
 	err := CheckSelection(f)
 	if err == nil || !strings.Contains(err.Error(), "one ./path per line") {
 		t.Fatalf("got %v, want the one-path-per-line error", err)
+	}
+}
+
+func TestEnableRoutesByScope(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Enable(h, "luar", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Enable(h, "boot", false); err != nil {
+		t.Fatal(err)
+	}
+	hostLines, _, _ := nix.ListImports(config.SelectionPath(hostDir))
+	machineLines, _, _ := nix.ListImports(config.SelectionPath(machineDir))
+	if !reflect.DeepEqual(hostLines, []string{"../users/luar.nix"}) || !reflect.DeepEqual(machineLines, []string{"./boot.nix"}) {
+		t.Fatalf("host %v machine %v", hostLines, machineLines)
+	}
+}
+
+func TestEnableSharedToMachine(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "{ }")
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	if _, err := Enable(h, "laptop", true); err != nil {
+		t.Fatal(err)
+	}
+	machineLines, _, _ := nix.ListImports(config.SelectionPath(machineDir))
+	if !reflect.DeepEqual(machineLines, []string{"../devices/laptop.nix"}) {
+		t.Fatalf("machine %v", machineLines)
+	}
+}
+
+func TestEnableHostUnitToMachineFails(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "packages.nix"), "{ }")
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	if _, err := Enable(h, "packages", true); err == nil {
+		t.Fatal("enabling a host unit into the machine selection must fail")
+	}
+}
+
+func TestDisableBothSelections(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "{ }")
+	h, _ := Load(modulesDir, hostDir, machineDir)
+	if _, err := Enable(h, "laptop", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Enable(h, "laptop", true); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Disable(h, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{config.SelectionPath(hostDir), config.SelectionPath(machineDir)}; !reflect.DeepEqual(files, want) {
+		t.Fatalf("files %v, want %v", files, want)
+	}
+	if len(h.Selection()) != 0 {
+		t.Fatalf("still selected: %v", h.Selection())
+	}
+}
+
+func TestHealMovesCrossScopeLines(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	hostsDir, machinesDir := filepath.Dir(hostDir), filepath.Dir(machineDir)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "packages.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+	mustWriteFile(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../machine/boot.nix\n  ];\n}\n")
+	mustWriteFile(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ../host/packages.nix\n  ];\n}\n")
+
+	moves, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moves) != 2 {
+		t.Fatalf("moves %+v", moves)
+	}
+	hostLines, _, _ := nix.ListImports(config.SelectionPath(hostDir))
+	machineLines, _, _ := nix.ListImports(config.SelectionPath(machineDir))
+	if !reflect.DeepEqual(hostLines, []string{"./packages.nix"}) || !reflect.DeepEqual(machineLines, []string{"./boot.nix"}) {
+		t.Fatalf("host %v machine %v", hostLines, machineLines)
+	}
+}
+
+func TestHealUnresolvedOnMachineSelectionErrors(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ./gone.nix\n  ];\n}\n")
+	_, _, _, err := Heal(modulesDir, filepath.Dir(hostDir), filepath.Dir(machineDir), "h1", machineDir, false)
+	if err == nil || !strings.Contains(err.Error(), "--prune") {
+		t.Fatalf("got %v", err)
+	}
+	if _, changes, _, err := Heal(modulesDir, filepath.Dir(hostDir), filepath.Dir(machineDir), "h1", machineDir, true); err != nil || len(changes) != 1 {
+		t.Fatalf("prune: %v %+v", err, changes)
+	}
+}
+
+func TestHealRetargetsSharedMoveInEveryFolder(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	hostsDir, machinesDir := filepath.Dir(hostDir), filepath.Dir(machineDir)
+	other := filepath.Join(machinesDir, "ffff")
+	mustWriteFile(t, config.SelectionPath(other), "{ ... }:\n{\n  imports = [\n    ../old/laptop.nix\n  ];\n}\n")
+	mustWriteFile(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../old/laptop.nix\n  ];\n}\n")
+	mustWriteFile(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "{ }")
+	if _, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{config.SelectionPath(other), config.SelectionPath(hostDir)} {
+		lines, _, _ := nix.ListImports(f)
+		if !reflect.DeepEqual(lines, []string{"../devices/laptop.nix"}) {
+			t.Errorf("%s: %v", f, lines)
+		}
 	}
 }

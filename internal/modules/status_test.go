@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,10 +21,10 @@ func statusFixture(t *testing.T, selected []string, files ...string) *Host {
 	}
 	var items []string
 	for _, s := range selected {
-		items = append(items, "./"+s)
+		items = append(items, "../"+s)
 	}
-	mustWriteFile(t, filepath.Join(hostDir, "modules.nix"), selectionOf(items...))
-	h, err := Load(modulesDir, hostDir)
+	mustWriteFile(t, config.SelectionPath(hostDir), selectionOf(items...))
+	h, err := Load(modulesDir, hostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestStatusOfPulledOverridesLeftover(t *testing.T) {
 	skipIfNoNix(t)
 	h := statusFixture(t, []string{"a.nix"}, "b.nix", "c.nix")
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "a.nix"), "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"b\" \"c\" ];\n}\n")
-	h, err := Load(h.ModulesDir, h.HostDir)
+	h, err := Load(h.ModulesDir, h.HostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestStatusOfRemoved(t *testing.T) {
 	skipIfNoNix(t)
 	h := statusFixture(t, nil, "alive.nix")
 	running := []string{
-		"local/debug.nix", "desktop/shells/ambxst", "gone.nix", "alive.nix",
+		"host/debug.nix", "desktop/shells/ambxst", "gone.nix", "alive.nix",
 		"x/dup.nix", "y/dup.nix", "desktop/apps/foo/default.nix",
 	}
 	sts, err := StatusOf(h, running, "")
@@ -107,7 +108,7 @@ func TestStatusOfRemoved(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"debug": "local/debug.nix", "ambxst": "desktop/shells/ambxst", "gone": "gone.nix",
+		"debug": "host/debug.nix", "ambxst": "desktop/shells/ambxst", "gone": "gone.nix",
 		"dup": "x/dup.nix", "foo": "desktop/apps/foo",
 	}
 	if !reflect.DeepEqual(removed, want) {
@@ -124,7 +125,7 @@ func TestStatusOfInputs(t *testing.T) {
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "file.nix"), "{ ... }: {\n  luxos.inputs.zed.url = \"github:o/zed\";\n  luxos.inputs.abc.url = \"github:o/abc\";\n}\n")
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "default.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ ... }: {\n  luxos.inputs.deep.url = \"github:o/deep\";\n}\n")
-	h, err := Load(h.ModulesDir, h.HostDir)
+	h, err := Load(h.ModulesDir, h.HostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestStatusOfBroken(t *testing.T) {
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "flaky.nix"), "{ ... }: {\n  luxos.inputs.zed.url = \"github:o/zed\";\n}\n")
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "default.nix"), emptyModule)
 	mustWriteFile(t, filepath.Join(h.ModulesDir, "folder", "sub", "inner.nix"), "{ x = ; }\n")
-	h, err := Load(h.ModulesDir, h.HostDir)
+	h, err := Load(h.ModulesDir, h.HostDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,5 +254,18 @@ func TestStatusOf_Settings(t *testing.T) {
 		if st.Settings != want[st.Module.Name] {
 			t.Errorf("%s settings = %q, want %q", st.Module.Name, st.Settings, want[st.Module.Name])
 		}
+	}
+}
+
+func TestReadRunning(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "host", "default.nix"), "{ ... }:\n{\n  imports = [\n    ../users/luar.nix\n  ];\n}\n")
+	mustWriteFile(t, filepath.Join(dir, "machine", "default.nix"), "{ ... }:\n{\n  imports = [\n    ./boot.nix\n  ];\n}\n")
+	got, ok, err := ReadRunning(dir)
+	if err != nil || !ok || !reflect.DeepEqual(got, []string{"users/luar.nix", "machine/boot.nix"}) {
+		t.Fatalf("got %v, %v, %v", got, ok, err)
+	}
+	if got, ok, err := ReadRunning(filepath.Join(dir, "absent")); err != nil || ok || got != nil {
+		t.Fatalf("absent dir: %v, %v, %v", got, ok, err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
@@ -41,8 +42,9 @@ type Status struct {
 // running generation's selection (nil when unknown); baseline is the tree to
 // compare running modules against ("" for none).
 func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
-	enabled := make(map[string]bool, len(h.Selection))
-	for _, path := range h.Selection {
+	selection := h.Selection()
+	enabled := make(map[string]bool, len(selection))
+	for _, path := range selection {
 		enabled[NameFromPath(path)] = true
 	}
 	runningNames := make(map[string]bool, len(running))
@@ -89,7 +91,7 @@ func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
 			continue
 		}
 		seen[name] = true
-		shown := strings.TrimSuffix(strings.TrimPrefix(path, "./"), "/"+entrypointName)
+		shown := strings.TrimSuffix(path, "/"+entrypointName)
 		out = append(out, Status{Module: Module{Name: name, Path: shown}, State: Removed, Settings: SettingsNone})
 	}
 	return out, nil
@@ -253,4 +255,27 @@ func readInputs(mods []Module, sts []Status) error {
 		sts[owner[file]].Broken = true
 	}
 	return nil
+}
+
+// ReadRunning returns the selections a generation carries in dir
+// (host/default.nix, machine/default.nix) as modules-relative paths, host
+// first. ok is false when dir holds neither.
+func ReadRunning(dir string) ([]string, bool, error) {
+	var out []string
+	found := false
+	for _, scope := range []string{config.ScopeHost, config.ScopeMachine} {
+		file := filepath.Join(dir, scope, entrypointName)
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return nil, false, err
+		}
+		found = true
+		paths, err := ReadSelection(file, scope)
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, paths...)
+	}
+	return out, found, nil
 }
