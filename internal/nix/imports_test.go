@@ -19,7 +19,7 @@ func TestListImports_MultiLine(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
 	}
-	want := []string{"a.nix", "b/c.nix"}
+	want := []string{"./a.nix", "./b/c.nix"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("List = %v, want %v", got, want)
 	}
@@ -48,7 +48,7 @@ func TestListImports_CommentedLineIgnored(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
 	}
-	want := []string{"a.nix"}
+	want := []string{"./a.nix"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("List = %v, want %v", got, want)
 	}
@@ -76,7 +76,7 @@ func TestAddImport_MultiLine(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
 	}
-	want := []string{"a.nix", "b.nix"}
+	want := []string{"./a.nix", "./b.nix"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("List = %v, want %v", got, want)
 	}
@@ -88,7 +88,7 @@ func TestAddImport_InlineEmptyConverts(t *testing.T) {
 	file := filepath.Join(dir, "default.nix")
 	write(t, file, "{ ... }:\n{\n  imports = [];\n}\n")
 
-	if err := AddImport(file, "a.nix"); err != nil {
+	if err := AddImport(file, "./a.nix"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestAddImport_InlineEmptyConverts(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
 	}
-	if !reflect.DeepEqual(got, []string{"a.nix"}) {
+	if !reflect.DeepEqual(got, []string{"./a.nix"}) {
 		t.Errorf("List = %v", got)
 	}
 }
@@ -108,7 +108,7 @@ func TestAddImport_ExistingIsNoOp(t *testing.T) {
 	content := "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n}\n"
 	write(t, file, content)
 
-	if err := AddImport(file, "a.nix"); err != nil {
+	if err := AddImport(file, "./a.nix"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if got := mustReadFile(t, file); got != content {
@@ -124,7 +124,7 @@ func TestRemoveImport_MultiLine(t *testing.T) {
 	file := filepath.Join(dir, "default.nix")
 	write(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    ./b.nix\n  ];\n}\n")
 
-	if err := RemoveImport(file, "a.nix"); err != nil {
+	if err := RemoveImport(file, "./a.nix"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
@@ -132,7 +132,7 @@ func TestRemoveImport_MultiLine(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
 	}
-	if !reflect.DeepEqual(got, []string{"b.nix"}) {
+	if !reflect.DeepEqual(got, []string{"./b.nix"}) {
 		t.Errorf("List = %v", got)
 	}
 }
@@ -143,7 +143,7 @@ func TestRemoveImport_CommentedUntouched(t *testing.T) {
 	file := filepath.Join(dir, "default.nix")
 	write(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n    # ./b.nix\n  ];\n}\n")
 
-	if err := RemoveImport(file, "b.nix"); err != nil {
+	if err := RemoveImport(file, "./b.nix"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestAddImport_RefusesTwoBlocks(t *testing.T) {
 	file := filepath.Join(dir, "default.nix")
 	write(t, file, "{ ... }:\n{\n  imports = [\n    ./a.nix\n  ];\n  x = {\n    imports = [\n      ./b.nix\n    ];\n  };\n}\n")
 
-	if err := AddImport(file, "c.nix"); err == nil {
+	if err := AddImport(file, "./c.nix"); err == nil {
 		t.Fatalf("Add: want error for two imports blocks")
 	}
 }
@@ -170,7 +170,7 @@ func TestAddImport_RefusesItemOnOpeningLine(t *testing.T) {
 	file := filepath.Join(dir, "default.nix")
 	write(t, file, "{ ... }:\n{\n  imports = [ ./a.nix\n  ];\n}\n")
 
-	if err := AddImport(file, "b.nix"); err == nil {
+	if err := AddImport(file, "./b.nix"); err == nil {
 		t.Fatalf("Add: want error for item on opening line")
 	}
 }
@@ -198,7 +198,7 @@ func TestAddImport_PreservesOwnership(t *testing.T) {
 		t.Fatalf("stat before: %v", err)
 	}
 
-	if err := AddImport(file, "b.nix"); err != nil {
+	if err := AddImport(file, "./b.nix"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -209,5 +209,29 @@ func TestAddImport_PreservesOwnership(t *testing.T) {
 
 	if !os.SameFile(before, after) {
 		t.Errorf("file was replaced rather than written in place")
+	}
+}
+
+func TestImportsParentLines(t *testing.T) {
+	f := write(t, filepath.Join(t.TempDir(), "s.nix"), "{ ... }:\n{\n  imports = [\n    ./own.nix\n    ../users/luar # me\n  ];\n}\n")
+	got, ok, err := ListImports(f)
+	if err != nil || !ok {
+		t.Fatalf("ListImports: ok=%v err=%v", ok, err)
+	}
+	if want := []string{"./own.nix", "../users/luar"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if err := AddImport(f, "../devices/laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveImport(f, "./own.nix"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = ListImports(f)
+	if want := []string{"../users/luar", "../devices/laptop"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after edits got %v, want %v", got, want)
+	}
+	if err := AddImport(f, "bare.nix"); err == nil {
+		t.Fatal("AddImport accepted a line without ./ or ../")
 	}
 }

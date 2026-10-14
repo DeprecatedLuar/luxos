@@ -483,7 +483,7 @@ func moduleList(p paths.Paths, args []string) error {
 
 	var runningPaths []string
 	if _, err := os.Stat(p.RunningModules); err == nil {
-		runningPaths, err = modules.ReadSelection(p.RunningModules)
+		runningPaths, err = modules.ReadSelection(p.RunningModules, config.ScopeShared)
 		if err != nil {
 			return err
 		}

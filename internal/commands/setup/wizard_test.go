@@ -53,7 +53,7 @@ func noClone(string, string) error { return errors.New("clone must not run") }
 
 func selection(t *testing.T, p paths.Paths, host string) string {
 	t.Helper()
-	sel, err := modules.ReadSelection(filepath.Join(p.Hosts, host, "modules.nix"))
+	sel, err := modules.ReadSelection(filepath.Join(p.Hosts, host, "modules.nix"), config.ScopeShared)
 	if err != nil {
 		t.Fatal(err)
 	}

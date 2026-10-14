@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,12 +35,12 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f)
+		got, err := ReadSelection(f, config.ScopeShared)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/foo.nix"}) {
-			t.Errorf("ReadSelection(%s) = %v", f, got)
+			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v", f, got)
 		}
 	}
 
@@ -71,12 +72,12 @@ func TestRetarget_Delete(t *testing.T) {
 	}
 
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f)
+		got, err := ReadSelection(f, config.ScopeShared)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
 		}
 		if len(got) != 0 {
-			t.Errorf("ReadSelection(%s) = %v, want empty", f, got)
+			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want empty", f, got)
 		}
 	}
 
@@ -101,20 +102,20 @@ func TestRetarget_HostScoped(t *testing.T) {
 		t.Fatalf("changes = %v, want exactly one change to host1", changes)
 	}
 
-	got1, err := ReadSelection(host1)
+	got1, err := ReadSelection(host1, config.ScopeShared)
 	if err != nil {
-		t.Fatalf("ReadSelection(host1): %v", err)
+		t.Fatalf("ReadSelection(host1, config.ScopeShared): %v", err)
 	}
 	if !reflect.DeepEqual(got1, []string{"b/foo.nix"}) {
-		t.Errorf("ReadSelection(host1) = %v", got1)
+		t.Errorf("ReadSelection(host1, config.ScopeShared) = %v", got1)
 	}
 
-	got2, err := ReadSelection(host2)
+	got2, err := ReadSelection(host2, config.ScopeShared)
 	if err != nil {
-		t.Fatalf("ReadSelection(host2): %v", err)
+		t.Fatalf("ReadSelection(host2, config.ScopeShared): %v", err)
 	}
 	if !reflect.DeepEqual(got2, []string{"a/foo.nix"}) {
-		t.Errorf("ReadSelection(host2) = %v, want untouched", got2)
+		t.Errorf("ReadSelection(host2, config.ScopeShared) = %v, want untouched", got2)
 	}
 }
 
@@ -154,12 +155,12 @@ func TestHeal_Move(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host)", changes)
 	}
 
-	got, err := ReadSelection(activeFile)
+	got, err := ReadSelection(activeFile, config.ScopeShared)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"a/foo.nix"}) {
-		t.Errorf("ReadSelection(active) = %v", got)
+		t.Errorf("ReadSelection(active, config.ScopeShared) = %v", got)
 	}
 
 	// Idempotent: second run makes no changes.
@@ -188,12 +189,12 @@ func TestHeal_UnresolvedActiveErrors(t *testing.T) {
 	}
 
 	// Untouched.
-	got, err := ReadSelection(activeFile)
+	got, err := ReadSelection(activeFile, config.ScopeShared)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("ReadSelection(active) = %v, want untouched", got)
+		t.Errorf("ReadSelection(active, config.ScopeShared) = %v, want untouched", got)
 	}
 }
 
@@ -215,12 +216,12 @@ func TestHeal_UnresolvedActivePruned(t *testing.T) {
 		t.Fatalf("changes = %v, want one removal", changes)
 	}
 
-	got, err := ReadSelection(activeFile)
+	got, err := ReadSelection(activeFile, config.ScopeShared)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("ReadSelection(active) = %v, want empty after prune", got)
+		t.Errorf("ReadSelection(active, config.ScopeShared) = %v, want empty after prune", got)
 	}
 }
 
@@ -248,12 +249,12 @@ func TestHeal_UnresolvedOtherHostSilent(t *testing.T) {
 		t.Errorf("warnings = %v, want none", warnings)
 	}
 
-	got, err := ReadSelection(otherFile)
+	got, err := ReadSelection(otherFile, config.ScopeShared)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"ghost.nix"}) {
-		t.Errorf("ReadSelection(other) = %v, want untouched", got)
+		t.Errorf("ReadSelection(other, config.ScopeShared) = %v, want untouched", got)
 	}
 }
 
@@ -285,20 +286,20 @@ func TestHeal_TwoHostsIndependentLocalUnits(t *testing.T) {
 		t.Fatalf("changes = %v, want 2 (one per host, independently resolved)", changes)
 	}
 
-	got1, err := ReadSelection(host1File)
+	got1, err := ReadSelection(host1File, config.ScopeShared)
 	if err != nil {
-		t.Fatalf("ReadSelection(host1): %v", err)
+		t.Fatalf("ReadSelection(host1, config.ScopeShared): %v", err)
 	}
 	if !reflect.DeepEqual(got1, []string{"local/a/foo.nix"}) {
-		t.Errorf("ReadSelection(host1) = %v, want [local/a/foo.nix]", got1)
+		t.Errorf("ReadSelection(host1, config.ScopeShared) = %v, want [local/a/foo.nix]", got1)
 	}
 
-	got2, err := ReadSelection(host2File)
+	got2, err := ReadSelection(host2File, config.ScopeShared)
 	if err != nil {
-		t.Fatalf("ReadSelection(host2): %v", err)
+		t.Fatalf("ReadSelection(host2, config.ScopeShared): %v", err)
 	}
 	if !reflect.DeepEqual(got2, []string{"local/b/foo.nix"}) {
-		t.Errorf("ReadSelection(host2) = %v, want [local/b/foo.nix]", got2)
+		t.Errorf("ReadSelection(host2, config.ScopeShared) = %v, want [local/b/foo.nix]", got2)
 	}
 }
 
@@ -324,12 +325,12 @@ func TestHeal_MovedSharedUnitRewrittenInEveryHost(t *testing.T) {
 	}
 
 	for _, f := range []string{host1File, host2File} {
-		got, err := ReadSelection(f)
+		got, err := ReadSelection(f, config.ScopeShared)
 		if err != nil {
-			t.Fatalf("ReadSelection(%s): %v", f, err)
+			t.Fatalf("ReadSelection(%s, config.ScopeShared): %v", f, err)
 		}
 		if !reflect.DeepEqual(got, []string{"b/shared.nix"}) {
-			t.Errorf("ReadSelection(%s) = %v, want [b/shared.nix]", f, got)
+			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want [b/shared.nix]", f, got)
 		}
 	}
 }
@@ -363,12 +364,12 @@ func TestHeal_LocalPathOnNonActiveHostNotCheckedAgainstActiveLocalDir(t *testing
 		t.Errorf("warnings = %v, want none (other hosts are not reported)", warnings)
 	}
 
-	got, err := ReadSelection(otherFile)
+	got, err := ReadSelection(otherFile, config.ScopeShared)
 	if err != nil {
-		t.Fatalf("ReadSelection(other): %v", err)
+		t.Fatalf("ReadSelection(other, config.ScopeShared): %v", err)
 	}
 	if !reflect.DeepEqual(got, []string{"local/foo.nix"}) {
-		t.Errorf("ReadSelection(other) = %v, want untouched", got)
+		t.Errorf("ReadSelection(other, config.ScopeShared) = %v, want untouched", got)
 	}
 }
 
@@ -424,7 +425,7 @@ func TestRetarget_SkipHosts(t *testing.T) {
 	if len(changes) != 1 || changes[0].File != host2 {
 		t.Fatalf("changes = %v, want exactly one change to host2", changes)
 	}
-	got1, err := ReadSelection(host1)
+	got1, err := ReadSelection(host1, config.ScopeShared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,12 +458,12 @@ func TestRetargetPrefix_Rename(t *testing.T) {
 	}
 	want := []string{"users/luar", "users/lua/modules/git.nix", "users/lua/modules/cli/zsh.nix", "users/luarx/modules/git.nix"}
 	for _, f := range []string{host1, host2} {
-		got, err := ReadSelection(f)
+		got, err := ReadSelection(f, config.ScopeShared)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ReadSelection(%s) = %v, want %v", f, got, want)
+			t.Errorf("ReadSelection(%s, config.ScopeShared) = %v, want %v", f, got, want)
 		}
 	}
 }
@@ -474,7 +475,7 @@ func TestRetargetPrefix_Remove(t *testing.T) {
 	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "", nil); err != nil {
 		t.Fatalf("RetargetPrefix: %v", err)
 	}
-	got, err := ReadSelection(host1)
+	got, err := ReadSelection(host1, config.ScopeShared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "host1", nil); err != nil {
 		t.Fatal(err)
 	}
-	got2, _ := ReadSelection(host2)
+	got2, _ := ReadSelection(host2, config.ScopeShared)
 	if len(got2) != 4 {
 		t.Errorf("host2 touched by host-scoped call: %v", got2)
 	}
@@ -500,8 +501,8 @@ func TestRetargetPrefix_HostScopeAndSkip(t *testing.T) {
 	if _, err := RetargetPrefix(hostsDir, "users/luar", "", "", []string{"host2"}); err != nil {
 		t.Fatal(err)
 	}
-	got1, _ := ReadSelection(host1)
-	got2, _ = ReadSelection(host2)
+	got1, _ := ReadSelection(host1, config.ScopeShared)
+	got2, _ = ReadSelection(host2, config.ScopeShared)
 	if len(got1) != 2 || len(got2) != 4 {
 		t.Errorf("host1 = %v, host2 = %v", got1, got2)
 	}
@@ -521,7 +522,7 @@ func TestEnableDisable(t *testing.T) {
 	if changed, err := Enable(h, "b"); err != nil || !changed {
 		t.Fatalf("Enable(b) = %v, %v; want true", changed, err)
 	}
-	got, err := ReadSelection(sel)
+	got, err := ReadSelection(sel, config.ScopeShared)
 	if err != nil || !reflect.DeepEqual(got, []string{"a.nix", "b.nix"}) {
 		t.Errorf("selection = %v, %v", got, err)
 	}
@@ -535,7 +536,7 @@ func TestEnableDisable(t *testing.T) {
 	if changed, err := Disable(h, "a"); err != nil || changed {
 		t.Errorf("second Disable(a) = %v, %v; want false", changed, err)
 	}
-	got, err = ReadSelection(sel)
+	got, err = ReadSelection(sel, config.ScopeShared)
 	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection, got) {
 		t.Errorf("selection = %v (h: %v), %v", got, h.Selection, err)
 	}

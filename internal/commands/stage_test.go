@@ -782,7 +782,7 @@ func TestRun_BrokenSettingsFailBeforeStaging(t *testing.T) {
 	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
 	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; }; }\n")
-	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "laptop"); err != nil {
+	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "./laptop"); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -801,7 +801,7 @@ func TestRun_SettingsCreatedAndStaged(t *testing.T) {
 	steps, _ := fakeNix(t)
 	write(t, filepath.Join(p.Modules, "laptop", "default.nix"), "{ ... }: { imports = [ ./options.nix ]; }\n")
 	write(t, filepath.Join(p.Modules, "laptop", "options.nix"), "{ lib, ... }: { options.laptop.a = lib.mkOption { type = lib.types.int; default = 1; }; }\n")
-	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "laptop"); err != nil {
+	if err := nix.AddImport(filepath.Join(p.Hosts, host, "modules.nix"), "./laptop"); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

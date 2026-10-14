@@ -208,7 +208,7 @@ func stageModules(h *modules.Host, hwDir, dst string) error {
 	entry := filepath.Join(dst, entrypointFile)
 	lines := make([]string, 0, len(h.Selection))
 	for _, p := range h.Selection {
-		lines = append(lines, stagedSelectionPath(h, p))
+		lines = append(lines, config.LineOf(config.ScopeShared, stagedSelectionPath(h, p)))
 	}
 	rendered, err := templates.Render(selectionTemplate, lines)
 	if err != nil {

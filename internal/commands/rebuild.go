@@ -100,7 +100,7 @@ func selfUpdate(hostLock string, args []string) error {
 }
 
 func hardwareSelected(hostDir string) (bool, error) {
-	list, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
+	list, err := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile), config.ScopeShared)
 	if err != nil {
 		return false, err
 	}

@@ -24,17 +24,27 @@ type Change struct {
 	File, Old, New string
 }
 
-// ReadSelection returns the import paths of file, without "./". It is a hard
-// error if file doesn't have exactly one recognizable imports block.
-func ReadSelection(file string) ([]string, error) {
-	paths, ok, err := nix.ListImports(file)
+// ReadSelection returns the modules-relative paths of the lines of file, the
+// selection of scope. It is a hard error if file doesn't have exactly one
+// recognizable imports block.
+func ReadSelection(file, scope string) ([]string, error) {
+	lines, ok, err := nix.ListImports(file)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, shapeError(file)
 	}
-	return paths, nil
+	return pathsOf(scope, lines), nil
+}
+
+// pathsOf converts selection lines of scope to modules-relative paths.
+func pathsOf(scope string, lines []string) []string {
+	paths := make([]string, len(lines))
+	for i, l := range lines {
+		paths[i] = config.PathOf(scope, l)
+	}
+	return paths
 }
 
 // CheckSelection fails when file sets anything but its imports list, or when
@@ -53,7 +63,7 @@ func CheckSelection(file string) error {
 	if len(others) > 0 {
 		return fmt.Errorf("%s may hold only its imports list and comments; it also sets %s\n  move them into a module: luxos module add <category/name>", file, strings.Join(others, ", "))
 	}
-	lines, err := ReadSelection(file)
+	lines, err := ReadSelection(file, config.ScopeShared)
 	if err != nil {
 		return err
 	}
@@ -77,14 +87,14 @@ func Importers(hostsDir, name, host string) ([]string, error) {
 
 	var out []string
 	for _, file := range files {
-		paths, ok, err := nix.ListImports(file)
+		lines, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
-		for _, p := range paths {
+		for _, p := range pathsOf(config.ScopeShared, lines) {
 			if NameFromPath(p) == name {
 				out = append(out, file)
 				break
@@ -113,14 +123,17 @@ func retarget(hostsDir, name, newPath, host string, skipHosts []string) ([]Chang
 		return nil, nil, err
 	}
 
-	match := func(p string) bool { return NameFromPath(p) == name }
-	newPath = strings.TrimPrefix(newPath, "./")
+	match := func(line string) bool { return NameFromPath(config.PathOf(config.ScopeShared, line)) == name }
+	newLine := ""
+	if newPath != "" {
+		newLine = config.LineOf(config.ScopeShared, strings.TrimPrefix(newPath, "./"))
+	}
 
 	var changes []Change
 	var warnings []string
 
 	for _, file := range files {
-		old, ok, err := nix.RetargetImports(file, match, newPath)
+		old, ok, err := nix.RetargetImports(file, match, newLine)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -128,7 +141,7 @@ func retarget(hostsDir, name, newPath, host string, skipHosts []string) ([]Chang
 			warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping", file))
 			continue
 		}
-		for _, o := range old {
+		for _, o := range pathsOf(config.ScopeShared, old) {
 			changes = append(changes, Change{File: file, Old: o, New: newPath})
 		}
 	}
@@ -149,7 +162,7 @@ func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []str
 
 	var changes []Change
 	for _, file := range files {
-		paths, ok, err := nix.ListImports(file)
+		lines, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +170,7 @@ func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []str
 			continue
 		}
 		done := make(map[string]bool)
-		for _, path := range paths {
+		for _, path := range pathsOf(config.ScopeShared, lines) {
 			if !strings.HasPrefix(path, oldPrefix+bundleModulesInfix) || done[path] {
 				continue
 			}
@@ -166,11 +179,16 @@ func RetargetPrefix(hostsDir, oldPrefix, newPrefix, host string, skipHosts []str
 			if newPrefix != "" {
 				newPath = newPrefix + strings.TrimPrefix(path, oldPrefix)
 			}
-			old, _, err := nix.RetargetImports(file, func(p string) bool { return p == path }, newPath)
+			line := config.LineOf(config.ScopeShared, path)
+			newLine := ""
+			if newPath != "" {
+				newLine = config.LineOf(config.ScopeShared, newPath)
+			}
+			old, _, err := nix.RetargetImports(file, func(l string) bool { return l == line }, newLine)
 			if err != nil {
 				return nil, err
 			}
-			for _, o := range old {
+			for _, o := range pathsOf(config.ScopeShared, old) {
 				changes = append(changes, Change{File: file, Old: o, New: newPath})
 			}
 		}
@@ -224,10 +242,11 @@ func Heal(hostsDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 			continue
 		}
 
-		paths, ok, err := nix.ListImports(file)
+		lines, ok, err := nix.ListImports(file)
 		if err != nil {
 			return nil, nil, err
 		}
+		paths := pathsOf(config.ScopeShared, lines)
 		if !ok {
 			if isActive {
 				warnings = append(warnings, fmt.Sprintf("%s does not have exactly one recognizable imports block, skipping heal", file))
@@ -272,7 +291,7 @@ func Heal(hostsDir, modulesDir, activeHost string, prune bool) ([]Change, []stri
 				continue
 			}
 			if prune {
-				if err := nix.RemoveImport(file, itPath); err != nil {
+				if err := nix.RemoveImport(file, config.LineOf(config.ScopeShared, itPath)); err != nil {
 					return nil, nil, err
 				}
 				changes = append(changes, Change{File: file, Old: itPath, New: ""})
@@ -362,7 +381,7 @@ func Enable(h *Host, name string) (bool, error) {
 	if _, on := h.Selected(name); on {
 		return false, nil
 	}
-	if err := nix.AddImport(filepath.Join(h.HostDir, SelectionFile), m.Path); err != nil {
+	if err := nix.AddImport(filepath.Join(h.HostDir, SelectionFile), config.LineOf(config.ScopeShared, m.Path)); err != nil {
 		return false, err
 	}
 	h.Selection = append(h.Selection, m.Path)
@@ -376,7 +395,7 @@ func Disable(h *Host, name string) (bool, error) {
 	if !on {
 		return false, nil
 	}
-	if err := nix.RemoveImport(filepath.Join(h.HostDir, SelectionFile), path); err != nil {
+	if err := nix.RemoveImport(filepath.Join(h.HostDir, SelectionFile), config.LineOf(config.ScopeShared, path)); err != nil {
 		return false, err
 	}
 	kept := h.Selection[:0]

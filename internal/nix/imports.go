@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	// Recognized import line: optional leading whitespace, "./" + a path
-	// with no whitespace or "#", optional whitespace, optional trailing
-	// "#..." comment. A line starting with "#" never matches.
-	lineRe = regexp.MustCompile(`^[ \t]*\./([^ \t#]+)[ \t]*(#.*)?$`)
+	// Recognized import line: optional leading whitespace, "./" or "../" +
+	// a path with no whitespace or "#", optional whitespace, optional
+	// trailing "#..." comment. A line starting with "#" never matches.
+	lineRe = regexp.MustCompile(`^[ \t]*(\.\.?/[^ \t#]+)[ \t]*(#.*)?$`)
 
 	// The block's opening line: "imports = [" alone, or the inline-empty
 	// "imports = [];" form. Anything else after the "[" (e.g. items on the
@@ -36,13 +36,13 @@ var (
 
 type item struct {
 	lineNo  int
-	path    string
+	path    string // the line as written, with its ./ or ../ prefix
 	comment string
 	leading string
 }
 
-// ListImports returns the import paths in file's single imports block, bare
-// (no "./"), in file order. ok is false when file has no single recognizable block.
+// ListImports returns the import lines in file's single imports block, as
+// written with their "./" or "../" prefix, in file order. ok is false when file has no single recognizable block.
 func ListImports(file string) (paths []string, ok bool, err error) {
 	items, ok, err := itemLines(file)
 	if err != nil || !ok {
@@ -55,12 +55,14 @@ func ListImports(file string) (paths []string, ok bool, err error) {
 	return paths, true, nil
 }
 
-// AddImport appends one import line for path (leading "./" optional) to file's
-// single imports block. Converts the inline-empty "imports = [];" form to
-// multi-line as needed. A no-op if path is already present. Everything
-// else in the file is left byte-for-byte.
-func AddImport(file, path string) error {
-	path = strings.TrimPrefix(path, "./")
+// AddImport appends one import line to file's single imports block. line
+// must start with "./" or "../". Converts the inline-empty "imports = [];"
+// form to multi-line as needed. A no-op if line is already present.
+// Everything else in the file is left byte-for-byte.
+func AddImport(file, line string) error {
+	if !hasLinePrefix(line) {
+		return fmt.Errorf("import line %q must start with ./ or ../", line)
+	}
 
 	lines, err := readLines(file)
 	if err != nil {
@@ -73,7 +75,7 @@ func AddImport(file, path string) error {
 	}
 
 	for _, it := range blockItems(lines, s, e, inline) {
-		if it.path == path {
+		if it.path == line {
 			return nil
 		}
 	}
@@ -86,7 +88,7 @@ func AddImport(file, path string) error {
 		for idx, l := range lines {
 			if idx+1 == s {
 				newLines = append(newLines, leading+"imports = [")
-				newLines = append(newLines, itemIndent+"./"+path)
+				newLines = append(newLines, itemIndent+line)
 				newLines = append(newLines, leading+"];")
 			} else {
 				newLines = append(newLines, l)
@@ -100,7 +102,7 @@ func AddImport(file, path string) error {
 		}
 		for idx, l := range lines {
 			if idx+1 == e {
-				newLines = append(newLines, itemIndent+"./"+path)
+				newLines = append(newLines, itemIndent+line)
 			}
 			newLines = append(newLines, l)
 		}
@@ -109,11 +111,9 @@ func AddImport(file, path string) error {
 	return writeLines(file, newLines)
 }
 
-// RemoveImport deletes every import line in file's single block whose path
-// equals path (bare, "./" optional). A no-op (no write) if none match.
-func RemoveImport(file, path string) error {
-	path = strings.TrimPrefix(path, "./")
-
+// RemoveImport deletes every import line in file's single block equal to
+// line, as written. A no-op (no write) if none match.
+func RemoveImport(file, line string) error {
 	lines, err := readLines(file)
 	if err != nil {
 		return err
@@ -132,7 +132,7 @@ func RemoveImport(file, path string) error {
 	for idx, l := range lines {
 		ln := idx + 1
 		if ln > s && ln < e {
-			if m := lineRe.FindStringSubmatch(l); m != nil && m[1] == path {
+			if m := lineRe.FindStringSubmatch(l); m != nil && m[1] == line {
 				removed = true
 				continue
 			}
@@ -146,13 +146,11 @@ func RemoveImport(file, path string) error {
 	return writeLines(file, newLines)
 }
 
-// RetargetImports rewrites every import line whose path satisfies match to
-// ./newPath (keeping its indent and trailing comment), or deletes it when
-// newPath == "". A line already at newPath is untouched. Returns the old paths
+// RetargetImports rewrites every import line satisfying match to newLine
+// (keeping its indent and trailing comment), or deletes it when newLine ==
+// "". A line already equal to newLine is untouched. Returns the old lines
 // changed. ok is false when file has no single recognizable block (nothing written).
-func RetargetImports(file string, match func(path string) bool, newPath string) (old []string, ok bool, err error) {
-	newPath = strings.TrimPrefix(newPath, "./")
-
+func RetargetImports(file string, match func(line string) bool, newLine string) (old []string, ok bool, err error) {
 	items, ok, err := itemLines(file)
 	if err != nil || !ok {
 		return nil, ok, err
@@ -171,15 +169,15 @@ func RetargetImports(file string, match func(path string) bool, newPath string) 
 		if !match(it.path) {
 			continue
 		}
-		if newPath != "" {
-			if it.path == newPath {
+		if newLine != "" {
+			if it.path == newLine {
 				continue
 			}
-			newLine := it.leading + "./" + newPath
+			rewritten := it.leading + newLine
 			if it.comment != "" {
-				newLine = newLine + " " + it.comment
+				rewritten = rewritten + " " + it.comment
 			}
-			lines[it.lineNo-1] = newLine
+			lines[it.lineNo-1] = rewritten
 		} else {
 			toDelete[it.lineNo] = true
 		}
@@ -205,6 +203,10 @@ func RetargetImports(file string, match func(path string) bool, newPath string) 
 		return nil, false, err
 	}
 	return old, true, nil
+}
+
+func hasLinePrefix(line string) bool {
+	return strings.HasPrefix(line, "./") || strings.HasPrefix(line, "../")
 }
 
 func readLines(file string) ([]string, error) {

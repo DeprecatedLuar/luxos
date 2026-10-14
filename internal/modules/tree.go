@@ -74,7 +74,7 @@ func Load(modulesDir, hostDir string) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	selection, err := ReadSelection(filepath.Join(hostDir, SelectionFile))
+	selection, err := ReadSelection(filepath.Join(hostDir, SelectionFile), config.ScopeShared)
 	if err != nil {
 		return nil, err
 	}

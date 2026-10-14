@@ -119,7 +119,11 @@ func hostFiles(m HostSpec) ([]hostFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	selection, err := templates.Render(selectionTemplate, m.Selection)
+	lines := make([]string, len(m.Selection))
+	for i, p := range m.Selection {
+		lines[i] = LineOf(ScopeShared, p)
+	}
+	selection, err := templates.Render(selectionTemplate, lines)
 	if err != nil {
 		return nil, err
 	}

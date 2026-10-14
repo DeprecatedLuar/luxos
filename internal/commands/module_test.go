@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,7 +165,7 @@ func TestModuleRemove_LocalUnitLeavesOtherHostsSameNameUntouched(t *testing.T) {
 		t.Fatalf("moduleRemove: %v", err)
 	}
 
-	host1Names, err := modules.ReadSelection(filepath.Join(p.Hosts, "host1", "modules.nix"))
+	host1Names, err := modules.ReadSelection(filepath.Join(p.Hosts, "host1", "modules.nix"), config.ScopeShared)
 	if err != nil {
 		t.Fatalf("List(host1): %v", err)
 	}
@@ -440,7 +441,7 @@ func bundleFixture(t *testing.T) paths.Paths {
 
 func hostImports(t *testing.T, p paths.Paths, host string) []string {
 	t.Helper()
-	got, err := modules.ReadSelection(filepath.Join(p.Hosts, host, hostEntrypoint))
+	got, err := modules.ReadSelection(filepath.Join(p.Hosts, host, hostEntrypoint), config.ScopeShared)
 	if err != nil {
 		t.Fatal(err)
 	}

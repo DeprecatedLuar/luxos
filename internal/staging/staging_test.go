@@ -3,6 +3,7 @@ package staging
 import (
 	"encoding/json"
 	"errors"
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ func hwDirOf(hostDir string) string {
 // a nixpkgs pin at nixpkgsURL ("" declares no input), no GPUs, and us as the
 // host's modules.
 func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, environmentFile, nixpkgsURL string) error {
-	selection, _ := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile))
+	selection, _ := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile), config.ScopeShared)
 	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, Modules: us, Selection: selection}
 	var inputs []nix.InputDecl
 	if nixpkgsURL != "" {
