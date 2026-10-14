@@ -40,16 +40,12 @@ const (
 	configurationNix  = "configuration.nix"
 	stagedEnvironment = "environment"
 
-	// rootLocalEntry is the entry of the modules dir, and of config/modules,
-	// that holds a host's own modules.
-	rootLocalEntry  = "local"
-	localModulesDir = "modules"
-
-	stagedModulesDir   = "modules"
-	entrypointFile     = "default.nix"
-	selectionTemplate  = "modules.nix.tmpl"
-	stagedHostNix      = "host.nix"
-	stagedPlsdonttouch = ".plsdonttouch.nix"
+	stagedModulesDir     = "modules"
+	selectionTemplate    = "modules.nix.tmpl"
+	entryTemplate        = "entry/default.nix"
+	stagedHardwareConfig = config.HardwareConfigFile
+	stagedHostNix        = "host.nix"
+	stagedPlsdonttouch   = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
 
@@ -64,25 +60,26 @@ const (
 // Materialize regenerates every luxos-owned entry of stagingDir for h
 // (pruning them first): the framework files, flake.nix,
 // framework/hardware-facts.nix, framework/configuration.nix, config/ and the host's
-// flake.lock. Every symlink under h.ModulesDir and h.HostDir is dereferenced; a
-// dangling one refuses the whole call, naming it, before anything is touched.
-// Nothing is read through modules/local or modules/default.nix, so the stage
-// does not depend on which host those links point at.
+// flake.lock. Every symlink under h.ModulesDir, h.HostDir and h.MachineDir is
+// dereferenced; a dangling one refuses the whole call, naming it, before
+// anything is touched. Nothing is read through modules/host, modules/machine
+// or modules/default.nix, so the stage does not depend on which folders those
+// links point at.
 //
-// config/modules holds the shared tree, h's own modules under local/ with
-// hwDir as local/hardware-support, and h's selection as default.nix. Each
-// module of h.Modules with Shadows set is staged at its original's location
-// (same category, its own file or folder name), and every import of that name
-// in the staged default.nix is pointed there. The original is not staged; no
-// source file is rewritten.
+// config/modules holds the shared tree, h's units under host/, the machine's
+// under machine/, the fixed default.nix entry and both selections rendered as
+// host/default.nix and machine/default.nix. A unit with Shadows set is staged
+// at the location of the unit it hides, which is not staged, and every
+// selection line naming it points there; no source file is rewritten. The
+// machine's hardware-configuration.nix is staged as config/hardware-configuration.nix.
 //
 // inputs are the luxos.inputs declarations of the modules h builds plus
 // the host's host.nix; with the built-in luxos input they are merged
 // (nix.MergeInputs) into flake.nix's `inputs = { ... };` block.
 //
-// settings names the units whose settings files (config.SettingsPath) are
-// copied to config/settings/ and imported by framework/configuration.nix.
-func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts, settings []string) error {
+// settings are the units whose settings files are copied to
+// config/settings/ and imported by framework/configuration.nix.
+func Materialize(stagingDir string, h *modules.Host, environmentFile string, inputs []nix.InputDecl, facts hardware.Facts, settings []modules.StagedSetting) error {
 	if len(inputs) == 0 {
 		return errors.New("staging: flake inputs are required")
 	}
@@ -91,11 +88,13 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		return err
 	}
 	inputsNix := nix.RenderInputs(merged)
-	if err := checkNoDanglingLinks(h.ModulesDir); err != nil {
-		return err
+	if h.MachineDir == "" {
+		return errors.New("staging: the machine folder is required")
 	}
-	if err := checkNoDanglingLinks(h.HostDir); err != nil {
-		return err
+	for _, dir := range []string{h.ModulesDir, h.HostDir, h.MachineDir} {
+		if err := checkNoDanglingLinks(dir); err != nil {
+			return err
+		}
 	}
 
 	if err := Prune(stagingDir); err != nil {
@@ -125,7 +124,7 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		render func() ([]byte, error)
 	}{
 		{hardwareFactsNix, func() ([]byte, error) { return hardware.Render(facts) }},
-		{configurationNix, func() ([]byte, error) { return configuration(h.Name, settings) }},
+		{configurationNix, func() ([]byte, error) { return configuration(h.Name, settingNames(settings)) }},
 	}
 	for _, g := range generated {
 		content, err := g.render()
@@ -137,7 +136,10 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		}
 	}
 
-	if err := stageModules(h, hwDir, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
+	if err := stageModules(h, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
+		return err
+	}
+	if err := copyFile(filepath.Join(h.MachineDir, config.HardwareConfigFile), filepath.Join(cfgDir, stagedHardwareConfig)); err != nil {
 		return err
 	}
 	for _, name := range []string{stagedHostNix, stagedPlsdonttouch} {
@@ -146,9 +148,9 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 		}
 	}
 
-	for _, name := range settings {
-		dst := filepath.Join(cfgDir, config.SettingsDir, filepath.FromSlash(name)+".nix")
-		if err := copyFile(config.SettingsPath(h.HostDir, name), dst); err != nil {
+	for _, st := range settings {
+		dst := filepath.Join(cfgDir, config.SettingsDir, filepath.FromSlash(st.Name)+".nix")
+		if err := copyFile(st.File, dst); err != nil {
 			return err
 		}
 	}
@@ -169,72 +171,93 @@ func Materialize(stagingDir string, h *modules.Host, hwDir, environmentFile stri
 	return nil
 }
 
-// stageModules writes h's config/modules tree into dst.
-func stageModules(h *modules.Host, hwDir, dst string) error {
-	sharedSkip := map[string]bool{rootLocalEntry: true, entrypointFile: true}
-	localSkip := map[string]bool{config.HardwareUnitName: true}
+// stageModules writes config/modules: the shared tree, the host's units
+// under host/, the machine's under machine/, the fixed entry and both
+// selections, rendered. A shadow is staged at the location of the unit it
+// hides, which is not staged, and every selection line naming it points there.
+func stageModules(h *modules.Host, dst string) error {
+	skip := map[string]map[string]bool{
+		config.ScopeShared:  {config.DefaultFile: true, config.HostLinkName: true, config.MachineLinkName: true},
+		config.ScopeHost:    {config.DefaultFile: true},
+		config.ScopeMachine: {config.DefaultFile: true},
+	}
 	var shadows []modules.Module
+	for _, m := range h.Hidden {
+		skip[m.Scope][scopeRel(m)] = true
+	}
 	for _, m := range h.Modules {
-		if m.Shadows == "" {
+		if m.Shadows != "" {
+			shadows = append(shadows, m)
+			skip[m.Scope][scopeRel(m)] = true
+		}
+	}
+
+	if err := copyDerefSkip(h.ModulesDir, dst, skip[config.ScopeShared]); err != nil {
+		return err
+	}
+	for _, s := range []struct{ scope, dir string }{{config.ScopeHost, h.HostDir}, {config.ScopeMachine, h.MachineDir}} {
+		src := filepath.Join(s.dir, config.ScopeModulesDir)
+		if _, err := os.Stat(src); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Join(dst, s.scope), dirMode); err != nil {
+				return err
+			}
 			continue
 		}
-		shadows = append(shadows, m)
-		sharedSkip[m.Shadows] = true
-		localSkip[strings.TrimPrefix(m.Path, modules.LocalPrefix)] = true
+		if err := copyDerefSkip(src, filepath.Join(dst, s.scope), skip[s.scope]); err != nil {
+			return err
+		}
 	}
-	if err := copyDerefSkip(h.ModulesDir, dst, sharedSkip); err != nil {
-		return err
-	}
-
-	localDst := filepath.Join(dst, rootLocalEntry)
-	hostModules := filepath.Join(h.HostDir, localModulesDir)
-	_, err := os.Stat(hostModules)
-	switch {
-	case err == nil:
-		err = copyDerefSkip(hostModules, localDst, localSkip)
-	case os.IsNotExist(err):
-		err = os.MkdirAll(localDst, dirMode)
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(hwDir); err != nil {
-		return fmt.Errorf("hardware folder %s: %w\n  run: luxos rebuild", hwDir, err)
-	}
-	if err := copyDeref(hwDir, filepath.Join(localDst, config.HardwareUnitName)); err != nil {
-		return err
-	}
-
-	entry := filepath.Join(dst, entrypointFile)
-	lines := make([]string, 0, len(h.Selection))
-	for _, p := range h.Selection {
-		lines = append(lines, config.LineOf(config.ScopeShared, stagedSelectionPath(h, p)))
-	}
-	rendered, err := templates.Render(selectionTemplate, lines)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(entry, rendered, fileMode); err != nil {
-		return err
-	}
-
 	for _, m := range shadows {
-		staged := m.StagedPath()
-		info, err := os.Stat(m.Abs)
+		if err := copyUnit(m.Abs, filepath.Join(dst, m.StagedPath())); err != nil {
+			return err
+		}
+	}
+
+	entry, err := templates.File(entryTemplate)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dst, config.DefaultFile), entry, fileMode); err != nil {
+		return err
+	}
+	for _, sel := range h.Selections {
+		lines := make([]string, 0, len(sel.Paths))
+		for _, p := range sel.Paths {
+			lines = append(lines, config.LineOf(sel.Scope, stagedSelectionPath(h, p)))
+		}
+		rendered, err := templates.Render(selectionTemplate, lines)
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(dst, staged)
-		if info.IsDir() {
-			err = copyDeref(m.Abs, target)
-		} else {
-			err = copyFile(m.Abs, target)
-		}
-		if err != nil {
+		if err := os.WriteFile(filepath.Join(dst, sel.Scope, config.DefaultFile), rendered, fileMode); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// scopeRel is m's path inside its own scope's folder.
+func scopeRel(m modules.Module) string {
+	return strings.TrimPrefix(m.Path, m.Scope+"/")
+}
+
+func copyUnit(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return copyDeref(src, dst)
+	}
+	return copyFile(src, dst)
+}
+
+func settingNames(settings []modules.StagedSetting) []string {
+	names := make([]string, len(settings))
+	for i, st := range settings {
+		names[i] = st.Name
+	}
+	return names
 }
 
 // stagedSelectionPath is where a selection line points in the stage: a

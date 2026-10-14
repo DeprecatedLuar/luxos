@@ -13,26 +13,54 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 const testNixpkgs = "github:NixOS/nixpkgs/nixos-25.11"
 
-// hwDirOf is the hardware folder fixture builds next to hostDir.
-func hwDirOf(hostDir string) string {
-	return filepath.Join(filepath.Dir(hostDir), "hardware")
+// machineDirOf is the machine folder fixture builds next to hostDir.
+func machineDirOf(hostDir string) string {
+	return filepath.Join(filepath.Dir(hostDir), "machine1")
 }
 
-// materialize stages hostDir against modulesDir through Materialize with just
-// a nixpkgs pin at nixpkgsURL ("" declares no input), no GPUs, and us as the
-// host's modules.
-func materialize(stagingDir, modulesDir, hostDir string, us []modules.Module, environmentFile, nixpkgsURL string) error {
-	selection, _ := modules.ReadSelection(filepath.Join(hostDir, modules.SelectionFile), config.ScopeShared)
-	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir, Modules: us, Selection: selection}
+const emptySelection = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
+
+// materialize stages hostDir and its machine folder against modulesDir
+// through Materialize with just a nixpkgs pin at nixpkgsURL ("" declares no
+// input) and no GPUs.
+func materialize(stagingDir, modulesDir, hostDir, environmentFile, nixpkgsURL string) error {
+	h, err := modules.Load(modulesDir, hostDir, machineDirOf(hostDir))
+	if err != nil {
+		return err
+	}
 	var inputs []nix.InputDecl
 	if nixpkgsURL != "" {
 		inputs = []nix.InputDecl{{Name: "nixpkgs", URL: nixpkgsURL, Value: map[string]any{"url": nixpkgsURL}}}
 	}
-	return Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, nil)
+	return Materialize(stagingDir, h, environmentFile, inputs, hardware.Facts{}, nil)
+}
+
+// writeTo writes content at path, creating its folder.
+func writeTo(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeScopes writes the files a host folder and its machine folder must
+// hold, with empty selections; later writes replace them.
+func writeScopes(t *testing.T, hostDir string) {
+	t.Helper()
+	machineDir := machineDirOf(hostDir)
+	writeTo(t, filepath.Join(hostDir, "host.nix"), "{ host = 1; }")
+	writeTo(t, filepath.Join(hostDir, ".plsdonttouch.nix"), "{ state = 1; }")
+	writeTo(t, config.SelectionPath(hostDir), emptySelection)
+	writeTo(t, filepath.Join(machineDir, "hardware-configuration.nix"), "{ hw = 1; }")
+	writeTo(t, config.SelectionPath(machineDir), emptySelection)
 }
 
 func skipIfNoNix(t *testing.T) {
@@ -42,66 +70,27 @@ func skipIfNoNix(t *testing.T) {
 	}
 }
 
-// fixture builds a modulesDir and hostDir tree with the generated mirror and
-// local links under modulesDir, a hardware folder, and the host's flake.lock.
-// Returns their paths.
+// fixture builds a modulesDir, a hostDir and a machine folder, and the host's
+// flake.lock. The host selects the shared system/desktop.nix and holds a unit
+// foo.nix; the machine holds a unit boot.nix. Returns their paths.
 func fixture(t *testing.T) (modulesDir, hostDir, lockFile, environmentFile string) {
 	t.Helper()
 	root := t.TempDir()
 
 	modulesDir = filepath.Join(root, "modules")
-	if err := os.MkdirAll(filepath.Join(modulesDir, "system"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(modulesDir, "system", "desktop.nix"), []byte("{ }"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeTo(t, filepath.Join(modulesDir, "system", "desktop.nix"), "{ }")
 
 	hostDir = filepath.Join(root, "host1")
-	if err := os.MkdirAll(filepath.Join(hostDir, "modules"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	// The host's selection, which the mirror symlink points at.
-	if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte("{ ... }:\n{\n  imports = [\n    ./system/desktop.nix\n  ];\n}\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Mirror symlink under modulesDir, like config.EnsureMirror creates.
-	if err := os.Symlink(filepath.Join(hostDir, "modules.nix"), filepath.Join(modulesDir, "default.nix")); err != nil {
-		t.Fatal(err)
-	}
-
-	// Local modules link under modulesDir, like config.EnsureLocalModules
-	// creates: modulesDir/local -> hostDir/modules.
-	if err := os.WriteFile(filepath.Join(hostDir, "modules", "foo.nix"), []byte("{ }"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(hostDir, "modules"), filepath.Join(modulesDir, "local")); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(hostDir, "host.nix"), []byte("{ host = 1; }"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(hostDir, ".plsdonttouch.nix"), []byte("{ state = 1; }"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeScopes(t, hostDir)
+	writeTo(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../system/desktop.nix\n  ];\n}\n")
+	writeTo(t, filepath.Join(hostDir, "modules", "foo.nix"), "{ }")
+	writeTo(t, filepath.Join(machineDirOf(hostDir), "modules", "boot.nix"), "{ boot = 1; }")
 
 	lockFile = filepath.Join(hostDir, "flake.lock")
-	if err := os.WriteFile(lockFile, []byte("{}"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.MkdirAll(hwDirOf(hostDir), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(hwDirOf(hostDir), "default.nix"), []byte("{ hw = 1; }"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeTo(t, lockFile, "{}")
 
 	environmentFile = filepath.Join(root, "environment")
-	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeTo(t, environmentFile, "A=1\n")
 
 	return modulesDir, hostDir, lockFile, environmentFile
 }
@@ -110,7 +99,7 @@ func TestMaterialize_Basic(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -125,11 +114,14 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
 		filepath.Join(stagingDir, "framework", "hardware-facts.nix"),
 		filepath.Join(stagingDir, "framework", "configuration.nix"),
-		filepath.Join(stagingDir, "config", "modules", "local", "hardware-support", "default.nix"),
+		filepath.Join(stagingDir, "config", "hardware-configuration.nix"),
 		filepath.Join(stagingDir, "config", "environment"),
 		filepath.Join(stagingDir, "config", "modules", "system", "desktop.nix"),
 		filepath.Join(stagingDir, "config", "modules", "default.nix"),
-		filepath.Join(stagingDir, "config", "modules", "local", "foo.nix"),
+		filepath.Join(stagingDir, "config", "modules", "host", "default.nix"),
+		filepath.Join(stagingDir, "config", "modules", "host", "foo.nix"),
+		filepath.Join(stagingDir, "config", "modules", "machine", "default.nix"),
+		filepath.Join(stagingDir, "config", "modules", "machine", "boot.nix"),
 		filepath.Join(stagingDir, "config", "host.nix"),
 		filepath.Join(stagingDir, "config", ".plsdonttouch.nix"),
 		filepath.Join(stagingDir, "flake.lock"),
@@ -164,14 +156,19 @@ func TestMaterialize_Basic(t *testing.T) {
 		t.Fatalf("walk: %v", err)
 	}
 
-	// The dereferenced mirror link should now be a real file with the
-	// host default.nix's content, not the host tree's own copy again.
-	data, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", "default.nix"))
+	entry, err := templates.File("entry/default.nix")
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatal(err)
 	}
-	if string(data) != "{ ... }:\n{\n  imports = [\n    ./system/desktop.nix\n  ];\n}\n" {
-		t.Fatalf("mirror content = %q", data)
+	for rel, want := range map[string]string{
+		"default.nix":         string(entry),
+		"host/default.nix":    "{ ... }:\n{\n  imports = [\n    ../system/desktop.nix\n  ];\n}\n",
+		"machine/default.nix": emptySelection,
+	} {
+		got, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", rel))
+		if err != nil || string(got) != want {
+			t.Errorf("config/modules/%s = %q, %v; want %q", rel, got, err, want)
+		}
 	}
 }
 
@@ -182,7 +179,7 @@ func TestMaterialize_LockOptional(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -196,7 +193,7 @@ func TestMaterialize_MissingEnvironmentFails(t *testing.T) {
 	modulesDir, hostDir, _, _ := fixture(t)
 	missingEnv := filepath.Join(t.TempDir(), "environment")
 
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, missingEnv, testNixpkgs); err == nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, missingEnv, testNixpkgs); err == nil {
 		t.Fatal("expected an error for a missing environment file")
 	}
 }
@@ -211,7 +208,7 @@ func TestMaterialize_LeavesComputerFiles(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+		if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 			t.Fatalf("Materialize #%d: %v", i, err)
 		}
 	}
@@ -233,7 +230,7 @@ func TestMaterialize_DanglingLinkRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs)
+	err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs)
 	if err == nil {
 		t.Fatalf("expected dangling symlink error")
 	}
@@ -268,23 +265,24 @@ func materializeUnitsFixture(t *testing.T, modulesDir string) (unitsNixPath, sta
 	stagingDir := filepath.Join(root, "staging")
 
 	hostDir := filepath.Join(root, "host1")
-	if err := os.MkdirAll(hostDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"host.nix", ".plsdonttouch.nix", "modules.nix"} {
-		if err := os.WriteFile(filepath.Join(hostDir, name), []byte("{ }"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.MkdirAll(hwDirOf(hostDir), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeScopes(t, hostDir)
 	environmentFile := filepath.Join(root, "environment")
 	if err := os.WriteFile(environmentFile, []byte("A=1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+	// The tree is staged as written, without Load's unit checks: some
+	// cases here stage names that Load refuses.
+	machineDir := machineDirOf(hostDir)
+	h := &modules.Host{
+		Name: "host1", ModulesDir: modulesDir, HostDir: hostDir, MachineDir: machineDir,
+		Selections: []modules.Selection{
+			{Scope: config.ScopeHost, File: config.SelectionPath(hostDir)},
+			{Scope: config.ScopeMachine, File: config.SelectionPath(machineDir)},
+		},
+	}
+	inputs := []nix.InputDecl{{Name: "nixpkgs", URL: testNixpkgs, Value: map[string]any{"url": testNixpkgs}}}
+	if err := Materialize(stagingDir, h, environmentFile, inputs, hardware.Facts{}, nil); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -646,29 +644,15 @@ func TestSeal(t *testing.T) {
 }
 
 func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
-	skipIfNoNix(t)
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 
-	write := func(p, content string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(filepath.Join(modulesDir, "desktop", "shells", "ambxst", "default.nix"), "{ shared = 1; }")
-	write(filepath.Join(hostDir, "modules", "ambxst.nix"), "{ local = 1; }")
-	write(filepath.Join(hostDir, "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst\n    ./local/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n")
+	writeTo(t, filepath.Join(modulesDir, "desktop", "shells", "ambxst", "default.nix"), "{ shared = 1; }")
+	writeTo(t, filepath.Join(hostDir, "modules", "ambxst.nix"), "{ local = 1; }")
+	writeTo(t, config.SelectionPath(hostDir),
+		"{ ... }:\n{\n  imports = [\n    ../desktop/shells/ambxst\n    ./ambxst.nix\n    ../system/desktop.nix\n  ];\n}\n")
 
-	us := []modules.Module{
-		{Name: "ambxst", Path: "local/ambxst.nix", Shadows: "desktop/shells/ambxst", Abs: filepath.Join(hostDir, "modules", "ambxst.nix")},
-		{Name: "desktop", Path: "system/desktop.nix", Abs: filepath.Join(modulesDir, "system", "desktop.nix")},
-	}
-	if err := materialize(stagingDir, modulesDir, hostDir, us, environmentFile, testNixpkgs); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -677,52 +661,37 @@ func TestMaterialize_ShadowStagedAtOriginalLocation(t *testing.T) {
 	if err != nil || string(got) != "{ local = 1; }" {
 		t.Errorf("staged shadow = %q, %v", got, err)
 	}
-	for _, gone := range []string{"desktop/shells/ambxst", "local/ambxst.nix"} {
+	for _, gone := range []string{"desktop/shells/ambxst", "host/ambxst.nix"} {
 		if _, err := os.Stat(filepath.Join(mods, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s should not be staged (err=%v)", gone, err)
 		}
 	}
-	entry, err := os.ReadFile(filepath.Join(mods, "default.nix"))
+	entry, err := os.ReadFile(filepath.Join(mods, "host", "default.nix"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{ ... }:\n{\n  imports = [\n    ./desktop/shells/ambxst.nix\n    ./desktop/shells/ambxst.nix\n    ./system/desktop.nix\n  ];\n}\n"
+	want := "{ ... }:\n{\n  imports = [\n    ../desktop/shells/ambxst.nix\n    ../desktop/shells/ambxst.nix\n    ../system/desktop.nix\n  ];\n}\n"
 	if string(entry) != want {
-		t.Errorf("staged default.nix = %q, want %q", entry, want)
+		t.Errorf("staged host selection = %q, want %q", entry, want)
 	}
-	src, _ := os.ReadFile(filepath.Join(hostDir, "modules.nix"))
-	if !strings.Contains(string(src), "./local/ambxst.nix") {
-		t.Errorf("source modules.nix was rewritten: %q", src)
+	src, _ := os.ReadFile(config.SelectionPath(hostDir))
+	if !strings.Contains(string(src), "./ambxst.nix") {
+		t.Errorf("source selection was rewritten: %q", src)
 	}
 }
 
 func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
-	skipIfNoNix(t)
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 
-	write := func(p, content string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(filepath.Join(modulesDir, "users", "eduardo", "default.nix"), "{ shared = 1; }")
-	write(filepath.Join(modulesDir, "users", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
-	write(filepath.Join(hostDir, "modules", "eduardo", "default.nix"), "{ local = 1; }")
-	write(filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix"), "{ local = 2; }")
-	write(filepath.Join(hostDir, "modules.nix"),
-		"{ ... }:\n{\n  imports = [\n    ./local/eduardo\n    ./local/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n")
+	writeTo(t, filepath.Join(modulesDir, "users", "eduardo", "default.nix"), "{ shared = 1; }")
+	writeTo(t, filepath.Join(modulesDir, "users", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
+	writeTo(t, filepath.Join(hostDir, "modules", "eduardo", "default.nix"), "{ local = 1; }")
+	writeTo(t, filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix"), "{ local = 2; }")
+	writeTo(t, config.SelectionPath(hostDir),
+		"{ ... }:\n{\n  imports = [\n    ./eduardo\n    ./eduardo/modules/git.nix\n    ../system/desktop.nix\n  ];\n}\n")
 
-	us := []modules.Module{
-		{Name: "eduardo", Path: "local/eduardo", Shadows: "users/eduardo", Abs: filepath.Join(hostDir, "modules", "eduardo")},
-		{Name: "eduardo/git", Path: "local/eduardo/modules/git.nix", Shadows: "users/eduardo/modules/git.nix", Abs: filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix")},
-		{Name: "desktop", Path: "system/desktop.nix", Abs: filepath.Join(modulesDir, "system", "desktop.nix")},
-	}
-	if err := materialize(stagingDir, modulesDir, hostDir, us, environmentFile, testNixpkgs); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 
@@ -736,18 +705,105 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 			t.Errorf("staged %s = %q, %v", rel, got, err)
 		}
 	}
-	for _, gone := range []string{"users/eduardo/modules/zsh.nix", "local/eduardo"} {
+	for _, gone := range []string{"users/eduardo/modules/zsh.nix", "host/eduardo"} {
 		if _, err := os.Stat(filepath.Join(mods, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s should not be staged (err=%v)", gone, err)
 		}
 	}
-	entry, err := os.ReadFile(filepath.Join(mods, "default.nix"))
+	entry, err := os.ReadFile(filepath.Join(mods, "host", "default.nix"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{ ... }:\n{\n  imports = [\n    ./users/eduardo\n    ./users/eduardo/modules/git.nix\n    ./system/desktop.nix\n  ];\n}\n"
+	want := "{ ... }:\n{\n  imports = [\n    ../users/eduardo\n    ../users/eduardo/modules/git.nix\n    ../system/desktop.nix\n  ];\n}\n"
 	if string(entry) != want {
-		t.Errorf("staged default.nix = %q, want %q", entry, want)
+		t.Errorf("staged host selection = %q, want %q", entry, want)
+	}
+}
+
+func TestMaterializeMachineShadowsShared(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	writeTo(t, filepath.Join(modulesDir, "devices", "laptop.nix"), "# shared")
+	writeTo(t, filepath.Join(machineDirOf(hostDir), "modules", "laptop.nix"), "# machine")
+	writeTo(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../devices/laptop.nix\n  ];\n}\n")
+
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	mods := filepath.Join(stagingDir, "config", "modules")
+	if got, err := os.ReadFile(filepath.Join(mods, "devices", "laptop.nix")); err != nil || string(got) != "# machine" {
+		t.Errorf("staged devices/laptop.nix = %q, %v; want the machine unit", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(mods, "machine", "laptop.nix")); !os.IsNotExist(err) {
+		t.Errorf("machine/laptop.nix should not be staged (err=%v)", err)
+	}
+	sel, err := os.ReadFile(filepath.Join(mods, "host", "default.nix"))
+	if err != nil || !strings.Contains(string(sel), "    ../devices/laptop.nix\n") {
+		t.Errorf("staged host selection = %q, %v", sel, err)
+	}
+}
+
+func TestMaterializeScopes(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	writeTo(t, filepath.Join(modulesDir, "users", "luar.nix"), "{ }")
+	writeTo(t, filepath.Join(hostDir, "modules", "packages.nix"), "{ }")
+	writeTo(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ./packages.nix\n    ../users/luar.nix\n  ];\n}\n")
+	writeTo(t, config.SelectionPath(machineDirOf(hostDir)), "{ ... }:\n{\n  imports = [\n    ./boot.nix\n  ];\n}\n")
+
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	mods := filepath.Join(stagingDir, "config", "modules")
+	entry, err := templates.File("entry/default.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]string{
+		"default.nix":         string(entry),
+		"host/default.nix":    "{ ... }:\n{\n  imports = [\n    ./packages.nix\n    ../users/luar.nix\n  ];\n}\n",
+		"machine/default.nix": "{ ... }:\n{\n  imports = [\n    ./boot.nix\n  ];\n}\n",
+	} {
+		if got, err := os.ReadFile(filepath.Join(mods, rel)); err != nil || string(got) != want {
+			t.Errorf("config/modules/%s = %q, %v; want %q", rel, got, err, want)
+		}
+	}
+	for _, rel := range []string{"host/packages.nix", "machine/boot.nix", "../hardware-configuration.nix"} {
+		if _, err := os.Stat(filepath.Join(mods, rel)); err != nil {
+			t.Errorf("config/modules/%s: %v", rel, err)
+		}
+	}
+	conf, err := os.ReadFile(filepath.Join(stagingDir, "framework", "configuration.nix"))
+	if err != nil || !strings.Contains(string(conf), "../config/hardware-configuration.nix") {
+		t.Errorf("configuration.nix does not import the hardware configuration:\n%s", conf)
+	}
+}
+
+func TestMaterializeMachineSettingsWin(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	writeTo(t, filepath.Join(modulesDir, "laptop", "default.nix"), "{ }")
+	hostSettings := config.SettingsPath(hostDir, "laptop")
+	machineSettings := config.SettingsPath(machineDirOf(hostDir), "laptop")
+	writeTo(t, hostSettings, "{ laptop.limit = 1; }\n")
+	writeTo(t, machineSettings, "{ laptop.limit = 2; }\n")
+	writeTo(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../laptop\n  ];\n}\n")
+
+	h, err := modules.Load(modulesDir, hostDir, machineDirOf(hostDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTo(t, filepath.Join(modulesDir, "laptop", "options.nix"), "{ }")
+	inputs := []nix.InputDecl{{Name: "nixpkgs", URL: testNixpkgs, Value: map[string]any{"url": testNixpkgs}}}
+	settings := []modules.StagedSetting{{Name: "laptop", File: h.SettingsFile(modules.Module{Name: "laptop"})}}
+	if err := Materialize(stagingDir, h, environmentFile, inputs, hardware.Facts{}, settings); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(stagingDir, "config", "settings", "laptop.nix"))
+	if err != nil || string(got) != "{ laptop.limit = 2; }\n" {
+		t.Errorf("staged settings = %q, %v; want the machine file", got, err)
 	}
 }
 
@@ -755,7 +811,7 @@ func TestMaterializeRendersFlakeNix(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	stagingDir := t.TempDir()
 	const url = "github:NixOS/nixpkgs/nixos-99.99"
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, url); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, url); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(stagingDir, "flake.nix"))
@@ -781,20 +837,36 @@ func TestMaterializeRendersFlakeNix(t *testing.T) {
 
 func TestMaterializeRejectsConflictingLuxosInput(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
-	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir}
+	h, err := modules.Load(modulesDir, hostDir, machineDirOf(hostDir))
+	if err != nil {
+		t.Fatal(err)
+	}
 	inputs := []nix.InputDecl{
 		{File: "host.nix", Name: "nixpkgs", URL: testNixpkgs, Line: 1, Value: map[string]any{"url": testNixpkgs}},
 		{File: "mod.nix", Name: "luxos", URL: "github:fork/luxos", Line: 3, Value: map[string]any{"url": "github:fork/luxos"}},
 	}
-	err := Materialize(t.TempDir(), h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, nil)
+	err = Materialize(t.TempDir(), h, environmentFile, inputs, hardware.Facts{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "mod.nix") || !strings.Contains(err.Error(), "luxos built-in") {
 		t.Fatalf("err = %v, want a conflict naming mod.nix and the built-in", err)
 	}
 }
 
+func TestMaterializeRequiresMachineFolder(t *testing.T) {
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	h, err := modules.Load(modulesDir, hostDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []nix.InputDecl{{Name: "nixpkgs", URL: testNixpkgs, Value: map[string]any{"url": testNixpkgs}}}
+	err = Materialize(t.TempDir(), h, environmentFile, inputs, hardware.Facts{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "machine folder") {
+		t.Fatalf("err = %v, want the machine-folder error", err)
+	}
+}
+
 func TestMaterializeEmptyNixpkgsErrors(t *testing.T) {
 	modulesDir, hostDir, _, environmentFile := fixture(t)
-	if err := materialize(t.TempDir(), modulesDir, hostDir, nil, environmentFile, ""); err == nil {
+	if err := materialize(t.TempDir(), modulesDir, hostDir, environmentFile, ""); err == nil {
 		t.Fatal("expected error for empty base channel url")
 	}
 }
@@ -819,7 +891,7 @@ func TestBaseline(t *testing.T) {
 func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
-	if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 		t.Fatal(err)
 	}
 
@@ -832,8 +904,9 @@ func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
 		}
 	}
 	for rel, wantFrom := range map[string]string{
-		"config/modules/default.nix":                        filepath.Join(hostDir, "modules.nix"),
-		"config/modules/local/hardware-support/default.nix": filepath.Join(hwDirOf(hostDir), "default.nix"),
+		"config/modules/host/default.nix":    config.SelectionPath(hostDir),
+		"config/modules/machine/default.nix": config.SelectionPath(machineDirOf(hostDir)),
+		"config/hardware-configuration.nix":  filepath.Join(machineDirOf(hostDir), "hardware-configuration.nix"),
 	} {
 		got, err := os.ReadFile(filepath.Join(stagingDir, rel))
 		want, werr := os.ReadFile(wantFrom)
@@ -851,50 +924,46 @@ func TestMaterializeIgnoresRootLinks(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	other := filepath.Join(filepath.Dir(hostDir), "host2")
-	for rel, content := range map[string]string{
-		"modules.nix":        "{ ... }:\n{\n  imports = [\n  ];\n}\n",
-		"host.nix":           "{ }",
-		".plsdonttouch.nix":  "{ }",
-		"modules/theirs.nix": "{ }",
-	} {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(other, rel)), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(other, rel), []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeScopes(t, other)
+	writeTo(t, filepath.Join(other, "modules", "theirs.nix"), "{ }")
 
-	// modulesDir/local and modulesDir/default.nix point at host1; staging host2 must not see host1.
-	if err := materialize(stagingDir, modulesDir, other, nil, environmentFile, testNixpkgs); err != nil {
+	// modulesDir/host and modulesDir/machine point at host1's folders and a
+	// stale default.nix sits beside them; staging host2 must see none of it.
+	if err := os.Symlink(filepath.Join(hostDir, "modules"), filepath.Join(modulesDir, "host")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(machineDirOf(hostDir), "modules"), filepath.Join(modulesDir, "machine")); err != nil {
+		t.Fatal(err)
+	}
+	writeTo(t, filepath.Join(modulesDir, "default.nix"), "stale")
+
+	if err := materialize(stagingDir, modulesDir, other, environmentFile, testNixpkgs); err != nil {
 		t.Fatal(err)
 	}
 	mods := filepath.Join(stagingDir, "config", "modules")
-	if _, err := os.Stat(filepath.Join(mods, "local", "theirs.nix")); err != nil {
+	if _, err := os.Stat(filepath.Join(mods, "host", "theirs.nix")); err != nil {
 		t.Errorf("host2's own module not staged: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(mods, "local", "foo.nix")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(mods, "host", "foo.nix")); !os.IsNotExist(err) {
 		t.Errorf("host1's module leaked into host2's stage (err=%v)", err)
 	}
-	got, _ := os.ReadFile(filepath.Join(mods, "default.nix"))
-	if string(got) != "{ ... }:\n{\n  imports = [\n  ];\n}\n" {
-		t.Errorf("default.nix = %q, want host2's selection", got)
+	if got, _ := os.ReadFile(filepath.Join(mods, "default.nix")); string(got) == "stale" {
+		t.Error("modules/default.nix was copied instead of the fixed entry")
 	}
 }
 
 func TestMaterialize_StagesSettings(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
-	settingsFile := filepath.Join(hostDir, "settings", "eduardo", "git.nix")
-	if err := os.MkdirAll(filepath.Dir(settingsFile), 0755); err != nil {
+	settingsFile := config.SettingsPath(hostDir, "eduardo/git")
+	writeTo(t, settingsFile, "{ eduardo.git.name = \"e\"; }\n")
+	h, err := modules.Load(modulesDir, hostDir, machineDirOf(hostDir))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settingsFile, []byte("{ eduardo.git.name = \"e\"; }\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	h := &modules.Host{Name: filepath.Base(hostDir), ModulesDir: modulesDir, HostDir: hostDir}
 	inputs := []nix.InputDecl{{Name: "nixpkgs", URL: testNixpkgs, Value: map[string]any{"url": testNixpkgs}}}
-	if err := Materialize(stagingDir, h, hwDirOf(hostDir), environmentFile, inputs, hardware.Facts{}, []string{"eduardo/git"}); err != nil {
+	settings := []modules.StagedSetting{{Name: "eduardo/git", File: settingsFile}}
+	if err := Materialize(stagingDir, h, environmentFile, inputs, hardware.Facts{}, settings); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
 	staged, err := os.ReadFile(filepath.Join(stagingDir, "config", "settings", "eduardo", "git.nix"))
@@ -908,18 +977,15 @@ func TestMaterialize_StagesSettings(t *testing.T) {
 }
 
 func TestMaterializeSelectionIgnoresComments(t *testing.T) {
-	skipIfNoNix(t)
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 	stagedEntry := func(selection string) []byte {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(hostDir, "modules.nix"), []byte(selection), 0644); err != nil {
-			t.Fatal(err)
-		}
+		writeTo(t, config.SelectionPath(hostDir), selection)
 		stagingDir := filepath.Join(t.TempDir(), "staging")
-		if err := materialize(stagingDir, modulesDir, hostDir, nil, environmentFile, testNixpkgs); err != nil {
+		if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
 			t.Fatalf("Materialize: %v", err)
 		}
-		got, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", "default.nix"))
+		got, err := os.ReadFile(filepath.Join(stagingDir, "config", "modules", "host", "default.nix"))
 		if err != nil {
 			t.Fatal(err)
 		}

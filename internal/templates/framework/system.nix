@@ -55,12 +55,13 @@ in
   environment.localBinInPath = lib.mkDefault true;
   environment.homeBinInPath = lib.mkDefault true;
 
-  # The active host's selection, baked into the generation so `luxos module
-  # list` can tell enabled-and-running from enabled-but-staged. Deliberately
-  # not an environment.etc entry: nothing ever reads it from /etc.
+  # The selections, baked into the generation so `luxos module list` can tell
+  # enabled-and-running from enabled-but-staged. Deliberately not an
+  # environment.etc entry: nothing ever reads it from /etc.
   system.systemBuilderCommands = ''
-    mkdir -p $out/luxos
-    cp ${../config/modules/default.nix} $out/luxos/modules.nix
+    mkdir -p $out/luxos/modules/host $out/luxos/modules/machine
+    cp ${../config/modules/host/default.nix} $out/luxos/modules/host/default.nix
+    cp ${../config/modules/machine/default.nix} $out/luxos/modules/machine/default.nix
   '';
 
   #──[Users]─────────────────────────────────────────────────────────────────

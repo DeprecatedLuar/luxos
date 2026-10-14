@@ -32,7 +32,7 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"box"`, "./system.nix", "./hardware-facts.nix", "./luxos-hardware.nix", "../config/modules", "    ../config/settings/laptop.nix\n"} {
+	for _, want := range []string{`"box"`, "./system.nix", "./hardware-facts.nix", "./luxos-hardware.nix", "../config/modules", "../config/hardware-configuration.nix", "../config/host.nix", "    ../config/settings/laptop.nix\n"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("configuration.nix missing %q:\n%s", want, out)
 		}
@@ -91,5 +91,22 @@ func TestSystemDefaultsWatchdogAndGC(t *testing.T) {
 	}
 	if _, err := File("starters/hardware.nix"); err == nil {
 		t.Error("starters/hardware.nix still embedded")
+	}
+}
+
+func TestSystemCopiesBothSelections(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"../config/modules/host/default.nix",
+		"$out/luxos/modules/host/default.nix",
+		"../config/modules/machine/default.nix",
+		"$out/luxos/modules/machine/default.nix",
+	} {
+		if !strings.Contains(string(sys), want) {
+			t.Errorf("system.nix lacks %q", want)
+		}
 	}
 }
