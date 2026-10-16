@@ -18,6 +18,9 @@ const (
 	// HostPrefix and MachinePrefix start the paths of a host's and a machine's own units.
 	HostPrefix    = config.ScopeHost + nameSep
 	MachinePrefix = config.ScopeMachine + nameSep
+
+	// usersCategory holds the units that are luxos users.
+	usersCategory = "users"
 )
 
 // entrypointName is the file name that turns a directory into a unit (and
@@ -347,9 +350,6 @@ func IsBundle(dir string) bool {
 	fi, err := os.Stat(filepath.Join(dir, bundleModulesDir))
 	return err == nil && fi.IsDir()
 }
-
-// usersCategory holds the units that are luxos users.
-const usersCategory = "users"
 
 // IsUser reports whether m is a luxos user: a folder unit directly in users/,
 // or a folder unit staged in place of one.

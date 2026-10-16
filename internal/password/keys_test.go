@@ -113,6 +113,10 @@ func TestCheck(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "luxos key add luar") {
 		t.Errorf("wrong key: %v", err)
 	}
+	ageErr := Decrypt(filepath.Join(unit, File), KeyPath(keys, "luar"))
+	if ageErr == nil || !strings.Contains(err.Error(), ageErr.Error()) {
+		t.Errorf("wrong key: %v does not carry age's error %v", err, ageErr)
+	}
 
 	if err := WriteKey(keys, "luar", secret); err != nil {
 		t.Fatal(err)

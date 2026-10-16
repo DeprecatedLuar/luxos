@@ -163,7 +163,7 @@ func Check(unitDir, keysDir, user string, uid int) error {
 		return fmt.Errorf("user %s: %w\n  fix: luxos key add %s", user, err, user)
 	}
 	if err := Decrypt(file, KeyPath(keysDir, user)); err != nil {
-		return fmt.Errorf("user %s: the key on this computer does not decrypt %s\n  fix: luxos key add %s (or set a new password: luxos passwd %s)", user, file, user, user)
+		return fmt.Errorf("user %s: the key on this computer does not decrypt %s: %v\n  fix: luxos key add %s (or set a new password: luxos passwd %s)", user, file, err, user, user)
 	}
 	return nil
 }

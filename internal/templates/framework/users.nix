@@ -14,7 +14,7 @@ let
       chmod 0400 ${lib.escapeShellArg "${runDir}/${name}"}
     else
       rm -f ${lib.escapeShellArg "${runDir}/${name}"}
-      echo "luxos: cannot decrypt the password of ${name}; its account stays locked (luxos key add ${name})" >&2
+      echo ${lib.escapeShellArg "luxos: cannot decrypt the password of ${name}; its account stays locked (luxos key add ${name})"} >&2
     fi
   '';
 in

@@ -106,6 +106,12 @@ func TestUsersFramework(t *testing.T) {
 			t.Errorf("activation script lacks %q:\n%s", want, got.Script)
 		}
 	}
+	for _, u := range []string{"luar", "bob"} {
+		want := "echo 'luxos: cannot decrypt the password of " + u + "; its account stays locked (luxos key add " + u + ")' >&2"
+		if !strings.Contains(got.Script, want) {
+			t.Errorf("activation script lacks the quoted message %q:\n%s", want, got.Script)
+		}
+	}
 	if len(got.Failed) != 0 {
 		t.Errorf("failed assertions: %v", got.Failed)
 	}
