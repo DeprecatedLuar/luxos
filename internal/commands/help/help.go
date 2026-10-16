@@ -16,6 +16,7 @@ const (
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
+	passwdDescription  = "set a user's password"
 	keyDescription     = "store, list and remove users' age keys on this computer"
 
 	environmentDescription = "syntax of CONFIG_DIR/environment"
@@ -45,6 +46,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("module|modules|m remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
 			gohelp.Item("module|modules|m rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
+			gohelp.Item("passwd|password <user>", "Set a user's password; also 'luxos user passwd <user>'"),
 			gohelp.Item("key ls|add|rm <user>", "Manage the age keys that decrypt users' passwords on this computer"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
@@ -163,8 +165,17 @@ func userPage() *gohelp.Page {
 			gohelp.Item("disable|0 <name>... [-y]", "Disable one or more users on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
+			gohelp.Item("passwd|password <user>", "Set the user's password"),
 		).
 		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no host/ or machine/ equivalent for users.")
+}
+
+func passwdPage() *gohelp.Page {
+	return gohelp.NewPage("passwd", passwdDescription).
+		Usage(binaryName + " passwd <user>").
+		Text("Asks the password twice and writes its yescrypt hash, age-encrypted, to the user's .password.age. " +
+			"The key of the user on this computer (/var/lib/luxos/keys/<user>) is reused; without one a new key is created and printed once: " +
+			"save it, every computer that builds the user needs it (luxos key add <user>). Runs as root.")
 }
 
 func keyPage() *gohelp.Page {
@@ -229,5 +240,5 @@ func settingsPage() *gohelp.Page {
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), updatePage(), packagePage(), modulePage(), userPage(), keyPage(), shellPage(), environmentPage(), settingsPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), updatePage(), packagePage(), modulePage(), userPage(), passwdPage(), keyPage(), shellPage(), environmentPage(), settingsPage())
 }

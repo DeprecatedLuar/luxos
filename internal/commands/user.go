@@ -38,6 +38,8 @@ func User(args []string) error {
 		return moduleRemove(p, rest)
 	case "rename", "rn":
 		return moduleRename(p, rest)
+	case "passwd", "password":
+		return Passwd(rest)
 	default:
 		return fmt.Errorf("unknown user command: %s", verb)
 	}
