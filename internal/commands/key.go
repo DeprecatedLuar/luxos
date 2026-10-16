@@ -24,6 +24,8 @@ const (
 	keyStatusNone = "missing"
 )
 
+var errKeyMissing = errors.New("no key provided")
+
 var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: luxos key rm <user> --yes")
 
 // Key runs `luxos key ls|add|rm`.
@@ -84,7 +86,12 @@ func keyAdd(p paths.Paths, args []string) error {
 	return nil
 }
 
-// readKeyInput reads the secret line from a hidden prompt, or from all of in
+// isKeyComment reports whether line is a comment of age-keygen output.
+func isKeyComment(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "#")
+}
+
+// readKeyInput reads the secret line from a hidden prompt (skipping the comment lines of a pasted age-keygen block), or from all of in
 // when in is not a terminal.
 func readKeyInput(in *os.File, out io.Writer) (string, error) {
 	term, err := ui.IsTTY(in)
@@ -92,7 +99,10 @@ func readKeyInput(in *os.File, out io.Writer) (string, error) {
 		return "", err
 	}
 	if term {
-		line, err := ui.AskSecret(in, out, keyPrompt)
+		line, err := ui.AskSecretUnless(in, out, keyPrompt, isKeyComment)
+		if errors.Is(err, io.EOF) {
+			return "", errKeyMissing
+		}
 		if err != nil {
 			return "", err
 		}

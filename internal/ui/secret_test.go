@@ -59,3 +59,27 @@ func TestIsTTY_Pipe(t *testing.T) {
 		t.Errorf("pipe: %v, %v", term, err)
 	}
 }
+
+func skipComments(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
+
+func TestAskSecretUnless_SkipsToFirstKeptLine(t *testing.T) {
+	in := pipeWith(t, "# a\n# b\nKEY\nrest\n")
+	got, err := AskSecretUnless(in, io.Discard, "", skipComments)
+	if err != nil || got != "KEY" {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+func TestAskSecretUnless_OnlySkippedThenEOF(t *testing.T) {
+	_, err := AskSecretUnless(pipeWith(t, "# a\n# b\n"), io.Discard, "", skipComments)
+	if err != io.EOF {
+		t.Errorf("err = %v, want io.EOF", err)
+	}
+}
+
+func TestAskSecretUnless_PromptPrintedOnce(t *testing.T) {
+	var out strings.Builder
+	if _, err := AskSecretUnless(pipeWith(t, "# a\nKEY\n"), &out, "P: ", skipComments); err != nil || out.String() != "P: " {
+		t.Errorf("out = %q, %v", out.String(), err)
+	}
+}

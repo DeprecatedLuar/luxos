@@ -22,6 +22,13 @@ func IsTTY(f *os.File) (bool, error) {
 // AskSecret prints prompt to w and reads one line from in, without echo when
 // in is a terminal. Input that ends with nothing typed returns io.EOF.
 func AskSecret(in *os.File, w io.Writer, prompt string) (string, error) {
+	return AskSecretUnless(in, w, prompt, nil)
+}
+
+// AskSecretUnless is AskSecret that keeps reading lines, with echo off for
+// all of them, until one is not skipped. Input that ends before such a line
+// returns io.EOF.
+func AskSecretUnless(in *os.File, w io.Writer, prompt string, skip func(line string) bool) (string, error) {
 	if _, err := fmt.Fprint(w, prompt); err != nil {
 		return "", err
 	}
@@ -44,7 +51,15 @@ func AskSecret(in *os.File, w io.Writer, prompt string) (string, error) {
 			fmt.Fprintln(w)
 		}()
 	}
-	return readLine(in)
+	for {
+		line, err := readLine(in)
+		if err != nil {
+			return "", err
+		}
+		if skip == nil || !skip(line) {
+			return line, nil
+		}
+	}
 }
 
 // readLine reads byte by byte so a following read on the same pipe gets the

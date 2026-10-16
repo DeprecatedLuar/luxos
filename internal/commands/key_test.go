@@ -53,3 +53,13 @@ func TestOneUser(t *testing.T) {
 		}
 	}
 }
+
+func TestIsKeyComment(t *testing.T) {
+	for line, want := range map[string]bool{
+		"# created: x": true, "  # public key: age1": true, "AGE-SECRET-KEY-1ABC": false, "": false, "garbage": false,
+	} {
+		if got := isKeyComment(line); got != want {
+			t.Errorf("isKeyComment(%q) = %v", line, got)
+		}
+	}
+}
