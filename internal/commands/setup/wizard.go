@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
+	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -32,7 +34,14 @@ const (
 	freshDone     = "Your config is at %s. Put it in git to use it on other computers.\n"
 	menuLine      = "  %s  %s\n"
 	reviewLine    = "  %d  %-10s %s\n"
+
+	setupPasswordPrompt = "Password for %s: "
+	setupAgainPrompt    = "Retype password for %s: "
+	setupKeyNotice      = "\nKey of %s. Save it somewhere safe (a password manager); every computer that builds %s needs it (luxos key add %s):\n\n%s\n\n"
+	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos key add %s"
 )
+
+var errSetupMismatch = errors.New("passwords do not match")
 
 // Selection lines of a new host, without "./".
 const (
@@ -62,6 +71,11 @@ type Wizard struct {
 	Paths  paths.Paths
 	System System
 	Clone  func(url, dir string) error
+
+	// Secret asks for a value without echoing it.
+	Secret func(prompt string) (string, error)
+	// StoreKey keeps the user's key on this computer.
+	StoreKey func(user, secret string) error
 }
 
 // Fresh runs the whole wizard on an empty config and returns the host to build.
@@ -130,16 +144,23 @@ func (w *Wizard) freshConfig() (string, error) {
 		return "", err
 	}
 
+	pw, err := w.askPassword()
+	if err != nil {
+		return "", err
+	}
 	if err := config.MkdirAll(w.Paths.Config); err != nil {
 		return "", err
 	}
 	if err := config.CopyStarterModules(w.Paths.Modules); err != nil {
 		return "", err
 	}
-	if err := w.writeUser(); err != nil {
+	if err := w.writeUser(pw); err != nil {
 		return "", err
 	}
 	if err := config.CreateHost(w.Paths.Hosts, m); err != nil {
+		return "", err
+	}
+	if err := w.writeGroups(name); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(w.Out, freshDone, w.Paths.Config)
@@ -165,7 +186,10 @@ func (w *Wizard) newHost(existing []string) (string, error) {
 		return "", err
 	}
 	sel := []string{localPackagesSelection, userPath}
-	return name, config.CreateHost(w.Paths.Hosts, w.host(name, values, sel))
+	if err := config.CreateHost(w.Paths.Hosts, w.host(name, values, sel)); err != nil {
+		return "", err
+	}
+	return name, w.writeGroups(name)
 }
 
 func (w *Wizard) host(name string, values config.HostValues, sel []string) config.HostSpec {
@@ -181,7 +205,11 @@ func (w *Wizard) enableUser(host string) error {
 		return err
 	}
 	if _, ok := h.Find(w.Paths.User); !ok {
-		if err := w.writeUser(); err != nil {
+		pw, err := w.askPassword()
+		if err != nil {
+			return err
+		}
+		if err := w.writeUser(pw); err != nil {
 			return err
 		}
 		if h, err = modules.Load(w.Paths.Modules, hostDir, ""); err != nil {
@@ -195,7 +223,7 @@ func (w *Wizard) enableUser(host string) error {
 	if changed {
 		fmt.Fprintf(w.Out, userEnabled, w.Paths.User, host)
 	}
-	return nil
+	return w.writeGroups(host)
 }
 
 // ensureUserUnit returns the selection path of the user's unit, creating it
@@ -208,15 +236,80 @@ func (w *Wizard) ensureUserUnit() (string, error) {
 	if m, ok := modules.Find(ms, w.Paths.User); ok {
 		return m.Path, nil
 	}
-	return w.userPath(), w.writeUser()
+	pw, err := w.askPassword()
+	if err != nil {
+		return "", err
+	}
+	return w.userPath(), w.writeUser(pw)
 }
 
 func (w *Wizard) userPath() string {
 	return usersCategory + "/" + w.Paths.User
 }
 
-func (w *Wizard) writeUser() error {
-	return config.WriteUser(filepath.Join(w.Paths.Modules, usersCategory, w.Paths.User))
+// askPassword asks the user's password twice; both must match and not be empty.
+func (w *Wizard) askPassword() (string, error) {
+	user := w.Paths.User
+	pw, err := w.Secret(fmt.Sprintf(setupPasswordPrompt, user))
+	if err != nil {
+		return "", err
+	}
+	if pw == "" {
+		return "", password.ErrEmpty
+	}
+	again, err := w.Secret(fmt.Sprintf(setupAgainPrompt, user))
+	if err != nil {
+		return "", err
+	}
+	if pw != again {
+		return "", errSetupMismatch
+	}
+	return pw, nil
+}
+
+// writeUser creates the user unit with pw as its password: the encrypted
+// hash goes into the unit; the new key is shown once, then handed to StoreKey.
+func (w *Wizard) writeUser(pw string) error {
+	user := w.Paths.User
+	hash, err := password.Hash(pw)
+	if err != nil {
+		return err
+	}
+	secret, err := password.NewKey()
+	if err != nil {
+		return err
+	}
+	pub, err := password.PublicKey(secret)
+	if err != nil {
+		return err
+	}
+	enc, err := password.Encrypt(hash, pub)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(w.Paths.Modules, usersCategory, user)
+	if err := config.WriteUser(dir); err != nil {
+		return err
+	}
+	if err := config.WriteFile(filepath.Join(dir, password.File), enc); err != nil {
+		return err
+	}
+	fmt.Fprintf(w.Out, setupKeyNotice, user, user, user, secret)
+	if err := w.StoreKey(user, secret); err != nil {
+		return fmt.Errorf(setupStoreKeyFailed, user, err, user)
+	}
+	return nil
+}
+
+// writeGroups gives the user its groups on host unless the host already has
+// a settings file for the user.
+func (w *Wizard) writeGroups(host string) error {
+	dir := filepath.Join(w.Paths.Hosts, host, config.SettingsDir)
+	if err := config.MkdirAll(dir); err != nil {
+		return err
+	}
+	_, err := config.CreateFile(filepath.Join(dir, w.Paths.User+".nix"), config.UserGroups(w.Paths.User))
+	return err
 }
 
 func (w *Wizard) askName(existing []string) (string, error) {

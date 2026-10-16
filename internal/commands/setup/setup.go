@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
@@ -24,6 +25,7 @@ const (
 	rebuildCmd       = "rebuild"
 	rebuildAction    = "switch"
 	hostFlag         = "--host"
+	sudoBin          = "sudo"
 )
 
 var errRoot = errors.New("luxos setup writes your config and your user module, so it runs as you: run it again without sudo")
@@ -53,7 +55,10 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 	if err != nil {
 		return "", err
 	}
-	w := &Wizard{Ask: ask, Out: out, Paths: p, System: sys, Clone: Clone}
+	w := &Wizard{Ask: ask, Out: out, Paths: p, System: sys, Clone: Clone,
+		Secret:   func(prompt string) (string, error) { return ui.AskSecret(os.Stdin, out, prompt) },
+		StoreKey: StoreKey,
+	}
 
 	var name string
 	if state == config.StateNoConfig {
@@ -113,4 +118,14 @@ func Run(args []string) error {
 		return err
 	}
 	return shell.Exec(exe, []string{rebuildCmd, rebuildAction, hostFlag, name})
+}
+
+// StoreKey hands secret to `luxos key add user` under sudo, on stdin. sudo
+// reads its own password from the terminal, not from stdin.
+func StoreKey(user, secret string) error {
+	self, err := shell.Self()
+	if err != nil {
+		return err
+	}
+	return shell.Run(shell.Cmd{Bin: sudoBin, Args: []string{self, "key", "add", user}, Stdin: strings.NewReader(secret + "\n")})
 }

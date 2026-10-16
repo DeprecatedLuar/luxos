@@ -12,6 +12,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
+	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -20,6 +21,27 @@ func skipIfNoNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		t.Skip("nix-instantiate not on PATH")
+	}
+}
+
+func skipIfNoPasswordTools(t *testing.T) {
+	t.Helper()
+	for _, tool := range []string{"age", "age-keygen", "mkpasswd"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s not on PATH", tool)
+		}
+	}
+}
+
+// answers returns a Secret that replies with each value in turn.
+func answers(values ...string) func(string) (string, error) {
+	return func(string) (string, error) {
+		if len(values) == 0 {
+			return "", io.EOF
+		}
+		v := values[0]
+		values = values[1:]
+		return v, nil
 	}
 }
 
@@ -41,11 +63,13 @@ func testPaths(t *testing.T) paths.Paths {
 func newWizard(t *testing.T, p paths.Paths, input string, clone func(url, dir string) error) (*Wizard, *bytes.Buffer) {
 	var out bytes.Buffer
 	return &Wizard{
-		Ask:    ui.NewPrompter(strings.NewReader(input), &out),
-		Out:    &out,
-		Paths:  p,
-		System: testSystem,
-		Clone:  clone,
+		Ask:      ui.NewPrompter(strings.NewReader(input), &out),
+		Out:      &out,
+		Paths:    p,
+		System:   testSystem,
+		Clone:    clone,
+		Secret:   answers("pw", "pw", "pw", "pw"),
+		StoreKey: func(string, string) error { return nil },
 	}, &out
 }
 
@@ -61,6 +85,7 @@ func selection(t *testing.T, p paths.Paths, host string) string {
 }
 
 func TestFresh_NewConfig(t *testing.T) {
+	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	// no repo, bad name, good name, hyprland, change keyboard, keep, write
 	w, out := newWizard(t, p, "\n-bad\ncathode\n3\n3\nus\ny\n", noClone)
@@ -97,6 +122,7 @@ func TestFresh_NewConfig(t *testing.T) {
 }
 
 func TestFresh_ConsoleSelectsNoDesktop(t *testing.T) {
+	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
 	if _, err := w.Fresh(); err != nil {
@@ -145,6 +171,7 @@ func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 
 func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	w, out := newWizard(t, p, "y\nhttps://example.com/c.git\n1\n", cloneConfig(t, false))
 	name, err := w.Fresh()
@@ -238,5 +265,99 @@ func TestHostScreen_UnparsableValueWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana")); !os.IsNotExist(err) {
 		t.Errorf("user unit written although the host was refused: %v", err)
+	}
+}
+
+func TestFresh_UserGetsPasswordKeyAndGroups(t *testing.T) {
+	skipIfNoPasswordTools(t)
+	p := testPaths(t)
+	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	stored := map[string]string{}
+	w.StoreKey = func(user, secret string) error { stored[user] = secret; return nil }
+	if _, err := w.Fresh(); err != nil {
+		t.Fatalf("Fresh: %v\n%s", err, out)
+	}
+	enc, err := os.ReadFile(filepath.Join(p.Modules, "users/ana", password.File))
+	if err != nil || !strings.HasPrefix(string(enc), "-----BEGIN AGE ENCRYPTED FILE-----") {
+		t.Errorf("password file: %v\n%s", err, enc)
+	}
+	secret := stored["ana"]
+	if !strings.HasPrefix(secret, "AGE-SECRET-KEY-1") {
+		t.Fatalf("stored key = %q", secret)
+	}
+	if n := strings.Count(out.String(), secret); n != 1 {
+		t.Errorf("key shown %d times, want once", n)
+	}
+	groups, err := os.ReadFile(filepath.Join(p.Hosts, "cathode/settings/ana.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(groups, config.UserGroups("ana")) || !strings.Contains(string(groups), "wheel") {
+		t.Errorf("groups file:\n%s", groups)
+	}
+}
+
+func TestHostScreen_ExistingUserUnitKeepsPassword(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	if err := cloneConfig(t, true)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	pwFile := filepath.Join(p.Modules, "users/ana", password.File)
+	if err := os.WriteFile(pwFile, []byte("enc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	groupsPath := filepath.Join(p.Hosts, "nuremberg/settings/ana.nix")
+	w, out := newWizard(t, p, "1\n", noClone)
+	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
+	w.Secret = func(string) (string, error) { t.Error("Secret asked"); return "", io.EOF }
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatalf("HostScreen: %v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile(pwFile); string(got) != "enc\n" {
+		t.Errorf("password file rewritten: %q", got)
+	}
+	if got, _ := os.ReadFile(groupsPath); !bytes.Equal(got, config.UserGroups("ana")) {
+		t.Errorf("groups file not created: %q", got)
+	}
+	if err := os.WriteFile(groupsPath, []byte("{ }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w, _ = newWizard(t, p, "1\n", noClone)
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(groupsPath); string(got) != "{ }\n" {
+		t.Errorf("existing groups file overwritten: %q", got)
+	}
+}
+
+func TestFresh_PasswordMismatchWritesNoPassword(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w.Secret = answers("a", "b")
+	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
+	if _, err := w.Fresh(); !errors.Is(err, errSetupMismatch) {
+		t.Fatalf("err = %v, want mismatch\n%s", err, out)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config written despite mismatch: %v", err)
+	}
+}
+
+func TestHostScreen_MismatchLeavesNoUnit(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	if err := cloneConfig(t, false)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := newWizard(t, p, "1\n", noClone)
+	w.Secret = answers("a", "b")
+	if _, err := w.HostScreen(); !errors.Is(err, errSetupMismatch) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana")); !os.IsNotExist(err) {
+		t.Errorf("user unit created: %v", err)
 	}
 }
