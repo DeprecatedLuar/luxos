@@ -27,6 +27,7 @@ const (
 	modulesRel      = "modules"
 
 	staging           = "/etc/nixos"
+	keysDir           = "/var/lib/luxos/keys"
 	sysDir            = "/sys"
 	devDir            = "/dev"
 	mountsFile        = "/proc/mounts"
@@ -43,6 +44,7 @@ type Paths struct {
 	Hosts             string // <Config>/.local/hosts
 	Modules           string // <Config>/modules
 	Staging           string // /etc/nixos, the flake root
+	Keys              string // /var/lib/luxos/keys, the root-only folder of user age keys
 	Machines          string // <Config>/.local/machines
 	Sys               string // /sys
 	Dev               string // /dev
@@ -82,6 +84,7 @@ func Resolve() (Paths, error) {
 		Hosts:             filepath.Join(config, hostsRel),
 		Modules:           filepath.Join(config, modulesRel),
 		Staging:           staging,
+		Keys:              keysDir,
 		Machines:          filepath.Join(config, machinesRel),
 		Sys:               sysDir,
 		Dev:               devDir,
