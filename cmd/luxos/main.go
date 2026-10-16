@@ -68,6 +68,8 @@ func run(args []string) error {
 		return commands.User(rest)
 	case "users":
 		return commands.User(withDefaultVerb(rest, "list"))
+	case "key":
+		return commands.Key(rest)
 	case "shell":
 		return commands.Shell(rest)
 	default:

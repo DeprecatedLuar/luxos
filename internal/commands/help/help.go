@@ -16,6 +16,7 @@ const (
 	moduleDescription  = "manage modules under CONFIG_DIR/modules"
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
+	keyDescription     = "store, list and remove users' age keys on this computer"
 
 	environmentDescription = "syntax of CONFIG_DIR/environment"
 	settingsDescription    = "module options and per-host settings files"
@@ -44,6 +45,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("module|modules|m remove|rm <name> [-y]", "Delete a module everywhere it's imported; top-level 'remove'/'rm' is a shortcut for this"),
 			gohelp.Item("module|modules|m rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
+			gohelp.Item("key ls|add|rm <user>", "Manage the age keys that decrypt users' passwords on this computer"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
 			gohelp.Item("help settings", "Module options and per-host settings files"),
@@ -165,6 +167,17 @@ func userPage() *gohelp.Page {
 		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no host/ or machine/ equivalent for users.")
 }
 
+func keyPage() *gohelp.Page {
+	return gohelp.NewPage("key", keyDescription).
+		Usage(binaryName+" key <verb> <user>").
+		Section("Commands",
+			gohelp.Item("ls|list", "List users with a key on this computer, and selected users missing one"),
+			gohelp.Item("add <user>", "Store a user's key, read from a hidden prompt or from stdin (pass show luar-key | luxos key add luar)"),
+			gohelp.Item("rm|remove <user> [-y]", "Remove a user's key from this computer"),
+		).
+		Text("Keys live in /var/lib/luxos/keys (root-only, 0400), never in the config. Every verb runs as root.")
+}
+
 func shellPage() *gohelp.Page {
 	return gohelp.NewPage("shell", shellDescription).
 		Usage(binaryName + " shell [args]")
@@ -216,5 +229,5 @@ func settingsPage() *gohelp.Page {
 // args is the full argv tail. An unknown topic comes back as a non-nil
 // error; the caller prints and exits like any other command error.
 func Run(args []string) error {
-	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), updatePage(), packagePage(), modulePage(), userPage(), shellPage(), environmentPage(), settingsPage())
+	return gohelp.Run(args, rootPage(), rebuildPage(), setupPage(), flakePage(), updatePage(), packagePage(), modulePage(), userPage(), keyPage(), shellPage(), environmentPage(), settingsPage())
 }
