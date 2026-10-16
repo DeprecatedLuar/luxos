@@ -576,24 +576,14 @@ func editNixFileInPlace(path string) error {
 
 //──[add]──────────────────────────────────────────────────────────────────
 
-// moduleAddUser scaffolds modules/<target> as a user unit. account.nix is
-// opened in $EDITOR as a scratch file before anything is written.
+// moduleAddUser scaffolds modules/<target> as a user unit.
 func moduleAddUser(modulesRoot, target string) error {
 	name := filepath.Base(target)
-
-	account, err := config.UserAccount(name, false)
-	if err != nil {
+	if err := config.WriteUser(filepath.Join(modulesRoot, target)); err != nil {
 		return err
 	}
-	edited, err := editScratch(account)
-	if err != nil {
-		return err
-	}
-	if err := config.WriteUser(filepath.Join(modulesRoot, target), name, edited); err != nil {
-		return err
-	}
-
-	fmt.Printf("Created modules/%s/{default.nix,account.nix,packages.nix}\n", target)
+	fmt.Printf("Created modules/%s/{default.nix,account.nix,options.nix,packages.nix}\n", target)
+	fmt.Printf("Set its password before enabling it: luxos passwd %s\n", name)
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 const optionsDefault = "{ ... }: { imports = [ ./options.nix ]; }\n"
@@ -346,5 +347,35 @@ func TestSettingsFileInEffect(t *testing.T) {
 	mustWriteFile(t, config.SettingsPath(machineDir, "laptop"), "{ }")
 	if got := h.SettingsFile(shared); got != config.SettingsPath(machineDir, "laptop") {
 		t.Errorf("shared with machine file: %s", got)
+	}
+}
+
+func TestVendoredUserFilesFollowTheRules(t *testing.T) {
+	skipIfNoNix(t)
+	account, err := templates.File("user/account.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := templates.File("user/options.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := settingsHost(t, map[string]string{
+		"users/luar/default.nix":   `{ imports = [ ./account.nix ./options.nix ]; }`,
+		"users/luar/account.nix":   string(account),
+		"users/luar/options.nix":   string(options),
+		"users/luar/.password.age": "x",
+	}, "users/luar")
+	rep, err := SyncSettings(h)
+	if err != nil || len(rep.Broken) != 0 {
+		t.Fatalf("sync = %+v, %v", rep, err)
+	}
+	want := "{\n  luar.groups = [ ]; # Supplementary groups of this user on this host\n}\n"
+	if got := readString(t, filepath.Join(h.HostDir, "settings", "luar.nix")); got != want {
+		t.Errorf("settings = %q, want %q", got, want)
+	}
+	violations, err := h.Validate()
+	if err != nil || len(violations) != 0 {
+		t.Errorf("Validate = %+v, %v", violations, err)
 	}
 }

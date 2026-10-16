@@ -348,6 +348,23 @@ func IsBundle(dir string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// usersCategory holds the units that are luxos users.
+const usersCategory = "users"
+
+// IsUser reports whether m is a luxos user: a folder unit directly in users/,
+// or a folder unit staged in place of one.
+func IsUser(m Module) bool {
+	path := m.Path
+	if m.Shadows != "" {
+		path = m.Shadows
+	}
+	if path != usersCategory+nameSep+m.Name {
+		return false
+	}
+	fi, err := os.Stat(m.Abs)
+	return err == nil && fi.IsDir()
+}
+
 // isFile reports whether path, symlinks followed, exists and is not a directory.
 func isFile(path string) bool {
 	fi, err := os.Stat(path)

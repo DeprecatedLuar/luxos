@@ -4,61 +4,76 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
-func TestUserAccount_Wheel(t *testing.T) {
-	on, err := UserAccount("ana", true)
-	if err != nil {
+func TestWriteUser(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "users", "ana")
+	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(on), "users.users.ana = {") {
-		t.Errorf("name not filled:\n%s", on)
+	for _, f := range []string{"default.nix", "account.nix", "options.nix", "packages.nix"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s: %v", f, err)
+		}
 	}
-	if !strings.Contains(string(on), "\n    extraGroups = [ \"networkmanager\" \"wheel\" ];") {
-		t.Errorf("wheel not enabled:\n%s", on)
-	}
-
-	off, err := UserAccount("ana", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(off), "# extraGroups = [ \"networkmanager\" \"wheel\" ];") {
-		t.Errorf("wheel not commented:\n%s", off)
-	}
-	if strings.Contains(string(off), "packages") {
-		t.Errorf("account.nix must not hold the package list:\n%s", off)
+	if err := WriteUser(dir); err == nil {
+		t.Error("WriteUser over an existing unit succeeded")
 	}
 }
 
-func TestWriteUser(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "modules/users/ana")
-	if err := WriteUser(dir, "ana", []byte("ACCOUNT")); err != nil {
+func TestSyncUser_RestoresAndLocks(t *testing.T) {
+	dir := t.TempDir()
+	changes, err := SyncUser(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, filepath.Join(dir, "account.nix")); got != "ACCOUNT" {
-		t.Errorf("account.nix = %q", got)
+	if len(changes) != 2 || changes[0].Action != ActionCreated {
+		t.Errorf("first sync = %+v", changes)
 	}
-	if got := readFile(t, filepath.Join(dir, "packages.nix")); !strings.Contains(got, "users.users.ana.packages") {
-		t.Errorf("packages.nix = %q", got)
+
+	acct := filepath.Join(dir, "account.nix")
+	if err := os.Chmod(acct, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got := readFile(t, filepath.Join(dir, "default.nix")); !strings.Contains(got, "./account.nix") || !strings.Contains(got, "./packages.nix") {
-		t.Errorf("default.nix = %q", got)
+	if err := os.WriteFile(acct, []byte("{ }"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if err := WriteUser(dir, "ana", []byte("AGAIN")); err == nil {
-		t.Error("second WriteUser into an existing unit must fail")
+	changes, err = SyncUser(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0] != (SyncChange{Path: "account.nix", Action: ActionRestored}) {
+		t.Errorf("second sync = %+v", changes)
+	}
+	want, _ := templates.File("user/account.nix")
+	got, _ := os.ReadFile(acct)
+	if string(got) != string(want) {
+		t.Error("account.nix not restored")
+	}
+	for _, f := range []string{"account.nix", "options.nix"} {
+		if fi, _ := os.Stat(filepath.Join(dir, f)); fi.Mode().Perm() != 0o444 {
+			t.Errorf("%s mode %v", f, fi.Mode().Perm())
+		}
+	}
+	if changes, _ := SyncUser(dir); len(changes) != 0 {
+		t.Errorf("third sync = %+v, want nothing", changes)
+	}
+}
+
+func TestUserGroups(t *testing.T) {
+	want := "{\n  ana.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
+	if got := string(UserGroups("ana")); got != want {
+		t.Errorf("got %q", got)
 	}
 }
 
 func TestUserTemplates_Parse(t *testing.T) {
 	skipIfNoNix(t)
 	dir := filepath.Join(t.TempDir(), "ana")
-	account, err := UserAccount("ana", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteUser(dir, "ana", account); err != nil {
+	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dir)

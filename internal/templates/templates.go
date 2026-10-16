@@ -12,7 +12,7 @@ import (
 
 const renderDir = "render/"
 
-//go:embed all:framework all:modules all:starters all:render all:entry
+//go:embed all:framework all:modules all:starters all:render all:entry all:user
 var files embed.FS
 
 // File returns the embedded file at name, e.g. "starters/user/default.nix".

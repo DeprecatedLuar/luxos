@@ -216,11 +216,7 @@ func (w *Wizard) userPath() string {
 }
 
 func (w *Wizard) writeUser() error {
-	account, err := config.UserAccount(w.Paths.User, true)
-	if err != nil {
-		return err
-	}
-	return config.WriteUser(filepath.Join(w.Paths.Modules, usersCategory, w.Paths.User), w.Paths.User, account)
+	return config.WriteUser(filepath.Join(w.Paths.Modules, usersCategory, w.Paths.User))
 }
 
 func (w *Wizard) askName(existing []string) (string, error) {

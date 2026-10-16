@@ -139,11 +139,7 @@ func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 		if !withUser {
 			return config.MkdirAll(filepath.Join(dir, "modules"))
 		}
-		account, err := config.UserAccount("ana", true)
-		if err != nil {
-			return err
-		}
-		return config.WriteUser(filepath.Join(dir, "modules/users/ana"), "ana", account)
+		return config.WriteUser(filepath.Join(dir, "modules/users/ana"))
 	}
 }
 
@@ -162,8 +158,8 @@ func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 		t.Errorf("selection = %q", got)
 	}
 	account, err := os.ReadFile(filepath.Join(p.Modules, "users/ana/account.nix"))
-	if err != nil || !strings.Contains(string(account), "\n    extraGroups") {
-		t.Errorf("created user unit must enable wheel: %v\n%s", err, account)
+	if err != nil || !strings.Contains(string(account), "extraGroups = config.${name}.groups") {
+		t.Errorf("created user unit must hold the vendored account.nix: %v\n%s", err, account)
 	}
 }
 
@@ -173,8 +169,8 @@ func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 	if err := cloneConfig(t, true)("", p.Config); err != nil {
 		t.Fatal(err)
 	}
-	accountPath := filepath.Join(p.Modules, "users/ana/account.nix")
-	if err := os.WriteFile(accountPath, []byte("{ users.users.ana.isNormalUser = true; }\n"), 0644); err != nil {
+	packagesPath := filepath.Join(p.Modules, "users/ana/packages.nix")
+	if err := os.WriteFile(packagesPath, []byte("{ }\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,8 +183,8 @@ func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 	if got := selection(t, p, "nuremberg"); got != "host/packages.nix users/ana" {
 		t.Errorf("selection = %q", got)
 	}
-	if got, _ := os.ReadFile(accountPath); string(got) != "{ users.users.ana.isNormalUser = true; }\n" {
-		t.Errorf("existing account.nix rewritten: %q", got)
+	if got, _ := os.ReadFile(packagesPath); string(got) != "{ }\n" {
+		t.Errorf("existing packages.nix rewritten: %q", got)
 	}
 }
 

@@ -728,3 +728,34 @@ func TestLoadReadsBothSelections(t *testing.T) {
 		t.Fatalf("Selection() = %v, want %v", h.Selection(), want)
 	}
 }
+
+func TestIsUser(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	hostModules := filepath.Join(root, "host")
+	for _, f := range []string{
+		"users/ana/default.nix",
+		"users/bob/default.nix",
+		"users/solo.nix",
+		"users/team/zed/default.nix",
+		"desktop/ana2/default.nix",
+	} {
+		mustWriteFile(t, filepath.Join(modulesDir, f), "{ }")
+	}
+	mustWriteFile(t, filepath.Join(hostModules, "bob", "default.nix"), "{ }")
+
+	units, _, err := Walk(modulesDir, hostModules, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"ana": true, "bob": true, "solo": false, "zed": false, "ana2": false}
+	for name, isUser := range want {
+		m, ok := Find(units, name)
+		if !ok {
+			t.Fatalf("%s not found", name)
+		}
+		if got := IsUser(m); got != isUser {
+			t.Errorf("IsUser(%s) = %v (Path %q, Shadows %q)", name, got, m.Path, m.Shadows)
+		}
+	}
+}
