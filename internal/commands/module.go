@@ -779,6 +779,9 @@ func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 	}
 
 	if enable {
+		if err := requirePassword(m); err != nil {
+			return err
+		}
 		if err := enableBundles(h, name, toMachine); err != nil {
 			return err
 		}

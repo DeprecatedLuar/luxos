@@ -305,6 +305,9 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := syncSettings(out, p, host, machineDir); err != nil {
 		return err
 	}
+	if err := checkPasswords(out, h, p.Keys, keyOwnerUID); err != nil {
+		return err
+	}
 	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {
 		return err
 	}
