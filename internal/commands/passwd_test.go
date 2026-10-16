@@ -45,55 +45,121 @@ func TestReadNewPassword(t *testing.T) {
 	}
 }
 
+func skipIfNoAge(t *testing.T) {
+	t.Helper()
+	for _, bin := range []string{"age", "age-keygen"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not installed", bin)
+		}
+	}
+}
+
 func TestUserKey(t *testing.T) {
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not installed")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not installed")
-	}
+	skipIfNoAge(t)
 	uid := os.Getuid()
 	dir := filepath.Join(t.TempDir(), "keys")
-
-	var first bytes.Buffer
-	pub, err := userKey(dir, testKeyUser, uid, &first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(first.String(), secretKeyPrefix) {
-		t.Errorf("new key not printed: %q", first.String())
-	}
-	if _, err := os.Stat(password.KeyPath(dir, testKeyUser)); err != nil {
-		t.Fatal(err)
-	}
-
-	var second bytes.Buffer
-	again, err := userKey(dir, testKeyUser, uid, &second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again != pub || second.Len() != 0 {
-		t.Errorf("reuse: pub %q vs %q, output %q", again, pub, second.String())
-	}
-
 	path := password.KeyPath(dir, testKeyUser)
-	if err := os.Remove(path); err != nil {
+
+	var warn bytes.Buffer
+	secret, fresh, err := userKey(dir, testKeyUser, uid, &warn)
+	if err != nil || !fresh || !strings.HasPrefix(secret, secretKeyPrefix) {
+		t.Fatalf("missing key: %q, fresh %v, %v", secret, fresh, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("userKey stored the new key")
+	}
+	if warn.Len() != 0 {
+		t.Errorf("missing key warned: %q", warn.String())
+	}
+
+	if err := password.WriteKey(dir, testKeyUser, secret); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(corruptKeyBody), 0o400); err != nil {
+	again, fresh, err := userKey(dir, testKeyUser, uid, &warn)
+	if err != nil || fresh || again != secret || warn.Len() != 0 {
+		t.Errorf("reuse: %q fresh %v, %v, warn %q", again, fresh, err, warn.String())
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var third bytes.Buffer
-	if _, err := userKey(dir, testKeyUser, uid, &third); err != nil {
+	kept, fresh, err := userKey(dir, testKeyUser, uid, &warn)
+	if err != nil || fresh || kept != secret {
+		t.Errorf("wrong-mode valid key not kept: fresh %v, %v", fresh, err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o400 {
+		t.Errorf("mode not repaired: %v", fi.Mode().Perm())
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(third.String(), "warning") || !strings.Contains(third.String(), secretKeyPrefix) {
-		t.Errorf("corrupt key not replaced with warning: %q", third.String())
+	if err := os.WriteFile(path, []byte(corruptKeyBody), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(third.String(), "garbage") {
-		t.Errorf("warning leaks key content: %q", third.String())
+	replaced, fresh, err := userKey(dir, testKeyUser, uid, &warn)
+	if err != nil || !fresh || replaced == secret {
+		t.Fatalf("corrupt key: fresh %v, %v", fresh, err)
 	}
-	if _, err := password.ReadKey(dir, testKeyUser, uid); err != nil {
-		t.Errorf("replacement unreadable: %v", err)
+	if !strings.Contains(warn.String(), "warning") {
+		t.Errorf("corrupt key replaced without a warning: %q", warn.String())
+	}
+	if strings.Contains(warn.String(), "garbage") || strings.Contains(warn.String(), secret) || strings.Contains(warn.String(), replaced) {
+		t.Errorf("warning leaks key content: %q", warn.String())
+	}
+}
+
+func TestStorePassword(t *testing.T) {
+	skipIfNoAge(t)
+	uid := os.Getuid()
+	keys := filepath.Join(t.TempDir(), "keys")
+	file := filepath.Join(t.TempDir(), password.File)
+
+	var out, warn bytes.Buffer
+	if err := storePassword(keys, testKeyUser, file, "hash", uid, &out, &warn); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), secretKeyPrefix) {
+		t.Errorf("new key not printed: %q", out.String())
+	}
+	if err := password.Decrypt(file, password.KeyPath(keys, testKeyUser)); err != nil {
+		t.Errorf("stored key does not decrypt: %v", err)
+	}
+
+	out.Reset()
+	if err := storePassword(keys, testKeyUser, file, "hash2", uid, &out, &warn); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 || warn.Len() != 0 {
+		t.Errorf("reused key printed: %q %q", out.String(), warn.String())
+	}
+}
+
+func TestStorePassword_EncryptFailsStoresNoKey(t *testing.T) {
+	skipIfNoAge(t)
+	keygen, err := exec.LookPath("age-keygen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(keygen, filepath.Join(bin, "age-keygen")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	keys := filepath.Join(t.TempDir(), "keys")
+	file := filepath.Join(t.TempDir(), password.File)
+	var out, warn bytes.Buffer
+	if err := storePassword(keys, testKeyUser, file, "hash", os.Getuid(), &out, &warn); err == nil {
+		t.Fatal("encrypt without age succeeded")
+	}
+	if _, err := os.Stat(password.KeyPath(keys, testKeyUser)); !os.IsNotExist(err) {
+		t.Error("a key was stored though encryption failed")
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Error("a password file was written though encryption failed")
+	}
+	if strings.Contains(out.String(), secretKeyPrefix) {
+		t.Errorf("an unstored key was printed: %q", out.String())
 	}
 }

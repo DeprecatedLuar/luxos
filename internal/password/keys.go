@@ -18,6 +18,9 @@ const (
 // ErrNoKey is returned when a user has no key in the folder.
 var ErrNoKey = errors.New("no key")
 
+// ErrNotKey is returned when a user's key file holds no age identity.
+var ErrNotKey = errors.New("not an age key")
+
 // KeyPath is user's key inside keysDir.
 func KeyPath(keysDir, user string) string {
 	return filepath.Join(keysDir, user)
@@ -66,16 +69,54 @@ func ReadKey(keysDir, user string, uid int) (string, error) {
 	if fi.Mode().Perm() != keyMode || int(st.Uid) != uid {
 		return "", fmt.Errorf("%s must be owned by uid %d with mode 0400 (is uid %d, %04o)", path, uid, st.Uid, fi.Mode().Perm())
 	}
+	return readSecret(path)
+}
+
+// RepairKey returns user's secret when the key file holds an age identity,
+// first setting its owner to uid and its mode to 0400 when they differ. A
+// file holding none is left untouched (ErrNotKey).
+func RepairKey(keysDir, user string, uid int) (string, error) {
+	path := KeyPath(keysDir, user)
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("%s: %w", path, ErrNoKey)
+	}
+	if err != nil {
+		return "", err
+	}
+	secret, err := readSecret(path)
+	if err != nil {
+		return "", err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("%s: cannot read its owner", path)
+	}
+	if int(st.Uid) != uid {
+		if err := os.Chown(path, uid, -1); err != nil {
+			return "", fmt.Errorf("%s: cannot set its owner to uid %d: %w", path, uid, err)
+		}
+	}
+	if fi.Mode().Perm() != keyMode {
+		if err := os.Chmod(path, keyMode); err != nil {
+			return "", err
+		}
+	}
+	return secret, nil
+}
+
+// readSecret returns the age identity in the key file at path.
+func readSecret(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 	secret, err := SecretLine(string(data))
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", path, err)
+		return "", fmt.Errorf("%s: %w (%v)", path, ErrNotKey, err)
 	}
 	if _, err := PublicKey(secret); err != nil {
-		return "", fmt.Errorf("%s is not an age key: %w", path, err)
+		return "", fmt.Errorf("%s: %w (%v)", path, ErrNotKey, err)
 	}
 	return secret, nil
 }

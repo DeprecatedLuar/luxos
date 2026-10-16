@@ -29,7 +29,7 @@ const (
 var errPasswordMismatch = errors.New("passwords do not match; nothing changed")
 
 // Passwd runs `luxos passwd <user>`: escalates, asks the password twice,
-// reuses or creates the user's key and writes the encrypted hash into the
+// reuses (repairing its mode and owner) or creates the user's key and writes the encrypted hash into the
 // user's unit (a shadow's when one wins). Nothing is written until both
 // answers are in and the hash is made.
 func Passwd(args []string) error {
@@ -63,17 +63,9 @@ func Passwd(args []string) error {
 	if err != nil {
 		return err
 	}
-	pub, err := userKey(p.Keys, name, keyOwnerUID, os.Stdout)
-	if err != nil {
-		return err
-	}
 	file := filepath.Join(m.Abs, password.File)
-	enc, err := password.Encrypt(hash, pub)
-	if err != nil {
-		return fmt.Errorf(passwdStale, err, name, password.File, name)
-	}
-	if err := config.WriteFile(file, enc); err != nil {
-		return fmt.Errorf(passwdStale, err, name, password.File, name)
+	if err := storePassword(p.Keys, name, file, hash, keyOwnerUID, os.Stdout, os.Stderr); err != nil {
+		return err
 	}
 	fmt.Printf(passwdDone, name, file)
 	return nil
@@ -98,22 +90,49 @@ func readNewPassword(ask func(prompt string) (string, error)) (string, error) {
 	return first, nil
 }
 
-// userKey returns the public key of user's key, creating and printing a new
-// key when there is none or it is unusable.
-func userKey(keysDir, user string, uid int, out io.Writer) (string, error) {
-	secret, err := password.ReadKey(keysDir, user, uid)
-	if err == nil {
-		return password.PublicKey(secret)
-	}
-	if !errors.Is(err, password.ErrNoKey) {
-		fmt.Fprintf(out, badKeyNotice, user, err)
+// userKey resolves user's key in memory: the stored one (its mode and owner
+// repaired), or a new, unstored one (fresh) when there is none or the file
+// holds no age key, which is warned about on warn.
+func userKey(keysDir, user string, uid int, warn io.Writer) (secret string, fresh bool, err error) {
+	secret, err = password.RepairKey(keysDir, user, uid)
+	switch {
+	case err == nil:
+		return secret, false, nil
+	case errors.Is(err, password.ErrNotKey):
+		fmt.Fprintf(warn, badKeyNotice, user, err)
+	case !errors.Is(err, password.ErrNoKey):
+		return "", false, err
 	}
 	if secret, err = password.NewKey(); err != nil {
-		return "", err
+		return "", false, err
+	}
+	return secret, true, nil
+}
+
+// storePassword encrypts hash to user's key and writes it to file. A fresh
+// key is stored, and printed on out, only once hash is encrypted to it.
+func storePassword(keysDir, user, file, hash string, uid int, out, warn io.Writer) error {
+	secret, fresh, err := userKey(keysDir, user, uid, warn)
+	if err != nil {
+		return err
+	}
+	pub, err := password.PublicKey(secret)
+	if err != nil {
+		return err
+	}
+	enc, err := password.Encrypt(hash, pub)
+	if err != nil {
+		return err
+	}
+	if !fresh {
+		return config.WriteFile(file, enc)
 	}
 	if err := password.WriteKey(keysDir, user, secret); err != nil {
-		return "", err
+		return fmt.Errorf(passwdStale, err, user, password.File, user)
 	}
 	fmt.Fprintf(out, newKeyNotice, user, user, user, secret)
-	return password.PublicKey(secret)
+	if err := config.WriteFile(file, enc); err != nil {
+		return fmt.Errorf(passwdStale, err, user, password.File, user)
+	}
+	return nil
 }

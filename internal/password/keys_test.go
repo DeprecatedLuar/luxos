@@ -121,3 +121,50 @@ func TestCheck(t *testing.T) {
 		t.Errorf("valid setup: %v", err)
 	}
 }
+
+func TestRepairKey(t *testing.T) {
+	skipIfNoTools(t)
+	keys := t.TempDir()
+	uid := os.Getuid()
+	if _, err := RepairKey(keys, "luar", uid); !errors.Is(err, ErrNoKey) {
+		t.Errorf("missing key: %v, want ErrNoKey", err)
+	}
+
+	secret, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := KeyPath(keys, "luar")
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := RepairKey(keys, "luar", uid)
+	if err != nil || got != secret {
+		t.Fatalf("valid key, wrong mode: %q, %v", got, err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o400 {
+		t.Errorf("mode %v, want 0400", fi.Mode().Perm())
+	}
+	if _, err := ReadKey(keys, "luar", uid); err != nil {
+		t.Errorf("repaired key fails ReadKey: %v", err)
+	}
+
+	if uid != 0 {
+		if _, err := RepairKey(keys, "luar", uid+1); err == nil || errors.Is(err, ErrNotKey) || !strings.Contains(err.Error(), "owner") {
+			t.Errorf("unfixable owner: %v, want an owner error", err)
+		}
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RepairKey(keys, "luar", uid); !errors.Is(err, ErrNotKey) {
+		t.Errorf("garbage: %v, want ErrNotKey", err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Errorf("garbage was repaired: mode %v", fi.Mode().Perm())
+	}
+}

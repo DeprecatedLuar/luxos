@@ -174,7 +174,7 @@ func passwdPage() *gohelp.Page {
 	return gohelp.NewPage("passwd", passwdDescription).
 		Usage(binaryName + " passwd <user>").
 		Text("Asks the password twice and writes its yescrypt hash, age-encrypted, to the user's .password.age. " +
-			"The key of the user on this computer (/var/lib/luxos/keys/<user>) is reused; without one a new key is created and printed once: " +
+			"The key of the user on this computer (/var/lib/luxos/keys/<user>) is reused, its mode and owner repaired; when there is none, or the file holds no age key, a new key is created and printed once: " +
 			"save it, every computer that builds the user needs it (luxos key add <user>). Runs as root.")
 }
 
@@ -182,7 +182,7 @@ func keyPage() *gohelp.Page {
 	return gohelp.NewPage("key", keyDescription).
 		Usage(binaryName+" key <verb> <user>").
 		Section("Commands",
-			gohelp.Item("ls|list", "List users with a key on this computer, and selected users missing one"),
+			gohelp.Item("ls|list", "List users with a key on this computer, and users in the build missing one"),
 			gohelp.Item("add <user>", "Store a user's key, read from a hidden prompt or from stdin (pass show luar-key | luxos key add luar)"),
 			gohelp.Item("rm|remove <user> [-y]", "Remove a user's key from this computer"),
 		).

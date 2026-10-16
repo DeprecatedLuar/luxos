@@ -18,7 +18,7 @@ import (
 const (
 	keyCommand    = "key"
 	keyPrompt     = "Age secret key (AGE-SECRET-KEY-1…): "
-	keyRemoveAsk  = "Remove the key of %s from this computer? Without it the password of %s cannot be decrypted here. [y/N] "
+	keyRemoveAsk  = "Remove the key of %s from this computer? The account %s is locked at the next boot or rebuild on this computer, and older generations stop accepting that password. [y/N] "
 	keyStatusHas  = "key"
 	keyStatusNone = "missing"
 )
