@@ -10,7 +10,6 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
-	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
@@ -140,7 +139,7 @@ func keyRemove(p paths.Paths, args []string) error {
 	return nil
 }
 
-// keyList prints every user with a key here, then selected users without one.
+// keyList prints every user with a key here, then users in the build without one.
 func keyList(p paths.Paths) error {
 	have, err := password.Users(p.Keys)
 	if err != nil {
@@ -154,8 +153,12 @@ func keyList(p paths.Paths) error {
 	if err != nil {
 		return err
 	}
-	for _, m := range h.Modules {
-		if _, selected := h.Selected(m.Name); selected && modules.IsUser(m) && status[m.Name] == "" {
+	users, err := builtUsers(h)
+	if err != nil {
+		return err
+	}
+	for _, m := range users {
+		if status[m.Name] == "" {
 			status[m.Name] = keyStatusNone
 		}
 	}

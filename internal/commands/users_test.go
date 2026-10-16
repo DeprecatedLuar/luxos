@@ -100,7 +100,7 @@ func userHost(t *testing.T, shadowBob bool, selected ...string) *modules.Host {
 	return h
 }
 
-func TestCheckPasswords_OnlySelectedUsers(t *testing.T) {
+func TestCheckPasswords_OnlyBuiltUsers(t *testing.T) {
 	h := userHost(t, false, "users/ana")
 	err := checkPasswords(ui.NewProgress(io.Discard), h, t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "1 user") {
@@ -116,6 +116,51 @@ func TestCheckPasswords_OnlySelectedUsers(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "bob") {
 		t.Errorf("unselected bob was checked: %s", buf.String())
+	}
+}
+
+// pullAna makes the shared unit x pull users/ana through luxos.modules.
+func pullAna(t *testing.T, h *modules.Host) {
+	t.Helper()
+	x, _ := h.Find("x")
+	pull := "{ luxos, ... }:\n{\n  imports = luxos.modules [ \"ana\" ];\n}\n"
+	if err := os.WriteFile(filepath.Join(x.Abs, "default.nix"), []byte(pull), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckPasswords_PulledUser(t *testing.T) {
+	skipIfNoNix(t)
+	h := userHost(t, false, "desktop/x")
+	pullAna(t, h)
+	var buf strings.Builder
+	err := checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
+	if err == nil || !strings.Contains(err.Error(), "1 user") {
+		t.Fatalf("err = %v, want one failing user", err)
+	}
+	if !strings.Contains(buf.String(), "luxos passwd ana") {
+		t.Errorf("pulled ana not checked: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "bob") {
+		t.Errorf("unbuilt bob was checked: %s", buf.String())
+	}
+}
+
+func TestBuiltUsers(t *testing.T) {
+	skipIfNoNix(t)
+	h := userHost(t, true, "desktop/x")
+	pullAna(t, h)
+	users, err := builtUsers(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range users {
+		got = append(got, m.Name+"="+m.Path)
+	}
+	want := "bob=host/bob,ana=users/ana"
+	if strings.Join(got, ",") != want {
+		t.Errorf("built users = %v, want %s", got, want)
 	}
 }
 

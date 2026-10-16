@@ -38,15 +38,16 @@ func syncUsers(out *ui.Progress, h *modules.Host) error {
 	return out.Err()
 }
 
-// checkPasswords runs the password preflight on every selected user unit,
-// shadows included, and reports every failing user before failing.
+// checkPasswords runs the password preflight on every user unit in the
+// build, shadows included, and reports every failing user before failing.
 func checkPasswords(out *ui.Progress, h *modules.Host, keysDir string, uid int) error {
 	out.Printf("Checking user passwords...\n")
+	users, err := builtUsers(h)
+	if err != nil {
+		return err
+	}
 	failed := 0
-	for _, m := range h.Modules {
-		if _, selected := h.Selected(m.Name); !selected || !modules.IsUser(m) {
-			continue
-		}
+	for _, m := range users {
 		if err := password.Check(m.Abs, keysDir, m.Name, uid); err != nil {
 			out.Errf("%s", err)
 			failed++
@@ -56,6 +57,22 @@ func checkPasswords(out *ui.Progress, h *modules.Host, keysDir string, uid int) 
 		return fmt.Errorf("user passwords: %d user(s) cannot log in", failed)
 	}
 	return out.Err()
+}
+
+// builtUsers returns every user unit the host builds, selected or pulled in
+// through luxos.modules; a shadow stands in for the unit it hides.
+func builtUsers(h *modules.Host) ([]modules.Module, error) {
+	built, err := h.Built()
+	if err != nil {
+		return nil, err
+	}
+	var users []modules.Module
+	for _, m := range built {
+		if modules.IsUser(m) {
+			users = append(users, m)
+		}
+	}
+	return users, nil
 }
 
 // requirePassword fails when m is a user unit without a password file.
