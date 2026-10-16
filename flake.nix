@@ -17,7 +17,12 @@
         inherit version vendorHash;
         src = ./.;
         subPackages = [ "cmd/luxos" ];
-        ldflags = [ "-X github.com/DeprecatedLuar/luxos/internal/commands.revision=${self.rev or self.dirtyRev or "unknown"}" ];
+        ldflags = [
+          "-X github.com/DeprecatedLuar/luxos/internal/commands.revision=${self.rev or self.dirtyRev or "unknown"}"
+          "-X github.com/DeprecatedLuar/luxos/internal/password.ageBin=${pkgs.age}/bin/age"
+          "-X github.com/DeprecatedLuar/luxos/internal/password.ageKeygenBin=${pkgs.age}/bin/age-keygen"
+          "-X github.com/DeprecatedLuar/luxos/internal/password.mkpasswdBin=${pkgs.mkpasswd}/bin/mkpasswd"
+        ];
 
         # `lux` is a second name for the same binary, so every host that
         # installs this package gets both commands on PATH.

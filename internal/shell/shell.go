@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,12 +15,13 @@ import (
 )
 
 // Cmd is one program invocation. An empty Dir runs in the current directory;
-// a nil Env inherits this process's environment.
+// a nil Env inherits this process's environment; a nil Stdin reads nothing.
 type Cmd struct {
-	Bin  string
-	Args []string
-	Dir  string
-	Env  []string
+	Bin   string
+	Args  []string
+	Dir   string
+	Env   []string
+	Stdin io.Reader
 }
 
 func (c Cmd) String() string {
@@ -30,13 +32,18 @@ func (c Cmd) command() *exec.Cmd {
 	cmd := exec.Command(c.Bin, c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = c.Env
+	cmd.Stdin = c.Stdin
 	return cmd
 }
 
-// Run runs c on the terminal's stdin, stdout and stderr.
+// Run runs c on the terminal's stdout and stderr, and on its stdin unless
+// c.Stdin is set.
 func Run(c Cmd) error {
 	cmd := c.command()
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if c.Stdin == nil {
+		cmd.Stdin = os.Stdin
+	}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
 

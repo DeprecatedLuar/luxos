@@ -32,3 +32,10 @@ func TestExitCode(t *testing.T) {
 		t.Error("ExitCode(nil) reported an exit status")
 	}
 }
+
+func TestRun_GivenStdin(t *testing.T) {
+	err := Run(Cmd{Bin: "sh", Args: []string{"-c", `read x; test "$x" = ok`}, Stdin: strings.NewReader("ok\n")})
+	if err != nil {
+		t.Errorf("Run with Stdin: %v", err)
+	}
+}
