@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/templates"
@@ -38,7 +40,7 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err := os.Chmod(acct, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(acct, []byte("{ }"), 0o644); err != nil {
+	if err := os.WriteFile(acct, []byte(luxosPropertyHeader+"\n{ }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	changes, err = SyncUser(dir)
@@ -60,6 +62,34 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	}
 	if changes, _ := SyncUser(dir); len(changes) != 0 {
 		t.Errorf("third sync = %+v, want nothing", changes)
+	}
+}
+
+func TestSyncUser_RefusesHandWritten(t *testing.T) {
+	dir := t.TempDir()
+	acct := filepath.Join(dir, "account.nix")
+	hand := []byte("{ ... }:\n{\n  users.users.ana.openssh.authorizedKeys.keys = [ \"ssh-ed25519 AAAA\" ];\n}\n")
+	if err := os.WriteFile(acct, hand, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := SyncUser(dir)
+	if err == nil {
+		t.Fatalf("hand-written account.nix replaced: %+v", changes)
+	}
+	for _, want := range []string{acct, "move your values to another file of the unit", "delete " + acct} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+	got, _ := os.ReadFile(acct)
+	if !bytes.Equal(got, hand) {
+		t.Error("hand-written account.nix changed")
+	}
+	if fi, _ := os.Stat(acct); fi.Mode().Perm() != 0o644 {
+		t.Errorf("hand-written account.nix mode %v", fi.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "options.nix")); !os.IsNotExist(err) {
+		t.Error("options.nix written for a refused unit")
 	}
 }
 

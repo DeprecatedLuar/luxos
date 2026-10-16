@@ -17,6 +17,9 @@ const (
 	userPackagesFile = "packages.nix"
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
+
+	// luxosPropertyHeader is the first line of every vendored file.
+	luxosPropertyHeader = "# LUXOS property - keep walking buddy"
 )
 
 // userVendored are the files luxos owns inside every user unit, by name, with
@@ -52,9 +55,16 @@ func WriteUser(dir string) error {
 }
 
 // SyncUser writes each vendored file into the user unit dir when missing or
-// differing, keeping the folder's owner, and locks it to 0444.
+// differing, keeping the folder's owner, and locks it to 0444. A differing
+// file without the luxos header is hand-written: SyncUser refuses it and
+// writes nothing for the unit.
 func SyncUser(dir string) ([]SyncChange, error) {
-	var changes []SyncChange
+	type pending struct {
+		name, path string
+		want, have []byte
+		missing    bool
+	}
+	var files []pending
 	for _, f := range userVendored {
 		want, err := templates.File(f.src)
 		if err != nil {
@@ -62,26 +72,35 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		}
 		path := filepath.Join(dir, f.name)
 		have, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(luxosPropertyHeader+"\n")) {
+			return nil, fmt.Errorf("%s is not a luxos file: move your values to another file of the unit, then delete %s and rebuild", path, path)
+		}
+		files = append(files, pending{name: f.name, path: path, want: want, have: have, missing: err != nil})
+	}
+
+	var changes []SyncChange
+	for _, f := range files {
 		action := ActionRestored
 		switch {
-		case os.IsNotExist(err):
+		case f.missing:
 			action = ActionCreated
-		case err != nil:
-			return nil, err
-		case bytes.Equal(have, want):
-			if err := os.Chmod(path, lockedMode); err != nil {
+		case bytes.Equal(f.have, f.want):
+			if err := os.Chmod(f.path, lockedMode); err != nil {
 				return nil, err
 			}
 			continue
 		default:
-			if err := os.Chmod(path, fileMode); err != nil {
+			if err := os.Chmod(f.path, fileMode); err != nil {
 				return nil, err
 			}
 		}
-		if err := WriteFile(path, want); err != nil {
+		if err := WriteFile(f.path, f.want); err != nil {
 			return nil, err
 		}
-		if err := os.Chmod(path, lockedMode); err != nil {
+		if err := os.Chmod(f.path, lockedMode); err != nil {
 			return nil, err
 		}
 		changes = append(changes, SyncChange{Path: f.name, Action: action})
