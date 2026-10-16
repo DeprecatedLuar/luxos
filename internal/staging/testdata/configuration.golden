@@ -19,6 +19,7 @@
     ./hardware-facts.nix
     ./luxos-hardware.nix
     ./luxos-hardware-defaults.nix
+    ./users.nix
     ../config/modules
     ../config/hardware-configuration.nix
     ../config/.plsdonttouch.nix

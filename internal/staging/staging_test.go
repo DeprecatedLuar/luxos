@@ -112,6 +112,7 @@ func TestMaterialize_Basic(t *testing.T) {
 		filepath.Join(stagingDir, "framework", "environment.nix"),
 		filepath.Join(stagingDir, "framework", "luxos-hardware-defaults.nix"),
 		filepath.Join(stagingDir, "framework", "nvidia-generations.nix"),
+		filepath.Join(stagingDir, "framework", "users.nix"),
 		filepath.Join(stagingDir, "framework", "hardware-facts.nix"),
 		filepath.Join(stagingDir, "framework", "configuration.nix"),
 		filepath.Join(stagingDir, "config", "hardware-configuration.nix"),
@@ -897,7 +898,7 @@ func TestMaterializeWritesEveryFrameworkFile(t *testing.T) {
 
 	for _, name := range []string{
 		"system", "units", "overlay", "outputs", "environment", "luxos-hardware", "luxos-hardware-defaults",
-		"hardware-facts", "configuration",
+		"users", "hardware-facts", "configuration",
 	} {
 		if _, err := os.Stat(filepath.Join(stagingDir, "framework", name+".nix")); err != nil {
 			t.Errorf("framework/%s.nix: %v", name, err)

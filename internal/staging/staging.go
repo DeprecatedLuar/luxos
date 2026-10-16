@@ -25,6 +25,7 @@ import (
 var frameworkFiles = []string{
 	"system.nix", "units.nix", "overlay.nix", "outputs.nix", "environment.nix",
 	"luxos-hardware.nix", "nvidia-generations.nix", "luxos-hardware-defaults.nix",
+	"users.nix",
 }
 
 const (

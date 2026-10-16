@@ -4,8 +4,8 @@
 # Foundation, not policy: every setting here is a lib.mkDefault so a host module
 # overrides it with a plain assignment. What stays undefaulted is what breaks the
 # system if changed: list options that must merge (systemPackages carries luxos,
-# experimental-features carries flakes), the flake-pinned registry/nixPath, the
-# lockout assertion, and etc plumbing.
+# experimental-features carries flakes), the flake-pinned registry/nixPath,
+# and etc plumbing.
 
 let
   # nixpkgs sets services.cron.enable itself with mkDefault (1000), so a second
@@ -69,29 +69,9 @@ in
   users.users.root.hashedPassword = lib.mkDefault "!"; # No password login for root; use sudo or SSH key
   services.openssh.settings.PermitRootLogin = lib.mkDefault "prohibit-password";
 
-  # Lockout guard (implementation-plan.md #20): root is locked above, and
-  # NixOS' own lockout assertion only fires when users.mutableUsers = false.
-  # With mutableUsers = true (luxos' default) a host whose selection forgets
-  # every ./users/<name> import would otherwise build and lock you out. This
-  # is an existence check only — a wheel user or a root SSH key must be
-  # declared — never a password check: mutable passwords live in /etc/shadow
-  # (set with `passwd`), invisible to the build, so checking them would
-  # reject perfectly valid setups.
-  assertions = [
-    {
-      assertion = !config.users.mutableUsers || (
-        lib.any (u: lib.elem "wheel" u.extraGroups) (lib.attrValues config.users.users)
-        || (config.users.users.root.openssh.authorizedKeys.keys or []) != []
-      );
-      message = ''
-        luxos lockout guard: users.mutableUsers is true, but no declared user has
-        "wheel" in extraGroups and root has no SSH authorized key. Building this
-        would lock you out. Select a user module (modules/users/<name>) with a
-        wheel user, give root an SSH key, or set users.allowNoPasswordLogin = true
-        to bypass (NixOS' own escape hatch).
-      '';
-    }
-  ];
+  # Every login user is a declared luxos user; NixOS's own lockout assertion
+  # applies with immutable users.
+  users.mutableUsers = lib.mkDefault false;
 
   #──[Services]──────────────────────────────────────────────────────────────
 

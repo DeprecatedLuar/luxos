@@ -1,0 +1,49 @@
+# LUXOS property - keep walking buddy
+{ config, lib, pkgs, ... }:
+
+# Each user unit points luxos.users.<name>.password at its age-encrypted hash.
+# Activation decrypts it with this computer's key before NixOS writes users.
+
+let
+  keysDir = "/var/lib/luxos/keys";
+  runDir = "/run/luxos/passwords";
+  age = "${pkgs.age}/bin/age";
+
+  decrypt = name: user: ''
+    if ${age} -d -i ${lib.escapeShellArg "${keysDir}/${name}"} -o ${lib.escapeShellArg "${runDir}/${name}"} ${user.password}; then
+      chmod 0400 ${lib.escapeShellArg "${runDir}/${name}"}
+    else
+      rm -f ${lib.escapeShellArg "${runDir}/${name}"}
+      echo "luxos: cannot decrypt the password of ${name}; its account stays locked (luxos key add ${name})" >&2
+    fi
+  '';
+in
+{
+  options.luxos.users = lib.mkOption {
+    type = lib.types.attrsOf (lib.types.submodule {
+      options.password = lib.mkOption {
+        type = lib.types.path;
+        description = "The user's yescrypt hash, age-encrypted to the user's key.";
+      };
+    });
+    default = { };
+    description = "Users whose password luxos decrypts at activation.";
+  };
+
+  config = {
+    users.users = lib.mapAttrs (name: _: { hashedPasswordFile = "${runDir}/${name}"; }) config.luxos.users;
+
+    system.activationScripts.luxosPasswords = {
+      deps = [ ];
+      text = ''
+        (
+          umask 077
+          rm -rf ${runDir}
+          mkdir -p ${runDir}
+          ${lib.concatStrings (lib.mapAttrsToList decrypt config.luxos.users)}
+        )
+      '';
+    };
+    system.activationScripts.users.deps = [ "luxosPasswords" ];
+  };
+}
