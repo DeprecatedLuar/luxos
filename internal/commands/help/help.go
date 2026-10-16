@@ -167,7 +167,7 @@ func userPage() *gohelp.Page {
 			gohelp.Item("rename|rn <old> <new> [-y]", "Rename a user's identity"),
 			gohelp.Item("passwd|password <user>", "Set the user's password"),
 		).
-		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. Users are always shared across every host — there is no host/ or machine/ equivalent for users.")
+		Text("Every verb here is `luxos module <verb>` with the category fixed to users/. A user is a folder in modules/users/ named after the user; account.nix and options.nix are luxos', the rest is yours. Set a password with `luxos passwd <user>` before enabling it.")
 }
 
 func passwdPage() *gohelp.Page {
