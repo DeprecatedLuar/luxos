@@ -32,7 +32,23 @@ func withDefaultVerb(args []string, verb string) []string {
 	return append([]string{verb}, args...)
 }
 
+// Removes every --deadlock from args; found reports whether there was one.
+func stripDeadlock(args []string) (rest []string, found bool) {
+	for _, a := range args {
+		if a == commands.DeadlockFlag {
+			found = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return rest, found
+}
+
 func run(args []string) error {
+	if rest, found := stripDeadlock(args); found {
+		return commands.Deadlock(rest)
+	}
+
 	if len(args) == 0 {
 		return help.Run(nil)
 	}

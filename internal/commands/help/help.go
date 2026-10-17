@@ -49,6 +49,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("passwd|password <user>", "Set a user's password; also 'luxos user passwd <user>'"),
 			gohelp.Item("key ls|add|rm <user>", "Manage the age keys that decrypt users' passwords on this computer"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
+			gohelp.Item("<command> --deadlock", "Update luxos, then run the command as that version; for when the installed luxos is too old to reach the next rebuild"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
 			gohelp.Item("help settings", "Module options and per-host settings files"),
 		)

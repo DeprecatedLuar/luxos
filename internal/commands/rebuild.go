@@ -63,17 +63,9 @@ func printLogo() {
 // running binary is not already that revision. Returns nil when no swap is needed
 // and does not return when one happens.
 func selfUpdate(hostLock string, args []string) error {
-	lock, err := nix.ReadLock(hostLock)
-	if err != nil {
+	ref, ok, err := pinnedRef(hostLock)
+	if err != nil || !ok {
 		return err
-	}
-	node, ok := lock.Input(luxosInputName)
-	if !ok {
-		return nil
-	}
-	in := node.Locked
-	if in.Type != githubLockType {
-		return fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
 	}
 
 	exe, err := shell.Self()
@@ -84,19 +76,43 @@ func selfUpdate(hostLock string, args []string) error {
 		return nil
 	}
 
-	ref := fmt.Sprintf("github:%s/%s/%s", in.Owner, in.Repo, in.Rev)
-	out, err := nix.BuildFlakeRef(ref)
+	pinned, err := buildPinned(ref)
 	if err != nil {
-		return fmt.Errorf("build pinned luxos %s: %w", ref, err)
+		return err
 	}
-
-	pinned := filepath.Join(out, luxosBinRelpath)
 	if pinned == exe {
 		return nil
 	}
 
 	fmt.Println(selfUpdateNotice)
 	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
+}
+
+// The flake ref of the luxos revision pinned in hostLock; ok is false when
+// the host has no luxos input.
+func pinnedRef(hostLock string) (ref string, ok bool, err error) {
+	lock, err := nix.ReadLock(hostLock)
+	if err != nil {
+		return "", false, err
+	}
+	node, ok := lock.Input(luxosInputName)
+	if !ok {
+		return "", false, nil
+	}
+	in := node.Locked
+	if in.Type != githubLockType {
+		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
+	}
+	return fmt.Sprintf("github:%s/%s/%s", in.Owner, in.Repo, in.Rev), true, nil
+}
+
+// Builds the luxos at ref and returns its binary.
+func buildPinned(ref string) (string, error) {
+	out, err := nix.BuildFlakeRef(ref)
+	if err != nil {
+		return "", fmt.Errorf("build pinned luxos %s: %w", ref, err)
+	}
+	return filepath.Join(out, luxosBinRelpath), nil
 }
 
 // bootUnit is the machine unit holding the boot loader.
