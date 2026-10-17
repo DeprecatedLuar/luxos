@@ -842,6 +842,39 @@ func TestValidate_FolderSubmoduleOwnFilesAreFine(t *testing.T) {
 	}
 }
 
+func TestValidate_FileSubmoduleNamingItsBundleIsFine(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleSubGitRoot), `{ pkgs, ... }: let name = baseNameOf ../.; in { users.users.${name}.packages = [ ]; }`)
+
+	if vs := validateBundle(t, mods, []string{bundleRoot, bundleSubGitRoot}); len(vs) != 0 {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_FolderSubmoduleNamingItsBundleIsFine(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, bundleRoot, "default.nix"), `{ }`)
+	write(t, filepath.Join(mods, bundleRoot, "modules", "nvim", "default.nix"), `{ pkgs, ... }: let name = baseNameOf ../../.; in { users.users.${name}.packages = [ ]; }`)
+
+	if vs := validateBundle(t, mods, []string{bundleRoot, bundleRoot + "/modules/nvim"}); len(vs) != 0 {
+		t.Errorf("got %v", vs)
+	}
+}
+
+func TestValidate_UnitNamingItsCategoryIsViolation(t *testing.T) {
+	skipIfNoNix(t)
+	mods := t.TempDir()
+	write(t, filepath.Join(mods, "desktop", "x", "default.nix"), `{ environment.etc.x.text = baseNameOf ../.; }`)
+
+	vs := validateBundle(t, mods, []string{"desktop/x"})
+	if !hasViolation(vs, "desktop/x/default.nix", "outside its module") {
+		t.Errorf("got %v", vs)
+	}
+}
+
 func TestValidate_LuxosModulesNamingSubmoduleIsViolation(t *testing.T) {
 	skipIfNoNix(t)
 	mods := t.TempDir()

@@ -21,7 +21,7 @@ type Violation struct {
 // may be a file or a directory), or "" when none exists: the nearest
 // ancestor strictly below root that has its own default.nix.
 // A file submodule (directly or through categories under a bundle's
-// modules/) has no owner, so it may reference no paths.
+// modules/) has no owner, so it may reference no path but its bundle's folder (bundleOf).
 // Comparison is purely lexical (string prefix): never resolved with
 // EvalSymlinks.
 func Owner(root, file string) string {
@@ -35,6 +35,18 @@ func Owner(root, file string) string {
 			return ""
 		}
 		d = filepath.Dir(d)
+	}
+	return ""
+}
+
+// bundleOf returns the bundle folder whose modules/ holds file, or "" when
+// file is not inside a submodule. Lexical, like Owner.
+func bundleOf(root, file string) string {
+	root = strings.TrimSuffix(root, "/")
+	for d := filepath.Dir(file); strings.HasPrefix(d, root+"/"); d = filepath.Dir(d) {
+		if filepath.Base(d) == bundleModulesDir && IsBundle(filepath.Dir(d)) {
+			return filepath.Dir(d)
+		}
 	}
 	return ""
 }
@@ -131,7 +143,11 @@ func (h *Host) Validate() ([]Violation, error) {
 
 		owner := Owner(root, file)
 		ownerModules := filepath.Join(owner, bundleModulesDir)
+		bundle := bundleOf(root, file)
 		for _, p := range static {
+			if bundle != "" && p == bundle {
+				continue
+			}
 			if owner == "" || (p != owner && !strings.HasPrefix(p, owner+"/")) {
 				report("references %s outside its module", p)
 				continue
