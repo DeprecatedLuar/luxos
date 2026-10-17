@@ -181,7 +181,7 @@ func flakeList(args []string) error {
 	default:
 		flakeRenderPlain(&out, rows)
 	}
-	fmt.Print(out.String())
+	ui.Print(os.Stdout, out.String())
 	return nil
 }
 
@@ -398,7 +398,7 @@ func flakeShow(args []string) error {
 		if err := flakeRenderViewsJSON(&out, views); err != nil {
 			return err
 		}
-		fmt.Print(out.String())
+		ui.Print(os.Stdout, out.String())
 		return nil
 	}
 
@@ -415,7 +415,7 @@ func flakeShow(args []string) error {
 			flakeRenderViewPlain(&out, view.data)
 		}
 	}
-	fmt.Print(out.String())
+	ui.Print(os.Stdout, out.String())
 	return nil
 }
 

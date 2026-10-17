@@ -39,7 +39,7 @@ const (
 	packageUnknown   = "unknown"
 	packagePathSep   = "/"
 
-	packageNoBaseline = "Note: no luxos system for %s in %s — nothing to compare against; every package shows as staged.\n"
+	packageNoBaseline = "no luxos system for %s in %s — nothing to compare against; every package shows as staged"
 )
 
 func Package(args []string) error {
@@ -83,7 +83,7 @@ func packagesOf(opts map[string]string) ([]packages.Package, string, error) {
 	}
 	var base []nix.PackageDefs
 	if baseDir == "" {
-		fmt.Fprintf(os.Stderr, packageNoBaseline, host, p.Staging)
+		ui.Warn(os.Stderr, fmt.Sprintf(packageNoBaseline, host, p.Staging))
 	} else if base, err = nix.Packages(baseDir, host); err != nil {
 		return nil, "", err
 	}
@@ -144,7 +144,7 @@ func packageList(args []string) error {
 	default:
 		packageRenderPlain(&out, pkgs)
 	}
-	fmt.Print(out.String())
+	ui.Print(os.Stdout, out.String())
 	return nil
 }
 
@@ -319,7 +319,7 @@ func packageShow(args []string) error {
 		if err := packageRenderViewsJSON(&out, views); err != nil {
 			return err
 		}
-		fmt.Print(out.String())
+		ui.Print(os.Stdout, out.String())
 		return nil
 	}
 
@@ -335,7 +335,7 @@ func packageShow(args []string) error {
 			packageRenderViewPlain(&out, v)
 		}
 	}
-	fmt.Print(out.String())
+	ui.Print(os.Stdout, out.String())
 	return nil
 }
 

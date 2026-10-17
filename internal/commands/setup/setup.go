@@ -20,8 +20,8 @@ const (
 	setupUsage       = "usage: luxos setup [--config|-C <dir>]"
 	systemRoot       = "/"
 	rebuildNowPrompt = "Rebuild now? [Y/n] "
-	nextHint         = "next: luxos rebuild switch --host %s\n"
-	alreadySetUp     = "Setup is done: %s has a %q host. Build it with: luxos rebuild switch\n"
+	nextHint         = "next: luxos rebuild switch --host %s"
+	alreadySetUp     = "Setup is done: %s has a %q host. Build it with: luxos rebuild switch"
 	rebuildCmd       = "rebuild"
 	rebuildAction    = "switch"
 	hostFlag         = "--host"
@@ -95,7 +95,7 @@ func Run(args []string) error {
 		return err
 	}
 	if state == config.StateReady {
-		fmt.Printf(alreadySetUp, p.Config, host)
+		ui.Text(os.Stdout, fmt.Sprintf(alreadySetUp, p.Config, host))
 		return nil
 	}
 
@@ -107,7 +107,7 @@ func Run(args []string) error {
 
 	reply, err := ask.Ask(rebuildNowPrompt)
 	if errors.Is(err, io.EOF) || (err == nil && reply != "" && !ui.IsYes(reply)) {
-		fmt.Printf(nextHint, name)
+		ui.Text(os.Stdout, fmt.Sprintf(nextHint, name))
 		return nil
 	}
 	if err != nil {

@@ -56,7 +56,7 @@ const githubLockType = "github"
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
 
 func printLogo() {
-	fmt.Print(ui.Logo(os.Stdout))
+	ui.Print(os.Stdout, ui.Logo(os.Stdout))
 }
 
 // Re-executes this process as the luxos revision pinned in hostLock when the
@@ -84,7 +84,7 @@ func selfUpdate(hostLock string, args []string) error {
 		return nil
 	}
 
-	fmt.Println(selfUpdateNotice)
+	ui.Done(os.Stdout, selfUpdateNotice)
 	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
 }
 
@@ -410,10 +410,10 @@ func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 		return false, false, fmt.Errorf("--goodbye-luxos: %s contains no %s entry", abs, goodbyeNixExt)
 	}
 
-	fmt.Printf("The contents of %s will replace %s verbatim.\n", abs, p.Staging)
-	fmt.Println("These entries will be removed from " + p.Staging + ":")
+	ui.Text(os.Stdout, fmt.Sprintf("The contents of %s will replace %s verbatim.", abs, p.Staging))
+	ui.Text(os.Stdout, "These entries will be removed from "+p.Staging+":")
 	for _, name := range staging.Owned() {
-		fmt.Println("  " + name)
+		ui.Text(os.Stdout, "  "+name)
 	}
 	if yes {
 		return true, false, nil
@@ -423,7 +423,7 @@ func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 		return false, false, err
 	}
 	if !ok {
-		fmt.Println("Nothing changed.")
+		ui.Text(os.Stdout, "Nothing changed.")
 		return false, false, nil
 	}
 	return true, true, nil
@@ -454,6 +454,6 @@ func goodbye(dir string, rest []string) error {
 		return err
 	}
 
-	fmt.Print("\n\n" + ui.Italic(os.Stdout, goodbyeFarewell) + "\n")
+	ui.Print(os.Stdout, "\n\n"+ui.Italic(os.Stdout, goodbyeFarewell)+"\n")
 	return nil
 }

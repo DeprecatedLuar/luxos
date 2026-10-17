@@ -81,7 +81,7 @@ func keyAdd(p paths.Paths, args []string) error {
 	if err := password.WriteKey(p.Keys, user, secret); err != nil {
 		return err
 	}
-	fmt.Printf("stored the key of %s (%s) in %s\n", user, pub, password.KeyPath(p.Keys, user))
+	ui.Done(os.Stdout, fmt.Sprintf("stored the key of %s (%s) in %s", user, pub, password.KeyPath(p.Keys, user)))
 	return nil
 }
 
@@ -135,7 +135,7 @@ func keyRemove(p paths.Paths, args []string) error {
 	if err := password.RemoveKey(p.Keys, user); err != nil {
 		return err
 	}
-	fmt.Printf("removed the key of %s\n", user)
+	ui.Done(os.Stdout, fmt.Sprintf("removed the key of %s", user))
 	return nil
 }
 
@@ -167,9 +167,8 @@ func keyList(p paths.Paths) error {
 		lines = append(lines, u+"\t"+s)
 	}
 	sort.Strings(lines)
-	fmt.Print(strings.Join(lines, "\n"))
 	if len(lines) > 0 {
-		fmt.Println()
+		ui.Text(os.Stdout, strings.Join(lines, "\n"))
 	}
 	return nil
 }

@@ -2,7 +2,9 @@ package commands
 
 import (
 	"errors"
-	"fmt"
+	"os"
+
+	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const unknownRevision = "unknown"
@@ -14,6 +16,6 @@ func Version(args []string) error {
 	if len(args) > 0 {
 		return errors.New("version takes no arguments")
 	}
-	fmt.Println(revision)
+	ui.Text(os.Stdout, revision)
 	return nil
 }

@@ -485,7 +485,7 @@ func moduleList(p paths.Paths, args []string) error {
 		return err
 	}
 	if !found {
-		fmt.Fprintf(os.Stderr, "Note: no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.\n", p.RunningSelections)
+		ui.Warn(os.Stderr, fmt.Sprintf("no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.", p.RunningSelections))
 	}
 
 	baseline, err := staging.Baseline(p.Staging)
@@ -523,7 +523,7 @@ func moduleList(p paths.Paths, args []string) error {
 	default:
 		moduleRenderPlain(&out, rows)
 	}
-	fmt.Print(out.String())
+	ui.Print(os.Stdout, out.String())
 	return nil
 }
 
@@ -582,8 +582,8 @@ func moduleAddUser(modulesRoot, target string) error {
 	if err := config.WriteUser(filepath.Join(modulesRoot, target)); err != nil {
 		return err
 	}
-	fmt.Printf("Created modules/%s/{default.nix,account.nix,options.nix,modules/packages.nix}\n", target)
-	fmt.Printf("Set its password, then enable it: luxos passwd %s && luxos user enable %s %s/packages\n", name, name, name)
+	ui.Done(os.Stdout, fmt.Sprintf("Created modules/%s/{default.nix,account.nix,options.nix,modules/packages.nix}", target))
+	ui.Text(os.Stdout, fmt.Sprintf("Set its password, then enable it: luxos passwd %s && luxos user enable %s %s/packages", name, name, name))
 	return nil
 }
 
@@ -638,10 +638,10 @@ func moduleAdd(p paths.Paths, args []string) error {
 		if err := os.WriteFile(filepath.Join(p.Modules, target+".nix"), edited, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Created modules/%s.nix\n", target)
+		ui.Done(os.Stdout, fmt.Sprintf("Created modules/%s.nix", target))
 	}
 	if shadowedPath != "" {
-		fmt.Printf("Note: %s shadows modules/%s\n", target, shadowedPath)
+		ui.Warn(os.Stdout, fmt.Sprintf("%s shadows modules/%s", target, shadowedPath))
 	}
 
 	if opts["enable"] != "" {
@@ -736,7 +736,7 @@ func moduleConfigure(p paths.Paths, args []string) error {
 	if len(rep.Broken) > 0 && !fileExists(file) {
 		return fmt.Errorf("module '%s' breaks the settings rules; fix its %s first", name, modules.OptionsFile)
 	}
-	fmt.Printf("Settings: %s\n", file)
+	ui.Text(os.Stdout, fmt.Sprintf("Settings: %s", file))
 	return editNixFileInPlace(file)
 }
 
@@ -790,7 +790,7 @@ func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 			return err
 		}
 		if !changed {
-			fmt.Printf("'%s' is already enabled\n", name)
+			ui.Text(os.Stdout, fmt.Sprintf("'%s' is already enabled", name))
 		}
 		return nil
 	}
@@ -804,10 +804,10 @@ func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 		return err
 	}
 	for _, f := range files {
-		fmt.Printf("disabled '%s' in %s\n", name, displaySelection(p, f))
+		ui.Done(os.Stdout, fmt.Sprintf("disabled '%s' in %s", name, displaySelection(p, f)))
 	}
 	if len(files) == 0 && !subs {
-		fmt.Printf("'%s' is already disabled\n", name)
+		ui.Text(os.Stdout, fmt.Sprintf("'%s' is already disabled", name))
 	}
 	return nil
 }
@@ -825,7 +825,7 @@ func enableBundles(h *modules.Host, name string, toMachine bool) error {
 			return err
 		}
 		if changed {
-			fmt.Printf("enabled '%s' (bundle of '%s')\n", bundle, name)
+			ui.Done(os.Stdout, fmt.Sprintf("enabled '%s' (bundle of '%s')", bundle, name))
 		}
 	}
 	return nil
@@ -848,7 +848,7 @@ func disableSubmodules(p paths.Paths, h *modules.Host, m modules.Module) (bool, 
 			return removed, err
 		}
 		for _, f := range files {
-			fmt.Printf("disabled '%s' in %s (submodule of '%s')\n", sub, displaySelection(p, f), m.Name)
+			ui.Done(os.Stdout, fmt.Sprintf("disabled '%s' in %s (submodule of '%s')", sub, displaySelection(p, f), m.Name))
 		}
 		removed = removed || len(files) > 0
 	}
@@ -957,7 +957,7 @@ func pathScope(p string) string {
 // printShadowed tells which folders keep meaning their own module.
 func printShadowed(name string, folders []string) {
 	if len(folders) > 0 {
-		fmt.Printf("'%s' is shadowed in %s; left untouched there\n", name, strings.Join(folders, ", "))
+		ui.Text(os.Stdout, fmt.Sprintf("'%s' is shadowed in %s; left untouched there", name, strings.Join(folders, ", ")))
 	}
 }
 
@@ -967,7 +967,7 @@ func declined(skipped []string) error {
 	if len(skipped) > 0 {
 		return fmt.Errorf("not confirmed; run again with --yes to proceed")
 	}
-	fmt.Println("Aborted.")
+	ui.Text(os.Stdout, "Aborted.")
 	return nil
 }
 
@@ -978,14 +978,14 @@ func declined(skipped []string) error {
 func printReferencedBy(label string, files []string, emptyMsg string) {
 	if len(files) == 0 {
 		if emptyMsg != "" {
-			fmt.Println(emptyMsg)
+			ui.Text(os.Stdout, emptyMsg)
 		}
 		return
 	}
-	fmt.Println(label)
+	ui.Text(os.Stdout, label)
 	for _, f := range files {
 		if f != "" {
-			fmt.Printf("  %s\n", f)
+			ui.Text(os.Stdout, "  "+f)
 		}
 	}
 }
@@ -1067,7 +1067,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Removed modules/%s\n", path)
+	ui.Done(os.Stdout, fmt.Sprintf("Removed modules/%s", path))
 	return nil
 }
 
@@ -1186,16 +1186,16 @@ func moduleRename(p paths.Paths, args []string) error {
 		return err
 	}
 	for _, f := range kept {
-		fmt.Printf("Note: %s kept in place: settings for '%s' already exist there\n", f, newQualified)
+		ui.Warn(os.Stdout, fmt.Sprintf("%s kept in place: settings for '%s' already exist there", f, newQualified))
 	}
 
 	if modules.Parent(oldName) == "" && underCategory(category, usersCategory) {
-		fmt.Printf("Note: the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.\n", newPath, oldName)
+		ui.Warn(os.Stdout, fmt.Sprintf("the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.", newPath, oldName))
 	}
 
-	fmt.Printf("Renamed modules/%s -> modules/%s\n", oldPath, newPath)
+	ui.Done(os.Stdout, fmt.Sprintf("Renamed modules/%s -> modules/%s", oldPath, newPath))
 	if shadowedPath != "" {
-		fmt.Printf("Note: modules/%s now shadows modules/%s\n", newPath, shadowedPath)
+		ui.Warn(os.Stdout, fmt.Sprintf("modules/%s now shadows modules/%s", newPath, shadowedPath))
 	}
 	return nil
 }
