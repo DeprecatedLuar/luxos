@@ -17,7 +17,7 @@ const (
 	userDescription    = "same verbs as module, fixed to modules/users"
 	shellDescription   = "exec nix-shell"
 	passwdDescription  = "set a user's password"
-	keyDescription     = "store, list and remove users' age keys on this computer"
+	keyDescription     = "store, list, print and remove users' age keys on this computer"
 
 	environmentDescription = "syntax of CONFIG_DIR/environment"
 	settingsDescription    = "module options and per-host settings files"
@@ -47,7 +47,7 @@ func rootPage() *gohelp.Page {
 			gohelp.Item("module|modules|m rename|rn <old> <new>", "Rename a module's identity; top-level 'rename'/'rn' is a shortcut for this"),
 			gohelp.Item("user|users ...", "Same verbs as module, fixed to modules/users; bare 'users' is a shortcut for 'user list'"),
 			gohelp.Item("passwd|password <user>", "Set a user's password; also 'luxos user passwd <user>'"),
-			gohelp.Item("key ls|add|rm <user>", "Manage the age keys that decrypt users' passwords on this computer"),
+			gohelp.Item("key|keys ls|add|get|rm <user>", "Manage the age keys that decrypt users' passwords on this computer; bare 'keys' is a shortcut for 'key ls'"),
 			gohelp.Item("shell [args]", "Exec nix-shell"),
 			gohelp.Item("<command> --deadlock", "Update luxos, then run the command as that version; for when the installed luxos is too old to reach the next rebuild"),
 			gohelp.Item("help environment", "Syntax of CONFIG_DIR/environment"),
@@ -185,6 +185,7 @@ func keyPage() *gohelp.Page {
 		Section("Commands",
 			gohelp.Item("ls|list", "List users with a key on this computer, and users in the build missing one"),
 			gohelp.Item("add <user>", "Store a user's key, read from a hidden prompt or from stdin (pass show luar-key | luxos key add luar)"),
+			gohelp.Item("get <user>", "Print a user's key"),
 			gohelp.Item("rm|remove <user> [-y]", "Remove a user's key from this computer"),
 		).
 		Text("Keys live in /var/lib/luxos/keys (root-only, 0400), never in the config. Every verb runs as root.")

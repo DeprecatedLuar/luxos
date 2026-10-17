@@ -27,7 +27,7 @@ var errKeyMissing = errors.New("no key provided")
 
 var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: luxos key rm <user> --yes")
 
-// Key runs `luxos key ls|add|rm`.
+// Key runs `luxos key ls|add|get|rm`.
 func Key(args []string) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		return help.Run([]string{"help", keyCommand})
@@ -45,6 +45,8 @@ func Key(args []string) error {
 		return keyList(p)
 	case "add":
 		return keyAdd(p, rest)
+	case "get":
+		return keyGet(p, rest, os.Stdout)
 	case "rm", "remove":
 		return keyRemove(p, rest)
 	default:
@@ -82,6 +84,20 @@ func keyAdd(p paths.Paths, args []string) error {
 		return err
 	}
 	ui.Done(os.Stdout, fmt.Sprintf("stored the key of %s (%s) in %s", user, pub, password.KeyPath(p.Keys, user)))
+	return nil
+}
+
+// keyGet prints user's secret key alone on out, so it can be piped.
+func keyGet(p paths.Paths, args []string, out io.Writer) error {
+	user, err := oneUser("get", args)
+	if err != nil {
+		return err
+	}
+	secret, err := password.ReadKey(p.Keys, user, keyOwnerUID)
+	if err != nil {
+		return err
+	}
+	ui.Text(out, secret)
 	return nil
 }
 

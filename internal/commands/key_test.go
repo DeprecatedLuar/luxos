@@ -1,9 +1,14 @@
 package commands
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"os"
 	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/password"
+	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
 func TestReadKeyInput_PipedFullKeygenOutput(t *testing.T) {
@@ -51,6 +56,28 @@ func TestOneUser(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("%s: err = %v, want ok=%v", c.name, err, c.ok)
 		}
+	}
+}
+
+func TestKeyGet(t *testing.T) {
+	if uid := os.Getuid(); uid != keyOwnerUID {
+		t.Skipf("keys must be owned by uid %d, running as %d", keyOwnerUID, uid)
+	}
+	dir := t.TempDir()
+	p := paths.Paths{Keys: dir}
+	secret, err := password.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := password.WriteKey(dir, "luar", secret); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := keyGet(p, []string{"luar"}, &out); err != nil || out.String() != secret+"\n" {
+		t.Errorf("got %q, %v", out.String(), err)
+	}
+	if err := keyGet(p, []string{"nobody"}, io.Discard); !errors.Is(err, password.ErrNoKey) {
+		t.Errorf("missing key: err = %v", err)
 	}
 }
 

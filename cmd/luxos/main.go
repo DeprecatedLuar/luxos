@@ -88,6 +88,8 @@ func run(args []string) error {
 		return commands.Passwd(rest)
 	case "key":
 		return commands.Key(rest)
+	case "keys":
+		return commands.Key(withDefaultVerb(rest, "list"))
 	case "shell":
 		return commands.Shell(rest)
 	default:
