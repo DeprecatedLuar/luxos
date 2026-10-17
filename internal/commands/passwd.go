@@ -20,9 +20,8 @@ const (
 	passwdCommand  = "passwd"
 	passwordPrompt = "New password: "
 	againPrompt    = "Retype new password: "
-	newKeyNotice   = "New key for %s. Save it somewhere safe (a password manager); every computer that builds %s needs it (luxos key add %s):\n\n%s\n\n"
-	badKeyNotice   = "warning: the key of %s on this computer is unusable (%v); creating a new one\n"
-	passwdDone     = "Password of %s written to %s\n"
+	badKeyNotice   = "key of %s is unusable, creating a new one"
+	passwdDone     = "password of %s set"
 	passwdStale    = "%w\n  the key of %s on this computer may have been replaced, so an existing %s may no longer decrypt: rerun `luxos passwd %s`"
 )
 
@@ -64,11 +63,14 @@ func Passwd(args []string) error {
 		return err
 	}
 	file := filepath.Join(m.Abs, password.File)
-	if err := storePassword(p.Keys, name, file, hash, keyOwnerUID, os.Stdout, os.Stderr); err != nil {
-		return err
+	secret, err := storePassword(p.Keys, name, file, hash, keyOwnerUID, os.Stderr)
+	if err == nil {
+		ui.Done(os.Stdout, fmt.Sprintf(passwdDone, ui.PaletteOf(os.Stdout).Name(name)))
 	}
-	fmt.Printf(passwdDone, name, file)
-	return nil
+	if secret != "" {
+		shared.KeyNotice(os.Stdout, name, secret)
+	}
+	return err
 }
 
 // readNewPassword asks twice; both answers must match and not be empty.
@@ -99,7 +101,7 @@ func userKey(keysDir, user string, uid int, warn io.Writer) (secret string, fres
 	case err == nil:
 		return secret, false, nil
 	case errors.Is(err, password.ErrNotKey):
-		fmt.Fprintf(warn, badKeyNotice, user, err)
+		ui.Warn(warn, fmt.Sprintf(badKeyNotice, user))
 	case !errors.Is(err, password.ErrNoKey):
 		return "", false, err
 	}
@@ -110,29 +112,30 @@ func userKey(keysDir, user string, uid int, warn io.Writer) (secret string, fres
 }
 
 // storePassword encrypts hash to user's key and writes it to file. A fresh
-// key is stored, and printed on out, only once hash is encrypted to it.
-func storePassword(keysDir, user, file, hash string, uid int, out, warn io.Writer) error {
+// key is stored only once hash is encrypted to it, and returned, also when
+// writing file then fails: a rerun reuses the key and never shows it, so the
+// caller shows it now.
+func storePassword(keysDir, user, file, hash string, uid int, warn io.Writer) (string, error) {
 	secret, fresh, err := userKey(keysDir, user, uid, warn)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pub, err := password.PublicKey(secret)
 	if err != nil {
-		return err
+		return "", err
 	}
 	enc, err := password.Encrypt(hash, pub)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !fresh {
-		return config.WriteFile(file, enc)
+		return "", config.WriteFile(file, enc)
 	}
 	if err := password.WriteKey(keysDir, user, secret); err != nil {
-		return fmt.Errorf(passwdStale, err, user, password.File, user)
+		return "", fmt.Errorf(passwdStale, err, user, password.File, user)
 	}
-	fmt.Fprintf(out, newKeyNotice, user, user, user, secret)
 	if err := config.WriteFile(file, enc); err != nil {
-		return fmt.Errorf(passwdStale, err, user, password.File, user)
+		return secret, fmt.Errorf(passwdStale, err, user, password.File, user)
 	}
-	return nil
+	return secret, nil
 }

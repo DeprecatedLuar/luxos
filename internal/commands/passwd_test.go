@@ -101,7 +101,7 @@ func TestUserKey(t *testing.T) {
 	if err != nil || !fresh || replaced == secret {
 		t.Fatalf("corrupt key: fresh %v, %v", fresh, err)
 	}
-	if !strings.Contains(warn.String(), "warning") {
+	if !strings.Contains(warn.String(), "[WARNING]") {
 		t.Errorf("corrupt key replaced without a warning: %q", warn.String())
 	}
 	if strings.Contains(warn.String(), "garbage") || strings.Contains(warn.String(), secret) || strings.Contains(warn.String(), replaced) {
@@ -115,23 +115,42 @@ func TestStorePassword(t *testing.T) {
 	keys := filepath.Join(t.TempDir(), "keys")
 	file := filepath.Join(t.TempDir(), password.File)
 
-	var out, warn bytes.Buffer
-	if err := storePassword(keys, testKeyUser, file, "hash", uid, &out, &warn); err != nil {
+	var warn bytes.Buffer
+	secret, err := storePassword(keys, testKeyUser, file, "hash", uid, &warn)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), secretKeyPrefix) {
-		t.Errorf("new key not printed: %q", out.String())
+	if !strings.HasPrefix(secret, secretKeyPrefix) {
+		t.Errorf("new key not returned: %q", secret)
 	}
 	if err := password.Decrypt(file, password.KeyPath(keys, testKeyUser)); err != nil {
 		t.Errorf("stored key does not decrypt: %v", err)
 	}
 
-	out.Reset()
-	if err := storePassword(keys, testKeyUser, file, "hash2", uid, &out, &warn); err != nil {
+	secret, err = storePassword(keys, testKeyUser, file, "hash2", uid, &warn)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Len() != 0 || warn.Len() != 0 {
-		t.Errorf("reused key printed: %q %q", out.String(), warn.String())
+	if secret != "" || warn.Len() != 0 {
+		t.Errorf("reused key returned or warned: %q %q", secret, warn.String())
+	}
+}
+
+func TestStorePassword_WriteFailsStillReturnsKey(t *testing.T) {
+	skipIfNoAge(t)
+	keys := filepath.Join(t.TempDir(), "keys")
+	file := filepath.Join(t.TempDir(), "missing", password.File)
+
+	var warn bytes.Buffer
+	secret, err := storePassword(keys, testKeyUser, file, "hash", os.Getuid(), &warn)
+	if err == nil {
+		t.Fatal("writing into a missing folder succeeded")
+	}
+	if !strings.HasPrefix(secret, secretKeyPrefix) {
+		t.Errorf("stored key not returned after the failed write: %q", secret)
+	}
+	if _, err := os.Stat(password.KeyPath(keys, testKeyUser)); err != nil {
+		t.Errorf("key not stored: %v", err)
 	}
 }
 
@@ -149,8 +168,9 @@ func TestStorePassword_EncryptFailsStoresNoKey(t *testing.T) {
 
 	keys := filepath.Join(t.TempDir(), "keys")
 	file := filepath.Join(t.TempDir(), password.File)
-	var out, warn bytes.Buffer
-	if err := storePassword(keys, testKeyUser, file, "hash", os.Getuid(), &out, &warn); err == nil {
+	var warn bytes.Buffer
+	secret, err := storePassword(keys, testKeyUser, file, "hash", os.Getuid(), &warn)
+	if err == nil {
 		t.Fatal("encrypt without age succeeded")
 	}
 	if _, err := os.Stat(password.KeyPath(keys, testKeyUser)); !os.IsNotExist(err) {
@@ -159,7 +179,7 @@ func TestStorePassword_EncryptFailsStoresNoKey(t *testing.T) {
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Error("a password file was written though encryption failed")
 	}
-	if strings.Contains(out.String(), secretKeyPrefix) {
-		t.Errorf("an unstored key was printed: %q", out.String())
+	if secret != "" {
+		t.Errorf("an unstored key was returned: %q", secret)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
@@ -37,7 +38,6 @@ const (
 
 	setupPasswordPrompt = "Password for %s: "
 	setupAgainPrompt    = "Retype password for %s: "
-	setupKeyNotice      = "\nKey of %s. Save it somewhere safe (a password manager); every computer that builds %s needs it (luxos key add %s):\n\n%s\n\n"
 	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos key add %s"
 )
 
@@ -310,7 +310,7 @@ func (w *Wizard) writeUser(pw string) error {
 	if err := config.WriteFile(filepath.Join(dir, password.File), enc); err != nil {
 		return err
 	}
-	fmt.Fprintf(w.Out, setupKeyNotice, user, user, user, secret)
+	shared.KeyNotice(w.Out, user, secret)
 	if err := w.StoreKey(user, secret); err != nil {
 		return fmt.Errorf(setupStoreKeyFailed, user, err, user)
 	}

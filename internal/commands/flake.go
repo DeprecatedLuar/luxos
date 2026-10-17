@@ -20,7 +20,10 @@ import (
 
 const flakeFlagSpec = "host:value config|C:value"
 
-const flakeUpdateTmpPattern = "luxos-flake-update-"
+const (
+	flakeUpdateTmpPattern = "luxos-flake-update-"
+	flakeLockUpdated      = "flake.lock updated"
+)
 
 const (
 	updateFlagSpec      = flakeFlagSpec + " yes|y:bool"
@@ -122,7 +125,7 @@ func updateInputs(opts map[string]string, names []string) error {
 		if _, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock); err != nil {
 			return err
 		}
-		fmt.Printf("  updated: %s\n", hostLock)
+		ui.Done(os.Stdout, flakeLockUpdated)
 		return nil
 	})
 }
