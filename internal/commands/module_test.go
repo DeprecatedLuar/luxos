@@ -357,11 +357,7 @@ func TestModuleDisableNamesEachFile(t *testing.T) {
 			t.Fatalf("moduleDisable: %v", err)
 		}
 	})
-	for _, want := range []string{"disabled 'laptop' in modules/host/default.nix", "disabled 'laptop' in modules/machine/default.nix"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output lacks %q:\n%s", want, out)
-		}
-	}
+	wantOutput(t, out, markerNeither+" laptop\n")
 }
 
 func TestModuleAddMachineUnit(t *testing.T) {

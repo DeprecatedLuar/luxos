@@ -782,62 +782,88 @@ func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 		if err := requirePassword(m); err != nil {
 			return err
 		}
-		if err := enableBundles(h, name, toMachine); err != nil {
-			return err
-		}
-		changed, err := modules.Enable(h, name, toMachine)
+		touched, err := enableBundles(h, name, toMachine)
 		if err != nil {
 			return err
 		}
-		if !changed {
-			ui.Text(os.Stdout, fmt.Sprintf("'%s' is already enabled", name))
+		if _, err := modules.Enable(h, name, toMachine); err != nil {
+			return err
 		}
-		return nil
+		return printStates(p, append(touched, name))
 	}
 
-	subs, err := disableSubmodules(p, h, m)
+	touched, err := disableSubmodules(h, m)
 	if err != nil {
 		return err
 	}
-	files, err := modules.Disable(h, name)
+	if _, err := modules.Disable(h, name); err != nil {
+		return err
+	}
+	return printStates(p, append(touched, name))
+}
+
+// printStates prints each named module's state as `list` draws it, read from
+// the active host as the command left it.
+func printStates(p paths.Paths, names []string) error {
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
-	for _, f := range files {
-		ui.Done(os.Stdout, fmt.Sprintf("disabled '%s' in %s", name, displaySelection(p, f)))
+	running, _, err := modules.ReadRunning(p.RunningSelections)
+	if err != nil {
+		return err
 	}
-	if len(files) == 0 && !subs {
-		ui.Text(os.Stdout, fmt.Sprintf("'%s' is already disabled", name))
+	baseline, err := staging.Baseline(p.Staging)
+	if err != nil {
+		return err
+	}
+	sts, err := modules.StatusOf(h, running, baseline)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]modules.Status, len(sts))
+	for _, st := range sts {
+		byName[st.Module.Name] = st
+	}
+	for _, name := range names {
+		st := byName[name]
+		marker := markerOf(st.State)
+		color := markerColor(marker)
+		if st.State == modules.Modified {
+			color = ui.ColorBlue
+		}
+		ui.Marked(os.Stdout, color, marker, name)
 	}
 	return nil
 }
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
-// outermost first.
-func enableBundles(h *modules.Host, name string, toMachine bool) error {
+// outermost first, and returns the ones it enabled.
+func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, error) {
 	var chain []string
 	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
 		chain = append([]string{b}, chain...)
 	}
+	var enabled []string
 	for _, bundle := range chain {
 		changed, err := modules.Enable(h, bundle, toMachine)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if changed {
-			ui.Done(os.Stdout, fmt.Sprintf("enabled '%s' (bundle of '%s')", bundle, name))
+			enabled = append(enabled, bundle)
 		}
 	}
-	return nil
+	return enabled, nil
 }
 
 // disableSubmodules removes every enabled line for a submodule of m when m is
-// a bundle, reporting whether any was removed.
-func disableSubmodules(p paths.Paths, h *modules.Host, m modules.Module) (bool, error) {
+// a bundle, and returns the submodules it removed.
+func disableSubmodules(h *modules.Host, m modules.Module) ([]string, error) {
 	if !modules.IsBundle(m.Abs) {
-		return false, nil
+		return nil, nil
 	}
-	removed := false
+	var removed []string
 	for _, sel := range h.Selection() {
 		sub := modules.NameFromPath(sel)
 		if !strings.HasPrefix(sub, m.Name+nameSep) {
@@ -847,10 +873,9 @@ func disableSubmodules(p paths.Paths, h *modules.Host, m modules.Module) (bool, 
 		if err != nil {
 			return removed, err
 		}
-		for _, f := range files {
-			ui.Done(os.Stdout, fmt.Sprintf("disabled '%s' in %s (submodule of '%s')", sub, displaySelection(p, f), m.Name))
+		if len(files) > 0 {
+			removed = append(removed, sub)
 		}
-		removed = removed || len(files) > 0
 	}
 	return removed, nil
 }

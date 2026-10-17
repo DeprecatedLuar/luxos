@@ -38,6 +38,16 @@ func Text(w io.Writer, msg string) {
 	fmt.Fprintln(w, msg)
 }
 
+// Marked writes "<glyph> <text>" in the tint of c: the state a thing is in,
+// the same glyph and color a listing draws it with.
+func Marked(w io.Writer, c Color, glyph, text string) {
+	fmt.Fprintln(w, markedLine(PaletteOf(w), c, glyph, text))
+}
+
+func markedLine(pal Palette, c Color, glyph, text string) string {
+	return pal.Tint(c) + glyph + " " + text + pal.reset
+}
+
 // Print writes s as is: a rendered view, JSON, the logo.
 func Print(w io.Writer, s string) {
 	io.WriteString(w, s)

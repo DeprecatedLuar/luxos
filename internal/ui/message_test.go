@@ -48,3 +48,18 @@ func TestPaletteMarksPlain(t *testing.T) {
 		t.Errorf("plain palette adds codes: %q %q", p.Name("luar"), p.Secret("k"))
 	}
 }
+
+func TestMarkedPlain(t *testing.T) {
+	var buf bytes.Buffer
+	Marked(&buf, ColorTeal, "⊕", "cinnamon")
+	if buf.String() != "⊕ cinnamon\n" {
+		t.Errorf("got %q", buf.String())
+	}
+}
+
+func TestMarkedLineColored(t *testing.T) {
+	want := codeTeal + "⊕ cinnamon" + codeReset
+	if got := markedLine(Colored, ColorTeal, "⊕", "cinnamon"); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
