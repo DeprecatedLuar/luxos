@@ -34,12 +34,14 @@ const failedAttrFormat = `while evaluating attribute '"%s"'`
 // nixErrorPrefix starts the line of nix's own message, after its trace.
 const nixErrorPrefix = "error: "
 
-// FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`, passing
-// stdout and stderr through to the caller's. With no inputs every input moves.
+// FlakeUpdate runs `nix flake update <inputs...> --flake <flakeDir>`. Nix's
+// output is shown only in the error of a failed run. With no inputs every
+// input moves.
 func FlakeUpdate(flakeDir string, inputs ...string) error {
 	args := append([]string{"flake", "update"}, inputs...)
 	args = append(args, "--flake", flakeDir)
-	return shell.Run(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
+	_, err := shell.Output(shell.Cmd{Bin: flakeBin, Args: args, Env: flakeEnv(os.Environ())})
+	return err
 }
 
 // BuildFlakeRef builds the flake reference ref and returns its store path.
