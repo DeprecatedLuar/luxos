@@ -12,10 +12,12 @@ import (
 const (
 	userPackagesStarter = "starters/user/modules/packages.nix"
 
-	userModulesDir   = "modules"
-	userDefaultFile  = "default.nix"
-	userOldSuffix    = ".old"
-	userPackagesFile = "packages.nix"
+	userModulesDir  = "modules"
+	userDefaultFile = "default.nix"
+	userOldSuffix   = ".old"
+
+	// UserPackagesFile is the starter's path inside a user unit.
+	UserPackagesFile = "modules/packages.nix"
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
 
@@ -40,18 +42,7 @@ func WriteUser(dir string) error {
 	if err := Mkdir(dir); err != nil {
 		return err
 	}
-	modulesDir := filepath.Join(dir, userModulesDir)
-	if err := Mkdir(modulesDir); err != nil {
-		return err
-	}
-	data, err := templates.File(userPackagesStarter)
-	if err != nil {
-		return err
-	}
-	if err := WriteFile(filepath.Join(modulesDir, userPackagesFile), data); err != nil {
-		return err
-	}
-	_, err = SyncUser(dir)
+	_, err := SyncUser(dir)
 	return err
 }
 
@@ -59,7 +50,8 @@ func WriteUser(dir string) error {
 // differing, keeping the folder's owner, and locks it to 0444. A differing
 // file without the luxos header is hand-written: SyncUser refuses it and
 // writes nothing for the unit, except default.nix, which a unit cannot load
-// without: that one is kept as default.nix.old and replaced.
+// without: that one is kept as default.nix.old and replaced. A unit without
+// a modules/ folder gets one holding the starter modules/packages.nix.
 func SyncUser(dir string) ([]SyncChange, error) {
 	type pending struct {
 		name, path string
@@ -114,7 +106,24 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		}
 		changes = append(changes, SyncChange{Path: f.name, Action: action})
 	}
-	return changes, nil
+
+	modulesDir := filepath.Join(dir, userModulesDir)
+	if _, err := os.Stat(modulesDir); err == nil {
+		return changes, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := Mkdir(modulesDir); err != nil {
+		return nil, err
+	}
+	data, err := templates.File(userPackagesStarter)
+	if err != nil {
+		return nil, err
+	}
+	if err := WriteFile(filepath.Join(dir, UserPackagesFile), data); err != nil {
+		return nil, err
+	}
+	return append(changes, SyncChange{Path: UserPackagesFile, Action: ActionCreated}), nil
 }
 
 // UserGroups is the host settings file setup writes for its first user.

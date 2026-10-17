@@ -35,7 +35,7 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 3 || changes[0].Action != ActionCreated {
+	if len(changes) != 4 || changes[0].Action != ActionCreated || changes[3] != (SyncChange{Path: UserPackagesFile, Action: ActionCreated}) {
 		t.Errorf("first sync = %+v", changes)
 	}
 
@@ -65,6 +65,23 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	}
 	if changes, _ := SyncUser(dir); len(changes) != 0 {
 		t.Errorf("third sync = %+v, want nothing", changes)
+	}
+}
+
+func TestSyncUser_KeepsExistingModules(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := SyncUser(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 {
+		t.Errorf("sync = %+v, want only the vendored files", changes)
+	}
+	if _, err := os.Stat(filepath.Join(dir, UserPackagesFile)); !os.IsNotExist(err) {
+		t.Error("starter written into an existing modules/")
 	}
 }
 

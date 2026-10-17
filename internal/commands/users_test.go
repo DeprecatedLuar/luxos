@@ -33,6 +33,23 @@ func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
 	}
 }
 
+func TestSyncUsers_EnablesStarter(t *testing.T) {
+	h := userHost(t, false, "users/ana")
+	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
+		t.Fatal(err)
+	}
+	sel, err := os.ReadFile(filepath.Join(h.HostDir, "modules", "default.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sel), "users/ana/modules/packages.nix") {
+		t.Errorf("starter not enabled:\n%s", sel)
+	}
+	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSyncUsers_Shadow(t *testing.T) {
 	h := userHost(t, true)
 	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
