@@ -13,46 +13,36 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-func TestSyncUsers_SharedAndShadow(t *testing.T) {
-	root := t.TempDir()
-	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, "hosts", "box")
-	for _, f := range []string{
-		filepath.Join(modulesDir, "users", "ana", "default.nix"),
-		filepath.Join(modulesDir, "users", "bob", "default.nix"),
-		filepath.Join(modulesDir, "desktop", "x", "default.nix"),
-		filepath.Join(hostDir, "modules", "bob", "default.nix"),
-	} {
-		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(f, []byte("{ }"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(hostDir, "modules", "default.nix"), []byte("{ ... }:\n{\n  imports = [\n  ];\n}\n"), 0o644); err != nil {
+func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
+	h := userHost(t, false, "users/ana")
+	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
 		t.Fatal(err)
 	}
-	h, err := modules.Load(modulesDir, hostDir, "")
-	if err != nil {
-		t.Fatal(err)
+	ana, _ := h.Find("ana")
+	bob, _ := h.Find("bob")
+	x, _ := h.Find("x")
+	if _, err := os.Stat(filepath.Join(ana.Abs, "account.nix")); err != nil {
+		t.Errorf("selected ana: %v", err)
 	}
-	out := ui.NewProgress(io.Discard)
-	if err := syncUsers(out, h); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(bob.Abs, "account.nix")); !os.IsNotExist(err) {
+		t.Error("unselected bob got account.nix")
 	}
-	for _, dir := range []string{
-		filepath.Join(modulesDir, "users", "ana"),
-		filepath.Join(hostDir, "modules", "bob"),
-	} {
-		if _, err := os.Stat(filepath.Join(dir, "account.nix")); err != nil {
-			t.Errorf("%s: %v", dir, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(modulesDir, "desktop", "x", "account.nix")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(x.Abs, "account.nix")); !os.IsNotExist(err) {
 		t.Error("non-user unit got account.nix")
 	}
-	if _, err := os.Stat(filepath.Join(modulesDir, "users", "bob", "account.nix")); !os.IsNotExist(err) {
+}
+
+func TestSyncUsers_Shadow(t *testing.T) {
+	h := userHost(t, true)
+	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := h.Find("bob")
+	if _, err := os.Stat(filepath.Join(bob.Abs, "account.nix")); err != nil {
+		t.Errorf("shadow bob: %v", err)
+	}
+	hidden := filepath.Join(h.ModulesDir, "users", "bob", "account.nix")
+	if _, err := os.Stat(hidden); !os.IsNotExist(err) {
 		t.Error("hidden original got account.nix")
 	}
 }

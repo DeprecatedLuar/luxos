@@ -14,14 +14,15 @@ import (
 // keyOwnerUID is the uid that must own the stored user keys.
 const keyOwnerUID = 0
 
-// syncUsers restores the vendored files of every user unit h sees, shadows
-// included; a hidden original is left alone.
+// syncUsers restores the vendored files of every user unit in the build,
+// shadows included; a hidden original is left alone.
 func syncUsers(out *ui.Progress, h *modules.Host) error {
 	out.Printf("Syncing user units...\n")
-	for _, m := range h.Modules {
-		if !modules.IsUser(m) {
-			continue
-		}
+	users, err := builtUsers(h)
+	if err != nil {
+		return err
+	}
+	for _, m := range users {
 		changes, err := config.SyncUser(m.Abs)
 		if err != nil {
 			return err
