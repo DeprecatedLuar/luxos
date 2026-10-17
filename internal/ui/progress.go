@@ -62,12 +62,12 @@ func (p *Progress) Changef(format string, a ...any) {
 	p.keep("", fmt.Sprintf(format, a...))
 }
 
-// Warnf prints "Warning: <message>" on its own line, yellow on a color terminal.
+// Warnf prints "[WARNING] <message>" on its own line, yellow on a color terminal.
 func (p *Progress) Warnf(format string, a ...any) {
 	p.keep(p.pal.yellow, warnPrefix+fmt.Sprintf(format, a...))
 }
 
-// Errf prints "Error: <message>" on its own line, red on a color terminal.
+// Errf prints "[ERROR] <message>" on its own line, red on a color terminal.
 func (p *Progress) Errf(format string, a ...any) {
 	p.keep(p.pal.red, errorPrefix+fmt.Sprintf(format, a...))
 }

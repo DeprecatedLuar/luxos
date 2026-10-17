@@ -122,10 +122,13 @@ func updateInputs(opts map[string]string, names []string) error {
 			return err
 		}
 		hostLock := filepath.Join(hostDir, flakeLockName)
-		if _, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock); err != nil {
+		changed, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock)
+		if err != nil {
 			return err
 		}
-		ui.Done(os.Stdout, flakeLockUpdated)
+		if changed {
+			ui.Done(os.Stdout, flakeLockUpdated)
+		}
 		return nil
 	})
 }

@@ -10,7 +10,10 @@ import (
 	"testing"
 )
 
-const guardRoot = ".."
+const (
+	guardRoot = ".."
+	outField  = "Out"
+)
 
 var (
 	printFuncs  = map[string]bool{"Print": true, "Printf": true, "Println": true}
@@ -61,13 +64,14 @@ func f() {
 	fmt.Fprintf(w, "ok")
 	os.Stdout.Fd()
 	os.Stdout.Stat()
+	fmt.Fprintln(w.Out, "d")
 }`
 	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(directPrints(f)); got != 4 {
-		t.Errorf("found %d direct prints, want 4", got)
+	if got := len(directPrints(f)); got != 5 {
+		t.Errorf("found %d direct prints, want 5", got)
 	}
 }
 
@@ -105,7 +109,7 @@ func isDirectPrint(sel *ast.SelectorExpr, args []ast.Expr) bool {
 	case pkg.Name == "fmt" && printFuncs[name]:
 		return true
 	case pkg.Name == "fmt" && fprintFuncs[name], pkg.Name == "io" && name == "WriteString":
-		return len(args) > 0 && isStdStream(args[0])
+		return len(args) > 0 && (isStdStream(args[0]) || isOutField(args[0]))
 	}
 	return false
 }
@@ -118,4 +122,11 @@ func isStdStream(e ast.Expr) bool {
 	}
 	pkg, ok := sel.X.(*ast.Ident)
 	return ok && pkg.Name == "os" && (sel.Sel.Name == "Stdout" || sel.Sel.Name == "Stderr")
+}
+
+// isOutField reports whether e is a field named Out: the writer a command's
+// screen is handed, which is os.Stdout outside tests.
+func isOutField(e ast.Expr) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == outField
 }

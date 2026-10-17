@@ -30,11 +30,11 @@ const (
 	desktopRow    = "desktop"
 	reviewPrompt  = "Number to change, y to continue: "
 	invalidName   = "a host name is letters, digits and -, 1 to 63 characters, not starting or ending with -"
-	nameTaken     = "%s already exists, pick it from the list or choose another name\n"
-	userEnabled   = "Enabled %s on %s.\n"
-	freshDone     = "Your config is at %s. Put it in git to use it on other computers.\n"
-	menuLine      = "  %s  %s\n"
-	reviewLine    = "  %d  %-10s %s\n"
+	nameTaken     = "%s already exists, pick it from the list or choose another name"
+	userEnabled   = "Enabled %s on %s."
+	freshDone     = "Your config is at %s. Put it in git to use it on other computers."
+	menuLine      = "  %s  %s"
+	reviewLine    = "  %d  %-10s %s"
 
 	setupPasswordPrompt = "Password for %s: "
 	setupAgainPrompt    = "Retype password for %s: "
@@ -105,12 +105,12 @@ func (w *Wizard) HostScreen() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintln(w.Out, hostsTitle)
+	ui.Text(w.Out, hostsTitle)
 	for i, n := range names {
-		fmt.Fprintf(w.Out, menuLine, strconv.Itoa(i+1), n)
+		ui.Text(w.Out, fmt.Sprintf(menuLine, strconv.Itoa(i+1), n))
 	}
-	fmt.Fprintf(w.Out, menuLine, newHostKey, "new host")
-	fmt.Fprintln(w.Out)
+	ui.Text(w.Out, fmt.Sprintf(menuLine, newHostKey, "new host"))
+	ui.Text(w.Out, "")
 
 	for {
 		reply, err := w.Ask.Ask(hostPrompt)
@@ -166,7 +166,7 @@ func (w *Wizard) freshConfig() (string, error) {
 	if err := w.writeGroups(name); err != nil {
 		return "", err
 	}
-	fmt.Fprintf(w.Out, freshDone, w.Paths.Config)
+	ui.Done(w.Out, fmt.Sprintf(freshDone, w.Paths.Config))
 	return name, nil
 }
 
@@ -226,7 +226,7 @@ func (w *Wizard) enableUser(host string) error {
 		return err
 	}
 	if changed {
-		fmt.Fprintf(w.Out, userEnabled, w.Paths.User, host)
+		ui.Done(w.Out, fmt.Sprintf(userEnabled, w.Paths.User, host))
 	}
 	if created {
 		if _, err := modules.Enable(h, w.Paths.User+"/"+userPackagesModule, false); err != nil {
@@ -336,9 +336,9 @@ func (w *Wizard) askName(existing []string) (string, error) {
 		}
 		switch {
 		case !hostNameRe.MatchString(name):
-			fmt.Fprintln(w.Out, invalidName)
+			ui.Warn(w.Out, invalidName)
 		case slices.Contains(existing, name):
-			fmt.Fprintf(w.Out, nameTaken, name)
+			ui.Warn(w.Out, fmt.Sprintf(nameTaken, name))
 		default:
 			return name, nil
 		}
@@ -346,10 +346,10 @@ func (w *Wizard) askName(existing []string) (string, error) {
 }
 
 func (w *Wizard) askDesktop() (desktop, error) {
-	fmt.Fprintln(w.Out)
-	fmt.Fprintln(w.Out, desktopTitle)
+	ui.Text(w.Out, "")
+	ui.Text(w.Out, desktopTitle)
 	for i, d := range desktops {
-		fmt.Fprintf(w.Out, menuLine, strconv.Itoa(i+1), d.label)
+		ui.Text(w.Out, fmt.Sprintf(menuLine, strconv.Itoa(i+1), d.label))
 	}
 	for {
 		reply, err := w.Ask.Ask(desktopPrompt)
@@ -386,14 +386,14 @@ func (w *Wizard) review(v *config.HostValues, d *desktop) error {
 		{"channel", &v.Channel},
 	}
 	for {
-		fmt.Fprintln(w.Out)
+		ui.Text(w.Out, "")
 		for i, r := range rows {
-			fmt.Fprintf(w.Out, reviewLine, i+1, r.label, *r.value)
+			ui.Text(w.Out, fmt.Sprintf(reviewLine, i+1, r.label, *r.value))
 		}
 		if d != nil {
-			fmt.Fprintf(w.Out, reviewLine, len(rows)+1, desktopRow, d.name)
+			ui.Text(w.Out, fmt.Sprintf(reviewLine, len(rows)+1, desktopRow, d.name))
 		}
-		fmt.Fprintln(w.Out)
+		ui.Text(w.Out, "")
 
 		reply, err := w.Ask.Ask(reviewPrompt)
 		if err != nil {
