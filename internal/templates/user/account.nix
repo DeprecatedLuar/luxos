@@ -1,5 +1,5 @@
 # LUXOS property - keep walking buddy
-# Vendored into every user unit; luxos restores this file. Put your own values in another file of the unit.
+# Vendored into every user unit; luxos restores this file. Put your own values in this unit's modules/ folder.
 { config, ... }:
 
 let

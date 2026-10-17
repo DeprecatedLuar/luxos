@@ -10,6 +10,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
+	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -68,11 +69,19 @@ func userHost(t *testing.T, shadowBob bool, selected ...string) *modules.Host {
 		files = append(files, filepath.Join(hostDir, "modules", "bob", "default.nix"))
 		lines += "    ./bob\n"
 	}
+	vendored, err := templates.File("user/default.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, f := range files {
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(f, []byte("{ }"), 0o644); err != nil {
+		data := []byte("{ }")
+		if filepath.Base(filepath.Dir(filepath.Dir(f))) != "desktop" {
+			data = vendored
+		}
+		if err := os.WriteFile(f, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

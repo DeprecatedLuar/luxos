@@ -1,7 +1,7 @@
 { pkgs, ... }:
 
 let
-  name = baseNameOf ./.;
+  name = baseNameOf ../.;
 in
 {
   users.users.${name}.packages = with pkgs; [

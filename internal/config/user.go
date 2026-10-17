@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	userDefaultStarter  = "starters/user/default.nix"
-	userPackagesStarter = "starters/user/packages.nix"
+	userPackagesStarter = "starters/user/modules/packages.nix"
 
-	userDefaultFile  = "default.nix"
+	userModulesDir   = "modules"
 	userPackagesFile = "packages.nix"
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
@@ -25,12 +24,13 @@ const (
 // userVendored are the files luxos owns inside every user unit, by name, with
 // their embedded source.
 var userVendored = []struct{ name, src string }{
+	{"default.nix", "user/default.nix"},
 	{"account.nix", "user/account.nix"},
 	{"options.nix", "user/options.nix"},
 }
 
 // WriteUser creates the user unit dir, which must not exist: the starter
-// default.nix and packages.nix plus the vendored files.
+// modules/packages.nix plus the vendored files.
 func WriteUser(dir string) error {
 	if err := MkdirAll(filepath.Dir(dir)); err != nil {
 		return err
@@ -38,19 +38,18 @@ func WriteUser(dir string) error {
 	if err := Mkdir(dir); err != nil {
 		return err
 	}
-	for _, f := range []struct{ name, src string }{
-		{userDefaultFile, userDefaultStarter},
-		{userPackagesFile, userPackagesStarter},
-	} {
-		data, err := templates.File(f.src)
-		if err != nil {
-			return err
-		}
-		if err := WriteFile(filepath.Join(dir, f.name), data); err != nil {
-			return err
-		}
+	modulesDir := filepath.Join(dir, userModulesDir)
+	if err := Mkdir(modulesDir); err != nil {
+		return err
 	}
-	_, err := SyncUser(dir)
+	data, err := templates.File(userPackagesStarter)
+	if err != nil {
+		return err
+	}
+	if err := WriteFile(filepath.Join(modulesDir, userPackagesFile), data); err != nil {
+		return err
+	}
+	_, err = SyncUser(dir)
 	return err
 }
 
@@ -76,7 +75,7 @@ func SyncUser(dir string) ([]SyncChange, error) {
 			return nil, err
 		}
 		if err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(luxosPropertyHeader+"\n")) {
-			return nil, fmt.Errorf("%s is not a luxos file: move your values to another file of the unit, then delete %s and rebuild", path, path)
+			return nil, fmt.Errorf("%s is not a luxos file: move your values into %s, then delete %s and rebuild", path, filepath.Join(dir, userModulesDir), path)
 		}
 		files = append(files, pending{name: f.name, path: path, want: want, have: have, missing: err != nil})
 	}

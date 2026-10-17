@@ -16,10 +16,13 @@ func TestWriteUser(t *testing.T) {
 	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"default.nix", "account.nix", "options.nix", "packages.nix"} {
+	for _, f := range []string{"default.nix", "account.nix", "options.nix", "modules/packages.nix"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packages.nix")); !os.IsNotExist(err) {
+		t.Error("packages.nix written at the unit root")
 	}
 	if err := WriteUser(dir); err == nil {
 		t.Error("WriteUser over an existing unit succeeded")
@@ -32,7 +35,7 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 2 || changes[0].Action != ActionCreated {
+	if len(changes) != 3 || changes[0].Action != ActionCreated {
 		t.Errorf("first sync = %+v", changes)
 	}
 
@@ -55,7 +58,7 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if string(got) != string(want) {
 		t.Error("account.nix not restored")
 	}
-	for _, f := range []string{"account.nix", "options.nix"} {
+	for _, f := range []string{"default.nix", "account.nix", "options.nix"} {
 		if fi, _ := os.Stat(filepath.Join(dir, f)); fi.Mode().Perm() != 0o444 {
 			t.Errorf("%s mode %v", f, fi.Mode().Perm())
 		}
@@ -76,7 +79,7 @@ func TestSyncUser_RefusesHandWritten(t *testing.T) {
 	if err == nil {
 		t.Fatalf("hand-written account.nix replaced: %+v", changes)
 	}
-	for _, want := range []string{acct, "move your values to another file of the unit", "delete " + acct} {
+	for _, want := range []string{acct, "move your values into " + filepath.Join(dir, "modules"), "delete " + acct} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not contain %q", err, want)
 		}
@@ -93,6 +96,24 @@ func TestSyncUser_RefusesHandWritten(t *testing.T) {
 	}
 }
 
+func TestSyncUser_RefusesHandWrittenDefault(t *testing.T) {
+	dir := t.TempDir()
+	def := filepath.Join(dir, "default.nix")
+	hand := []byte("{ ... }:\n{\n  imports = [ ./account.nix ./hjem.nix ];\n}\n")
+	if err := os.WriteFile(def, hand, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncUser(dir); err == nil || !strings.Contains(err.Error(), def+" is not a luxos file") {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(def); !bytes.Equal(got, hand) {
+		t.Error("hand-written default.nix changed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "account.nix")); !os.IsNotExist(err) {
+		t.Error("account.nix written for a refused unit")
+	}
+}
+
 func TestUserGroups(t *testing.T) {
 	want := "{\n  ana.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
 	if got := string(UserGroups("ana")); got != want {
@@ -106,12 +127,17 @@ func TestUserTemplates_Parse(t *testing.T) {
 	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(dir)
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".nix") {
+			assertParses(t, path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, e := range entries {
-		assertParses(t, filepath.Join(dir, e.Name()))
 	}
 }
 

@@ -19,6 +19,7 @@ let
       ./framework/users.nix
       ./luar
       ./bob
+      ./luar/modules/packages.nix
       {
         users.mutableUsers = false;
         users.users.root.hashedPassword = "!";
@@ -34,6 +35,8 @@ in {
   luarGroups = c.users.users.luar.extraGroups;
   bobGroups = c.users.users.bob.extraGroups;
   luarFile = c.users.users.luar.hashedPasswordFile;
+  hasLuar = c.users.users ? luar;
+  hasModulesUser = c.users.users ? modules;
   deps = c.system.activationScripts.users.deps;
   script = c.system.activationScripts.luxosPasswords.text;
   failed = map (a: a.message) (builtins.filter (a: !a.assertion) c.assertions);
@@ -63,8 +66,8 @@ func TestUsersFramework(t *testing.T) {
 	}
 	write("framework/users.nix", read("framework/users.nix"))
 	for _, u := range []string{"luar", "bob"} {
-		write(u+"/default.nix", read("starters/user/default.nix"))
-		write(u+"/packages.nix", read("starters/user/packages.nix"))
+		write(u+"/default.nix", read("user/default.nix"))
+		write(u+"/modules/packages.nix", read("starters/user/modules/packages.nix"))
 		write(u+"/account.nix", read("user/account.nix"))
 		write(u+"/options.nix", read("user/options.nix"))
 		write(u+"/.password.age", []byte("x"))
@@ -78,18 +81,23 @@ func TestUsersFramework(t *testing.T) {
 		t.Fatalf("eval failed: %v\n%s", err, stderr.String())
 	}
 	var got struct {
-		LuarGroups []string `json:"luarGroups"`
-		BobGroups  []string `json:"bobGroups"`
-		LuarFile   string   `json:"luarFile"`
-		Deps       []string `json:"deps"`
-		Script     string   `json:"script"`
-		Failed     []string `json:"failed"`
+		LuarGroups     []string `json:"luarGroups"`
+		BobGroups      []string `json:"bobGroups"`
+		LuarFile       string   `json:"luarFile"`
+		HasLuar        bool     `json:"hasLuar"`
+		HasModulesUser bool     `json:"hasModulesUser"`
+		Deps           []string `json:"deps"`
+		Script         string   `json:"script"`
+		Failed         []string `json:"failed"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("parse %q: %v", stdout.String(), err)
 	}
 	if !reflect.DeepEqual(got.LuarGroups, []string{"wheel", "networkmanager"}) || len(got.BobGroups) != 0 {
 		t.Errorf("groups: luar %v, bob %v", got.LuarGroups, got.BobGroups)
+	}
+	if !got.HasLuar || got.HasModulesUser {
+		t.Errorf("packages submodule named the wrong user: hasLuar %v, hasModulesUser %v", got.HasLuar, got.HasModulesUser)
 	}
 	if got.LuarFile != "/run/luxos/passwords/luar" {
 		t.Errorf("hashedPasswordFile = %q", got.LuarFile)

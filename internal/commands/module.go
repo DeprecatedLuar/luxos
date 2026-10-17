@@ -582,8 +582,8 @@ func moduleAddUser(modulesRoot, target string) error {
 	if err := config.WriteUser(filepath.Join(modulesRoot, target)); err != nil {
 		return err
 	}
-	fmt.Printf("Created modules/%s/{default.nix,account.nix,options.nix,packages.nix}\n", target)
-	fmt.Printf("Set its password before enabling it: luxos passwd %s\n", name)
+	fmt.Printf("Created modules/%s/{default.nix,account.nix,options.nix,modules/packages.nix}\n", target)
+	fmt.Printf("Set its password, then enable it: luxos passwd %s && luxos user enable %s %s/packages\n", name, name, name)
 	return nil
 }
 
