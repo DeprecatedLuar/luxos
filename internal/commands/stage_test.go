@@ -542,7 +542,7 @@ func TestRun_BoundaryViolation(t *testing.T) {
 	if !strings.Contains(err.Error(), "module boundary violations") {
 		t.Errorf("error = %q, want mention of module boundary violations", err.Error())
 	}
-	if !strings.Contains(out.String(), "Error: ") {
+	if !strings.Contains(out.String(), "[ERROR] ") {
 		t.Errorf("output did not report the violation, got:\n%s", out.String())
 	}
 

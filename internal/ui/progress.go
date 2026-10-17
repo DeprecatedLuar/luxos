@@ -14,8 +14,8 @@ const (
 	wrapOff     = "\x1b[?7l" // a status line wider than the terminal is clipped, not wrapped
 	wrapOn      = "\x1b[?7h"
 	donePrefix  = "✓ "
-	warnPrefix  = "Warning: "
-	errorPrefix = "Error: "
+	warnPrefix  = "[WARNING] "
+	errorPrefix = "[ERROR] "
 )
 
 // Progress prints a command's progress to a writer and keeps the first write
@@ -118,12 +118,6 @@ func (p *Progress) Err() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.err
-}
-
-// Error writes "Error: <message>" to f, red on a color terminal.
-func Error(f *os.File, err error) {
-	pal := PaletteFor(f)
-	fmt.Fprintln(f, pal.red+errorPrefix+err.Error()+pal.reset)
 }
 
 func (p *Progress) spin(stop, done chan struct{}) {

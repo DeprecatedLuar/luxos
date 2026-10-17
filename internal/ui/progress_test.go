@@ -19,7 +19,7 @@ func TestProgressPlainPrintsEveryLine(t *testing.T) {
 	p.Errf("%s: %s", "f", "e")
 	p.Done("preflight")
 	p.Stop()
-	want := "Ensuring x...\n  created: y\nWarning: w\nError: f: e\n"
+	want := "Ensuring x...\n  created: y\n[WARNING] w\n[ERROR] f: e\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
 	}
@@ -130,7 +130,7 @@ func TestErrorPlain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "Error: boom\n" {
+	if string(got) != "[ERROR] boom\n" {
 		t.Errorf("got %q", got)
 	}
 }

@@ -29,6 +29,8 @@ const (
 	codeUnderline = "\x1b[4m"
 	codeStrike    = "\x1b[9m"
 	codeItalic    = "\x1b[3m"
+
+	codeNoUnderline = "\x1b[24m"
 )
 
 // Color is a tint a row or note is drawn in. The zero value is the quiet one.
@@ -49,13 +51,13 @@ const (
 // Palette is the set of color codes rendering tints with; the zero Palette
 // renders the same shapes with no escape codes.
 type Palette struct {
-	green, teal, red, purple, blue, nix, yellow, line, title, off, underline, strike, reset string
+	green, teal, red, purple, blue, nix, yellow, line, title, off, underline, noUnderline, strike, reset string
 }
 
 // Colored is the palette of a color terminal.
 var Colored = Palette{
 	green: codeGreen, teal: codeTeal, red: codeRed, purple: codePurple, blue: codeBlue, nix: codeNix, yellow: codeYellow,
-	line: codeLine, title: codeTitle, off: codeOff, underline: codeUnderline, strike: codeStrike, reset: codeReset,
+	line: codeLine, title: codeTitle, off: codeOff, underline: codeUnderline, noUnderline: codeNoUnderline, strike: codeStrike, reset: codeReset,
 }
 
 // IsTerminal reports whether f is a terminal.
