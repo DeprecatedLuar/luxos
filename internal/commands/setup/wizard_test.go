@@ -97,7 +97,7 @@ func TestFresh_NewConfig(t *testing.T) {
 	if name != "cathode" {
 		t.Errorf("name = %q", name)
 	}
-	want := "host/packages.nix unstable.nix users/ana desktop/compositors/hyprland.nix desktop/greeters/greetd.nix"
+	want := "host/packages.nix unstable.nix users/ana users/ana/modules/packages.nix desktop/compositors/hyprland.nix desktop/greeters/greetd.nix"
 	if got := selection(t, p, "cathode"); got != want {
 		t.Errorf("selection = %q\nwant %q", got, want)
 	}
@@ -128,7 +128,7 @@ func TestFresh_ConsoleSelectsNoDesktop(t *testing.T) {
 	if _, err := w.Fresh(); err != nil {
 		t.Fatalf("Fresh: %v\n%s", err, out)
 	}
-	if got := selection(t, p, "cathode"); got != "host/packages.nix unstable.nix users/ana" {
+	if got := selection(t, p, "cathode"); got != "host/packages.nix unstable.nix users/ana users/ana/modules/packages.nix" {
 		t.Errorf("selection = %q", got)
 	}
 }
@@ -181,7 +181,7 @@ func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 	if name != "nuremberg" {
 		t.Errorf("name = %q", name)
 	}
-	if got := selection(t, p, "nuremberg"); got != "host/packages.nix users/ana" {
+	if got := selection(t, p, "nuremberg"); got != "host/packages.nix users/ana users/ana/modules/packages.nix" {
 		t.Errorf("selection = %q", got)
 	}
 	account, err := os.ReadFile(filepath.Join(p.Modules, "users/ana/account.nix"))

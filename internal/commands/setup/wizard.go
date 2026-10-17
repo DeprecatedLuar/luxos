@@ -48,6 +48,8 @@ const (
 	localPackagesSelection = "host/packages.nix"
 	unstableSelection      = "unstable.nix"
 	usersCategory          = "users"
+	userPackagesSelection  = "modules/packages.nix" // under the user unit
+	userPackagesModule     = "packages"             // submodule name under the user's bundle
 )
 
 var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -138,7 +140,8 @@ func (w *Wizard) freshConfig() (string, error) {
 		return "", err
 	}
 
-	sel := append([]string{localPackagesSelection, unstableSelection, w.userPath()}, d.selection...)
+	sel := append([]string{localPackagesSelection, unstableSelection}, w.userLines()...)
+	sel = append(sel, d.selection...)
 	m := w.host(name, values, sel)
 	if err := config.CheckHost(m); err != nil {
 		return "", err
@@ -181,11 +184,11 @@ func (w *Wizard) newHost(existing []string) (string, error) {
 		return "", err
 	}
 
-	userPath, err := w.ensureUserUnit()
+	userLines, err := w.ensureUserUnit()
 	if err != nil {
 		return "", err
 	}
-	sel := []string{localPackagesSelection, userPath}
+	sel := append([]string{localPackagesSelection}, userLines...)
 	if err := config.CreateHost(w.Paths.Hosts, w.host(name, values, sel)); err != nil {
 		return "", err
 	}
@@ -204,6 +207,7 @@ func (w *Wizard) enableUser(host string) error {
 	if err != nil {
 		return err
 	}
+	created := false
 	if _, ok := h.Find(w.Paths.User); !ok {
 		pw, err := w.askPassword()
 		if err != nil {
@@ -215,6 +219,7 @@ func (w *Wizard) enableUser(host string) error {
 		if h, err = modules.Load(w.Paths.Modules, hostDir, ""); err != nil {
 			return err
 		}
+		created = true
 	}
 	changed, err := modules.Enable(h, w.Paths.User, false)
 	if err != nil {
@@ -223,28 +228,39 @@ func (w *Wizard) enableUser(host string) error {
 	if changed {
 		fmt.Fprintf(w.Out, userEnabled, w.Paths.User, host)
 	}
+	if created {
+		if _, err := modules.Enable(h, w.Paths.User+"/"+userPackagesModule, false); err != nil {
+			return err
+		}
+	}
 	return w.writeGroups(host)
 }
 
-// ensureUserUnit returns the selection path of the user's unit, creating it
-// when the config has none by that name.
-func (w *Wizard) ensureUserUnit() (string, error) {
+// ensureUserUnit returns the selection lines of the user's unit: its path
+// when the config has it, else the lines of the unit it creates.
+func (w *Wizard) ensureUserUnit() ([]string, error) {
 	ms, _, err := modules.Walk(w.Paths.Modules, "", "")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if m, ok := modules.Find(ms, w.Paths.User); ok {
-		return m.Path, nil
+		return []string{m.Path}, nil
 	}
 	pw, err := w.askPassword()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return w.userPath(), w.writeUser(pw)
+	return w.userLines(), w.writeUser(pw)
 }
 
 func (w *Wizard) userPath() string {
 	return usersCategory + "/" + w.Paths.User
+}
+
+// userLines are the selection lines of a user unit setup creates: the unit
+// and its packages submodule.
+func (w *Wizard) userLines() []string {
+	return []string{w.userPath(), w.userPath() + "/" + userPackagesSelection}
 }
 
 // askPassword asks the user's password twice; both must match and not be empty.
