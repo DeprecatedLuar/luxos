@@ -974,3 +974,19 @@ func TestModuleSettingsMark(t *testing.T) {
 		t.Errorf("plain = %q, want %q", plain.String(), want)
 	}
 }
+
+func TestModuleAdd_UnderAUserBundleIsAPlainSubmodule(t *testing.T) {
+	skipIfNoNix(t)
+	t.Setenv("EDITOR", "true")
+	p := bundleFixture(t)
+	if err := moduleAdd(p, []string{bundlePath + "/modules/hjem"}); err != nil {
+		t.Fatalf("moduleAdd: %v", err)
+	}
+	dir := filepath.Join(p.Modules, bundlePath, "modules")
+	if _, err := os.Stat(filepath.Join(dir, "hjem.nix")); err != nil {
+		t.Errorf("submodule file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "hjem")); !os.IsNotExist(err) {
+		t.Error("a user unit was scaffolded inside the bundle's modules/")
+	}
+}

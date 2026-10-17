@@ -96,21 +96,29 @@ func TestSyncUser_RefusesHandWritten(t *testing.T) {
 	}
 }
 
-func TestSyncUser_RefusesHandWrittenDefault(t *testing.T) {
+func TestSyncUser_ReplacesHandWrittenDefault(t *testing.T) {
 	dir := t.TempDir()
 	def := filepath.Join(dir, "default.nix")
 	hand := []byte("{ ... }:\n{\n  imports = [ ./account.nix ./hjem.nix ];\n}\n")
 	if err := os.WriteFile(def, hand, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SyncUser(dir); err == nil || !strings.Contains(err.Error(), def+" is not a luxos file") {
-		t.Fatalf("err = %v", err)
+	changes, err := SyncUser(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(def); !bytes.Equal(got, hand) {
-		t.Error("hand-written default.nix changed")
+	want, _ := templates.File("user/default.nix")
+	if got, _ := os.ReadFile(def); !bytes.Equal(got, want) {
+		t.Error("default.nix not replaced by the luxos file")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "account.nix")); !os.IsNotExist(err) {
-		t.Error("account.nix written for a refused unit")
+	if kept, _ := os.ReadFile(def + ".old"); !bytes.Equal(kept, hand) {
+		t.Errorf("hand-written default.nix not kept as default.nix.old: %q", kept)
+	}
+	if len(changes) == 0 || changes[0] != (SyncChange{Path: "default.nix", Action: ActionReplaced}) {
+		t.Errorf("changes = %+v", changes)
+	}
+	if again, _ := SyncUser(dir); len(again) != 0 {
+		t.Errorf("second sync = %+v, want nothing", again)
 	}
 }
 

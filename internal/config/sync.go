@@ -21,6 +21,7 @@ const (
 	ActionCreated  = "created"
 	ActionRestored = "restored"
 	ActionRemoved  = "removed"
+	ActionReplaced = "replaced (old kept as default.nix.old)"
 )
 
 type SyncChange struct {

@@ -626,7 +626,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 		return err
 	}
 
-	if underCategory(target, usersCategory) {
+	if filepath.Dir(target) == usersCategory {
 		if err := moduleAddUser(p.Modules, target); err != nil {
 			return err
 		}

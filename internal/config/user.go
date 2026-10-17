@@ -13,6 +13,8 @@ const (
 	userPackagesStarter = "starters/user/modules/packages.nix"
 
 	userModulesDir   = "modules"
+	userDefaultFile  = "default.nix"
+	userOldSuffix    = ".old"
 	userPackagesFile = "packages.nix"
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
@@ -56,12 +58,14 @@ func WriteUser(dir string) error {
 // SyncUser writes each vendored file into the user unit dir when missing or
 // differing, keeping the folder's owner, and locks it to 0444. A differing
 // file without the luxos header is hand-written: SyncUser refuses it and
-// writes nothing for the unit.
+// writes nothing for the unit, except default.nix, which a unit cannot load
+// without: that one is kept as default.nix.old and replaced.
 func SyncUser(dir string) ([]SyncChange, error) {
 	type pending struct {
 		name, path string
 		want, have []byte
 		missing    bool
+		replace    bool
 	}
 	var files []pending
 	for _, f := range userVendored {
@@ -74,10 +78,11 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
-		if err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(luxosPropertyHeader+"\n")) {
+		handWritten := err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(luxosPropertyHeader+"\n"))
+		if handWritten && f.name != userDefaultFile {
 			return nil, fmt.Errorf("%s is not a luxos file: move your values into %s, then delete %s and rebuild", path, filepath.Join(dir, userModulesDir), path)
 		}
-		files = append(files, pending{name: f.name, path: path, want: want, have: have, missing: err != nil})
+		files = append(files, pending{name: f.name, path: path, want: want, have: have, missing: err != nil, replace: handWritten})
 	}
 
 	var changes []SyncChange
@@ -86,6 +91,11 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		switch {
 		case f.missing:
 			action = ActionCreated
+		case f.replace:
+			action = ActionReplaced
+			if err := os.Rename(f.path, f.path+userOldSuffix); err != nil {
+				return nil, err
+			}
 		case bytes.Equal(f.have, f.want):
 			if err := os.Chmod(f.path, lockedMode); err != nil {
 				return nil, err
