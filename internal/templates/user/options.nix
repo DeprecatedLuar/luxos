@@ -9,6 +9,6 @@ in
   options.${name}.groups = lib.mkOption {
     type = lib.types.listOf lib.types.str;
     default = [ ];
-    description = "Supplementary groups of this user on this host";
+    description = "wheel (sudo) | networkmanager | docker | video | input";
   };
 }

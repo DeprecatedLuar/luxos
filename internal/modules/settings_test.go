@@ -370,7 +370,7 @@ func TestVendoredUserFilesFollowTheRules(t *testing.T) {
 	if err != nil || len(rep.Broken) != 0 {
 		t.Fatalf("sync = %+v, %v", rep, err)
 	}
-	want := "{\n  luar.groups = [ ]; # Supplementary groups of this user on this host\n}\n"
+	want := "{\n  luar.groups = [ ]; # wheel (sudo) | networkmanager | docker | video | input\n}\n"
 	if got := readString(t, filepath.Join(h.HostDir, "settings", "luar.nix")); got != want {
 		t.Errorf("settings = %q, want %q", got, want)
 	}
