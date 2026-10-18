@@ -103,6 +103,23 @@ func syncSettings(out *ui.Progress, p paths.Paths, host, machineDir string) erro
 	return out.Err()
 }
 
+// checkAssertions fails when the staged host's configuration has failed
+// assertions, so the build never starts on a configuration NixOS rejects.
+func checkAssertions(out *ui.Progress, stageDir, host string) error {
+	out.Printf("Checking assertions...\n")
+	failed, err := nix.FailedAssertions(stageDir, host)
+	if err != nil {
+		return err
+	}
+	for _, message := range failed {
+		out.Errf("%s", strings.TrimSpace(message))
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d failed assertion(s)", len(failed))
+	}
+	return nil
+}
+
 func printSettingsReport(out *ui.Progress, rep modules.SettingsReport) {
 	for _, f := range rep.Created {
 		out.Changef("  created %s", f)

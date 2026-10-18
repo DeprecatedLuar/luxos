@@ -334,6 +334,9 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err := interrupted(sigs); err != nil {
 		return err
 	}
+	if err := checkAssertions(out, p.NewStage, host); err != nil {
+		return err
+	}
 	out.Done(prebuildLabel)
 
 	rebuildBin, err := nix.RebuildFromFlake(p.NewStage, host)

@@ -162,6 +162,7 @@ func userPage() *gohelp.Page {
 			gohelp.Item("add|a <name> [--enable]", "Scaffold modules/users/<name>"),
 			gohelp.Item("list|ls [subpath] [--json]", "List users (or a users/ subcategory); --json prints them as JSON, fields as in the plain output"),
 			gohelp.Item("edit|e <name>", "Open a user module in $EDITOR"),
+			gohelp.Item("configure|config <name> [--machine]", "Open the user's settings file for this host, e.g. its groups"),
 			gohelp.Item("enable|1 <name>...", "Enable one or more users on this host"),
 			gohelp.Item("disable|0 <name>... [-y]", "Disable one or more users on this host"),
 			gohelp.Item("remove|rm <name> [-y]", "Delete a user everywhere it's imported"),

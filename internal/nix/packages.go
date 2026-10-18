@@ -8,8 +8,12 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
-// packagesAttrFormat addresses a host's configuration in a flake directory.
-const packagesAttrFormat = "%s#nixosConfigurations.%s"
+// hostAttrFormat addresses a host's configuration in a flake directory.
+const hostAttrFormat = "%s#nixosConfigurations.%s"
+
+// failedAssertionsApply lists the messages of a configuration's failed
+// assertions. Only the assertions are forced, never a derivation.
+const failedAssertionsApply = "cfg: map (a: a.message) (builtins.filter (a: !a.assertion) cfg.config.assertions)"
 
 // packagesExpr maps a NixOS configuration to the environment.systemPackages
 // definitions made by files under the stage's config/, paths relative to it.
@@ -54,11 +58,7 @@ type Package struct {
 // Packages evaluates host's configuration in the flake at flakeDir and returns
 // the systemPackages definitions of its config/ files, in definition order.
 func Packages(flakeDir, host string) ([]PackageDefs, error) {
-	out, err := shell.Output(shell.Cmd{
-		Bin:  flakeBin,
-		Args: []string{"eval", "--json", fmt.Sprintf(packagesAttrFormat, flakeDir, host), "--apply", packagesExpr},
-		Env:  flakeEnv(os.Environ()),
-	})
+	out, err := evalFlake(fmt.Sprintf(hostAttrFormat, flakeDir, host), packagesExpr)
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +81,7 @@ const hostsApply = "builtins.attrNames"
 
 // Hosts returns the host names the flake at flakeDir defines.
 func Hosts(flakeDir string) ([]string, error) {
-	out, err := shell.Output(shell.Cmd{
-		Bin:  flakeBin,
-		Args: []string{"eval", "--json", fmt.Sprintf(hostsAttrFormat, flakeDir), "--apply", hostsApply},
-		Env:  flakeEnv(os.Environ()),
-	})
+	out, err := evalFlake(fmt.Sprintf(hostsAttrFormat, flakeDir), hostsApply)
 	if err != nil {
 		return nil, err
 	}
@@ -94,4 +90,27 @@ func Hosts(flakeDir string) ([]string, error) {
 		return nil, fmt.Errorf("decoding host names: %w", err)
 	}
 	return hosts, nil
+}
+
+// FailedAssertions evaluates host's configuration in the flake at flakeDir and
+// returns the messages of its failed assertions.
+func FailedAssertions(flakeDir, host string) ([]string, error) {
+	out, err := evalFlake(fmt.Sprintf(hostAttrFormat, flakeDir, host), failedAssertionsApply)
+	if err != nil {
+		return nil, err
+	}
+	var messages []string
+	if err := json.Unmarshal(out, &messages); err != nil {
+		return nil, fmt.Errorf("decoding failed assertions: %w", err)
+	}
+	return messages, nil
+}
+
+// evalFlake evaluates attr with apply and returns the JSON nix prints.
+func evalFlake(attr, apply string) ([]byte, error) {
+	return shell.Output(shell.Cmd{
+		Bin:  flakeBin,
+		Args: []string{"eval", "--json", attr, "--apply", apply},
+		Env:  flakeEnv(os.Environ()),
+	})
 }

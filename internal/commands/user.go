@@ -30,6 +30,8 @@ func User(args []string) error {
 		return userList(p, rest)
 	case "edit", "e":
 		return moduleEdit(p, rest)
+	case "configure", "config":
+		return moduleConfigure(p, rest)
 	case "enable", "1":
 		return moduleEnable(p, rest)
 	case "disable", "0":

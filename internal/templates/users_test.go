@@ -3,6 +3,7 @@ package templates
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,7 @@ let
         fileSystems."/".device = "none";
         boot.loader.grub.device = "nodev";
         system.stateVersion = "25.11";
-        luar.groups = [ "wheel" "networkmanager" ];
+        luar.groups = %s;
       }
     ];
   };
@@ -43,7 +44,27 @@ in {
 }
 `
 
-func TestUsersFramework(t *testing.T) {
+const (
+	groupsWheel   = `[ "wheel" "networkmanager" ]`
+	groupsNone    = `[ ]`
+	noWheelMarker = "no user is in wheel"
+)
+
+type usersEval struct {
+	LuarGroups     []string `json:"luarGroups"`
+	BobGroups      []string `json:"bobGroups"`
+	LuarFile       string   `json:"luarFile"`
+	HasLuar        bool     `json:"hasLuar"`
+	HasModulesUser bool     `json:"hasModulesUser"`
+	Deps           []string `json:"deps"`
+	Script         string   `json:"script"`
+	Failed         []string `json:"failed"`
+}
+
+// evalUsers evaluates the users framework with two vendored user units and
+// luar.groups set to groups, a Nix list.
+func evalUsers(t *testing.T, groups string) usersEval {
+	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		t.Skip("nix-instantiate not on PATH")
 	}
@@ -73,26 +94,22 @@ func TestUsersFramework(t *testing.T) {
 		write(u+"/.password.age", []byte("x"))
 	}
 
-	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "-E", usersEvalExpr)
+	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "-E", fmt.Sprintf(usersEvalExpr, groups))
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("eval failed: %v\n%s", err, stderr.String())
 	}
-	var got struct {
-		LuarGroups     []string `json:"luarGroups"`
-		BobGroups      []string `json:"bobGroups"`
-		LuarFile       string   `json:"luarFile"`
-		HasLuar        bool     `json:"hasLuar"`
-		HasModulesUser bool     `json:"hasModulesUser"`
-		Deps           []string `json:"deps"`
-		Script         string   `json:"script"`
-		Failed         []string `json:"failed"`
-	}
+	var got usersEval
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("parse %q: %v", stdout.String(), err)
 	}
+	return got
+}
+
+func TestUsersFramework(t *testing.T) {
+	got := evalUsers(t, groupsWheel)
 	if !reflect.DeepEqual(got.LuarGroups, []string{"wheel", "networkmanager"}) || len(got.BobGroups) != 0 {
 		t.Errorf("groups: luar %v, bob %v", got.LuarGroups, got.BobGroups)
 	}
@@ -123,6 +140,16 @@ func TestUsersFramework(t *testing.T) {
 	if len(got.Failed) != 0 {
 		t.Errorf("failed assertions: %v", got.Failed)
 	}
+}
+
+func TestUsersFramework_NoWheelUserFails(t *testing.T) {
+	got := evalUsers(t, groupsNone)
+	for _, m := range got.Failed {
+		if strings.Contains(m, noWheelMarker) {
+			return
+		}
+	}
+	t.Errorf("failed assertions %v lack %q", got.Failed, noWheelMarker)
 }
 
 func TestSystemNix_MutableUsersOffByDefault(t *testing.T) {

@@ -31,6 +31,12 @@ in
   };
 
   config = {
+    assertions = [{
+      assertion = lib.any (u: lib.elem "wheel" u.extraGroups) (lib.attrValues config.users.users)
+        || config.users.users.root.openssh.authorizedKeys.keys != [ ];
+      message = "luxos: no user is in wheel, so nobody can sudo: lux user config <user>";
+    }];
+
     users.users = lib.mapAttrs (name: _: { hashedPasswordFile = "${runDir}/${name}"; }) config.luxos.users;
 
     system.activationScripts.luxosPasswords = {

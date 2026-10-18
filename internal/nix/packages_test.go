@@ -74,3 +74,22 @@ func TestHosts(t *testing.T) {
 		t.Errorf("Hosts = %v, want %v", got, want)
 	}
 }
+
+func TestFailedAssertions(t *testing.T) {
+	skipIfNoNix(t)
+	dir := t.TempDir()
+	flake := `{ outputs = _: { nixosConfigurations.x.config.assertions = [
+  { assertion = true; message = "fine"; }
+  { assertion = false; message = "broken"; }
+]; }; }`
+	if err := os.WriteFile(filepath.Join(dir, "flake.nix"), []byte(flake), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := FailedAssertions(dir, "x")
+	if err != nil {
+		t.Fatalf("FailedAssertions: %v", err)
+	}
+	if want := []string{"broken"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("FailedAssertions = %v, want %v", got, want)
+	}
+}
