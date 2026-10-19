@@ -18,6 +18,11 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
+const (
+	flakeCommand  = "flake"
+	updateCommand = "update"
+)
+
 const flakeFlagSpec = "host:value config|C:value"
 
 const (
@@ -30,6 +35,8 @@ const (
 	updateDefaultInput  = "luxos"
 	updateDefaultPrompt = "Update luxos? [y/N] "
 )
+
+var errMissingInput = errors.New("missing input name")
 
 var errUpdateAborted = errors.New("aborted: nothing updated\n  confirm with: luxos update --yes")
 
@@ -59,8 +66,11 @@ const (
 )
 
 func Flake(args []string) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", "flake"})
+	if len(args) == 0 {
+		return help.Misuse(os.Stderr, flakeCommand, nil)
+	}
+	if isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, flakeCommand)
 	}
 
 	switch args[0] {
@@ -70,7 +80,7 @@ func Flake(args []string) error {
 		return flakeUpdate(args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
-			return help.Run([]string{"help", "flake"})
+			return help.Misuse(os.Stderr, flakeCommand, fmt.Errorf(unknownFlagFormat, args[0]))
 		}
 		return flakeShow(args)
 	}
@@ -78,8 +88,8 @@ func Flake(args []string) error {
 
 // Update is `flake update`; with no inputs it updates luxos after a confirmation.
 func Update(args []string) error {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-		return help.Run([]string{"help", "update"})
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, updateCommand)
 	}
 
 	opts, names, err := shared.Parse(updateFlagSpec, args)
@@ -360,7 +370,7 @@ func flakeShow(args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return errors.New("missing input name\n  usage: luxos flake <name>... [--host <name>] [--config|-C <dir>] [--offline] [--raw|--json]")
+		return help.Misuse(os.Stderr, flakeCommand, errMissingInput)
 	}
 	if opts["json"] != "" && opts["raw"] != "" {
 		return ui.ErrJSONConflict("--raw")

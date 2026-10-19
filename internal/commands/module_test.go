@@ -986,3 +986,23 @@ func TestModuleAdd_UnderAUserBundleIsAPlainSubmodule(t *testing.T) {
 		t.Error("a user unit was scaffolded inside the bundle's modules/")
 	}
 }
+
+func TestModuleBare(t *testing.T) {
+	assertMisuse(t, func() error { return Module(nil) }, "luxos module <verb> <name>")
+}
+
+func TestModuleHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Module([]string{"-h"}) }, "luxos module <verb> <name>")
+}
+
+func TestModuleEditMissingName(t *testing.T) {
+	assertMisuse(t, func() error { return moduleEdit(paths.Paths{}, nil) }, "missing module name", "luxos module <verb> <name>")
+}
+
+func TestModuleRenameMissingNames(t *testing.T) {
+	assertMisuse(t, func() error { return moduleRename(paths.Paths{}, []string{"a"}) }, "want <old> <new>")
+}
+
+func TestModuleDisableMissingNames(t *testing.T) {
+	assertMisuse(t, func() error { return moduleDisable(paths.Paths{}, nil) }, "missing module names")
+}

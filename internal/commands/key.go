@@ -23,14 +23,19 @@ const (
 	keyStatusNone = "missing"
 )
 
+var errWantOneUser = errors.New("want exactly one user")
+
 var errKeyMissing = errors.New("no key provided")
 
 var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: luxos key rm <user> --yes")
 
 // Key runs `luxos key ls|add|get|rm`.
 func Key(args []string) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", keyCommand})
+	if len(args) == 0 {
+		return help.Misuse(os.Stderr, keyCommand, nil)
+	}
+	if isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, keyCommand)
 	}
 	if err := shared.EnsureRoot(append([]string{keyCommand}, args...)); err != nil {
 		return err
@@ -50,15 +55,15 @@ func Key(args []string) error {
 	case "rm", "remove":
 		return keyRemove(p, rest)
 	default:
-		return fmt.Errorf("unknown key command: %s", verb)
+		return help.Misuse(os.Stderr, keyCommand, fmt.Errorf(unknownVerbFormat, verb))
 	}
 }
 
 // oneUser returns the single user argument, which must be a plain name: it
 // becomes a file name in the keys folder.
-func oneUser(verb string, rest []string) (string, error) {
+func oneUser(rest []string) (string, error) {
 	if len(rest) != 1 {
-		return "", fmt.Errorf("usage: luxos key %s <user>", verb)
+		return "", help.Misuse(os.Stderr, keyCommand, errWantOneUser)
 	}
 	user := rest[0]
 	if user == "" || user == "." || user == ".." || strings.Contains(user, "/") {
@@ -68,7 +73,7 @@ func oneUser(verb string, rest []string) (string, error) {
 }
 
 func keyAdd(p paths.Paths, args []string) error {
-	user, err := oneUser("add", args)
+	user, err := oneUser(args)
 	if err != nil {
 		return err
 	}
@@ -89,7 +94,7 @@ func keyAdd(p paths.Paths, args []string) error {
 
 // keyGet prints user's secret key alone on out, so it can be piped.
 func keyGet(p paths.Paths, args []string, out io.Writer) error {
-	user, err := oneUser("get", args)
+	user, err := oneUser(args)
 	if err != nil {
 		return err
 	}
@@ -135,7 +140,7 @@ func keyRemove(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	user, err := oneUser("rm", rest)
+	user, err := oneUser(rest)
 	if err != nil {
 		return err
 	}

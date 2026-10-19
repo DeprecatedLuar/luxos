@@ -32,8 +32,11 @@ var errPasswordMismatch = errors.New("passwords do not match; nothing changed")
 // user's unit (a shadow's when one wins). Nothing is written until both
 // answers are in and the hash is made.
 func Passwd(args []string) error {
-	if len(args) != 1 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", passwdCommand})
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, passwdCommand)
+	}
+	if len(args) != 1 {
+		return help.Misuse(os.Stderr, passwdCommand, errWantOneUser)
 	}
 	if err := shared.EnsureRoot(append([]string{passwdCommand}, args...)); err != nil {
 		return err

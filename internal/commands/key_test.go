@@ -52,7 +52,7 @@ func TestOneUser(t *testing.T) {
 		{"absolute", []string{"/etc/passwd"}, false},
 	}
 	for _, c := range cases {
-		_, err := oneUser("add", c.args)
+		_, err := oneUser(c.args)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: err = %v, want ok=%v", c.name, err, c.ok)
 		}
@@ -89,4 +89,16 @@ func TestIsKeyComment(t *testing.T) {
 			t.Errorf("isKeyComment(%q) = %v", line, got)
 		}
 	}
+}
+
+func TestOneUserMisuse(t *testing.T) {
+	assertMisuse(t, func() error { _, err := oneUser(nil); return err }, "want exactly one user", "luxos key <verb> <user>")
+}
+
+func TestKeyBare(t *testing.T) {
+	assertMisuse(t, func() error { return Key(nil) }, "luxos key <verb> <user>")
+}
+
+func TestKeyHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Key([]string{"--help"}) }, "luxos key <verb> <user>")
 }

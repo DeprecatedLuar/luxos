@@ -74,3 +74,7 @@ func TestRebuild_EmptyConfigWithoutTerminal(t *testing.T) {
 		t.Errorf("explicit host: err = %v, want the no-host error", err)
 	}
 }
+
+func TestRebuildHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Rebuild([]string{"--help"}) }, "luxos rebuild")
+}

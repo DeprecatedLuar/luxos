@@ -10,6 +10,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
+	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
@@ -265,4 +266,16 @@ func TestRequirePassword_Shadow(t *testing.T) {
 	if err := requirePassword(bob); err != nil {
 		t.Errorf("shadow with its own password file: %v", err)
 	}
+}
+
+func TestUserBare(t *testing.T) {
+	assertMisuse(t, func() error { return User(nil) }, "luxos user <verb> <name>")
+}
+
+func TestUserHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return User([]string{"-h"}) }, "luxos user <verb> <name>")
+}
+
+func TestUserAddMissingName(t *testing.T) {
+	assertMisuse(t, func() error { return userAdd(paths.Paths{}, nil) }, "missing user name", "luxos user")
 }

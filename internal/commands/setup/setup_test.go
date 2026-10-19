@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -54,5 +55,46 @@ func TestLaunch_RootRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
 		t.Errorf("config written as root: %v", err)
+	}
+}
+
+func captureBoth(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	defer func() { os.Stdout, os.Stderr = origOut, origErr }()
+	fn()
+	outW.Close()
+	errW.Close()
+	o, _ := io.ReadAll(outR)
+	e, _ := io.ReadAll(errR)
+	return string(o), string(e)
+}
+
+func TestRun_HelpFlag(t *testing.T) {
+	var err error
+	stdout, stderr := captureBoth(t, func() { err = Run([]string{"-h"}) })
+	if err != nil || !strings.Contains(stdout, "luxos setup") || stderr != "" {
+		t.Errorf("err = %v, stdout = %q, stderr = %q", err, stdout, stderr)
+	}
+}
+
+func TestRun_ExtraArgument(t *testing.T) {
+	var err error
+	stdout, stderr := captureBoth(t, func() { err = Run([]string{"extra"}) })
+	var code shared.ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit code 2", err)
+	}
+	if stdout != "" || !strings.Contains(stderr, `unexpected argument "extra"`) || !strings.Contains(stderr, "luxos setup") {
+		t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 }

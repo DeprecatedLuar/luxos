@@ -183,3 +183,11 @@ func TestStorePassword_EncryptFailsStoresNoKey(t *testing.T) {
 		t.Errorf("an unstored key was returned: %q", secret)
 	}
 }
+
+func TestPasswdHelp(t *testing.T) {
+	assertHelp(t, func() error { return Passwd([]string{"-h"}) }, "luxos passwd <user>")
+}
+
+func TestPasswdNoArgs(t *testing.T) {
+	assertMisuse(t, func() error { return Passwd(nil) }, "want exactly one user", "luxos passwd <user>")
+}

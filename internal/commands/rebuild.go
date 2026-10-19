@@ -152,9 +152,11 @@ func bootGuard(modulesDir string, yes bool) (bool, error) {
 	return true, nil
 }
 
+const rebuildCommand = "rebuild"
+
 func Rebuild(args []string) error {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-		return help.Run([]string{"help", "rebuild"})
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, rebuildCommand)
 	}
 
 	opts, rest, err := shared.ParsePassthrough(rebuildFlagSpec, args)

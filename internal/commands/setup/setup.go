@@ -17,7 +17,8 @@ import (
 
 const (
 	setupFlagSpec    = "config|C:value"
-	setupUsage       = "usage: luxos setup [--config|-C <dir>]"
+	setupCommand     = "setup"
+	unexpectedArg    = "unexpected argument %q"
 	systemRoot       = "/"
 	rebuildNowPrompt = "Rebuild now? [Y/n] "
 	nextHint         = "next: luxos rebuild switch --host %s"
@@ -76,14 +77,14 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 // offer to rebuild.
 func Run(args []string) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-		return help.Run([]string{"help", "setup"})
+		return help.Command(os.Stdout, setupCommand)
 	}
 	opts, rest, err := shared.Parse(setupFlagSpec, args)
 	if err != nil {
 		return err
 	}
 	if len(rest) > 0 {
-		return errors.New(setupUsage)
+		return help.Misuse(os.Stderr, setupCommand, fmt.Errorf(unexpectedArg, rest[0]))
 	}
 
 	p, host, err := shared.Target(opts)

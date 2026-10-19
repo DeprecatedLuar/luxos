@@ -215,3 +215,19 @@ func TestPackageViewPlainAndJSON(t *testing.T) {
 		t.Fatalf("several views = %v (err %v), want an array of 2", several.String(), err)
 	}
 }
+
+func TestPackageBare(t *testing.T) {
+	assertMisuse(t, func() error { return Package(nil) }, "luxos package")
+}
+
+func TestPackageHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Package([]string{"--help"}) }, "luxos package")
+}
+
+func TestPackageLeadingFlag(t *testing.T) {
+	assertMisuse(t, func() error { return Package([]string{"--bogus"}) }, "unknown flag '--bogus'", "luxos package")
+}
+
+func TestPackageShowMissingName(t *testing.T) {
+	assertMisuse(t, func() error { return packageShow(nil) }, "missing package name", "luxos package")
+}

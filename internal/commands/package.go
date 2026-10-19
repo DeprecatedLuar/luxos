@@ -22,13 +22,16 @@ const packageFlagSpec = "host:value config|C:value raw:bool json:bool"
 
 const packageListFlagSpec = packageFlagSpec + " flat:bool"
 
+const packageCommand = "package"
+
+var errMissingPackage = errors.New("missing package name")
+
 const packageTmpPattern = "luxos-packages-"
 
 const (
 	packageViewSep     = "\n"
 	packageViewListSep = " "
 
-	packageMissingName = "missing package name\n  usage: luxos package <name>... [--host <name>] [--config|-C <dir>] [--raw|--json]"
 	packageUnknownName = "no package '%s' for %s\n  list them with: luxos packages"
 )
 
@@ -43,8 +46,11 @@ const (
 )
 
 func Package(args []string) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", "package"})
+	if len(args) == 0 {
+		return help.Misuse(os.Stderr, packageCommand, nil)
+	}
+	if isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, packageCommand)
 	}
 
 	switch args[0] {
@@ -52,7 +58,7 @@ func Package(args []string) error {
 		return packageList(args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
-			return help.Run([]string{"help", "package"})
+			return help.Misuse(os.Stderr, packageCommand, fmt.Errorf(unknownFlagFormat, args[0]))
 		}
 		return packageShow(args)
 	}
@@ -299,7 +305,7 @@ func packageShow(args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return errors.New(packageMissingName)
+		return help.Misuse(os.Stderr, packageCommand, errMissingPackage)
 	}
 	if opts["json"] != "" && opts["raw"] != "" {
 		return ui.ErrJSONConflict("--raw")

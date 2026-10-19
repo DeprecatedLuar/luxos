@@ -489,3 +489,23 @@ func (f fetchFn) upstream() flake.Upstream {
 	}
 	return fetchUpstream{f}
 }
+
+func TestFlakeBare(t *testing.T) {
+	assertMisuse(t, func() error { return Flake(nil) }, "luxos flake <list|input...|update>")
+}
+
+func TestFlakeHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Flake([]string{"--help"}) }, "luxos flake")
+}
+
+func TestFlakeLeadingFlag(t *testing.T) {
+	assertMisuse(t, func() error { return Flake([]string{"--bogus"}) }, "unknown flag '--bogus'", "luxos flake")
+}
+
+func TestUpdateHelpFlag(t *testing.T) {
+	assertHelp(t, func() error { return Update([]string{"-h"}) }, "luxos update")
+}
+
+func TestFlakeShowMissingInput(t *testing.T) {
+	assertMisuse(t, func() error { return flakeShow(nil) }, "missing input name", "luxos flake")
+}

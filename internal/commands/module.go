@@ -85,13 +85,24 @@ const (
 const bundleModulesDir = "modules"
 
 // nameSep separates a submodule's name from its bundle's.
+const moduleCommand = "module"
+
+var (
+	errMissingName  = errors.New("missing module name")
+	errMissingNames = errors.New("missing module names")
+	errRenameArgs   = errors.New("want <old> <new>")
+)
+
 const nameSep = "/"
 
 const plainInputsSep = " "
 
 func Module(args []string) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", "module"})
+	if len(args) == 0 {
+		return help.Misuse(os.Stderr, moduleCommand, nil)
+	}
+	if isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, moduleCommand)
 	}
 
 	p, err := paths.Resolve()
@@ -598,7 +609,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 		target = rest[0]
 	}
 	if target == "" || strings.HasSuffix(target, "/") || strings.HasPrefix(target, "/") {
-		return fmt.Errorf("usage: luxos module add <category/name> [--enable]")
+		return help.Misuse(os.Stderr, moduleCommand, errMissingName)
 	}
 
 	name := filepath.Base(target)
@@ -658,7 +669,7 @@ func moduleEdit(p paths.Paths, args []string) error {
 		name = args[0]
 	}
 	if name == "" {
-		return fmt.Errorf("usage: luxos module edit <name>")
+		return help.Misuse(os.Stderr, moduleCommand, errMissingName)
 	}
 
 	h, err := loadActive(p)
@@ -707,7 +718,7 @@ func moduleConfigure(p paths.Paths, args []string) error {
 		return err
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("usage: luxos module configure <name> [--machine]")
+		return help.Misuse(os.Stderr, moduleCommand, errMissingName)
 	}
 	name := rest[0]
 
@@ -933,7 +944,7 @@ func moduleDisable(p paths.Paths, args []string) error {
 		return err
 	}
 	if len(names) == 0 {
-		return fmt.Errorf("usage: luxos module disable <name>... [-y]")
+		return help.Misuse(os.Stderr, moduleCommand, errMissingNames)
 	}
 
 	boot, err := disablesBoot(p, names)
@@ -1029,7 +1040,7 @@ func moduleRemove(p paths.Paths, args []string) error {
 		name = rest[0]
 	}
 	if name == "" {
-		return fmt.Errorf("usage: luxos module remove <name> [-y]")
+		return help.Misuse(os.Stderr, moduleCommand, errMissingName)
 	}
 
 	h, err := loadActive(p)
@@ -1121,7 +1132,7 @@ func moduleRename(p paths.Paths, args []string) error {
 		newName = rest[1]
 	}
 	if oldName == "" || newName == "" {
-		return fmt.Errorf("usage: luxos module rename <old> <new> [-y]")
+		return help.Misuse(os.Stderr, moduleCommand, errRenameArgs)
 	}
 
 	h, err := loadActive(p)

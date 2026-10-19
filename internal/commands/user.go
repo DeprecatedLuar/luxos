@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
@@ -9,12 +11,19 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
+const userCommand = "user"
+
+var errMissingUserName = errors.New("missing user name")
+
 // Only add/list take a category-relative argument; every other verb
 // operates on bare, globally-unique names and is forwarded to Module's
 // verb functions untouched.
 func User(args []string) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		return help.Run([]string{"help", "user"})
+	if len(args) == 0 {
+		return help.Misuse(os.Stderr, userCommand, nil)
+	}
+	if isHelpFlag(args[0]) {
+		return help.Command(os.Stdout, userCommand)
 	}
 
 	p, err := paths.Resolve()
@@ -43,7 +52,7 @@ func User(args []string) error {
 	case "passwd", "password":
 		return Passwd(rest)
 	default:
-		return fmt.Errorf("unknown user command: %s", verb)
+		return help.Misuse(os.Stderr, userCommand, fmt.Errorf(unknownVerbFormat, verb))
 	}
 }
 
@@ -67,7 +76,7 @@ func userAdd(p paths.Paths, args []string) error {
 		name = rest[0]
 	}
 	if name == "" {
-		return fmt.Errorf("usage: luxos user add <name> [--enable]")
+		return help.Misuse(os.Stderr, userCommand, errMissingUserName)
 	}
 
 	fwd := []string{userTarget(name)}
