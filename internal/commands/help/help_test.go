@@ -21,7 +21,7 @@ const (
 	causeText       = "want one user"
 	unknownName     = "nope"
 	topicHierarchy  = "hierarchy"
-	commandSections = "rebuild module update package flake user passwd setup key"
+	commandSections = "rebuild module package flake user passwd setup key"
 )
 
 var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")

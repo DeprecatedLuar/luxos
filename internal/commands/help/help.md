@@ -26,13 +26,6 @@ $ luxos module <verb> <name>
 - --flat | list: a flat list instead of a tree
 - -y, --yes | Skip confirmations
 
-## update
-$ luxos update [input]... [flags]
-> Update luxos, or only the given inputs.
-- --host <name> | Use another host
-- --config, -C <dir> | Use another config folder
-- -y, --yes | Skip confirmations
-
 ## package
 $ luxos package <list|package...> [flags]
 - list | List the packages your config installs | luxos package list --flat
@@ -82,6 +75,7 @@ $ luxos key <verb> <user>
 - m, modules | module list
 - users | user list
 - flakes | flake list
+- update | flake update
 - packages | package list
 - keys | key list
 - password, user passwd | passwd
