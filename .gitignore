@@ -64,3 +64,4 @@ graphify-out/
 !LICENSE
 !shell.nix
 !.gitignore
+!internal/commands/help/help.md

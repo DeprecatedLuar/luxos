@@ -7,7 +7,7 @@
     let
       system = "x86_64-linux";
       version = "0.1.0";
-      vendorHash = "sha256-gicpSIy1YB5046OK0FkB20+HFG1Mn98bN4fSr2HdLtw=";
+      vendorHash = "sha256-TyLw+w0sa/p8fCg15QlqhK34Y70oc2M/ZD/4uLSuuC4=";
 
       pkgs = nixpkgs.legacyPackages.${system};
     in
