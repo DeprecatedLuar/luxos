@@ -22,15 +22,15 @@ const (
 	againPrompt    = "Retype new password: "
 	badKeyNotice   = "key of %s is unusable, creating a new one"
 	passwdDone     = "password of %s set"
-	passwdStale    = "%w\n  the key of %s on this computer may have been replaced, so an existing %s may no longer decrypt: rerun `luxos passwd %s`"
+	passwdStale    = "%w\n  the key of %s on this computer may have been replaced, so an existing %s may no longer decrypt: rerun `luxos user passwd %s`"
 )
 
 var errPasswordMismatch = errors.New("passwords do not match; nothing changed")
 
 // Passwd runs `luxos passwd <user>`: escalates, asks the password twice,
-// reuses (repairing its mode and owner) or creates the user's key and writes the encrypted hash into the
-// user's unit (a shadow's when one wins). Nothing is written until both
-// answers are in and the hash is made.
+// reuses (repairing its mode and owner) or creates the user's key and writes
+// the encrypted hash into the user's unit in modules/users/. Nothing is
+// written until both answers are in and the hash is made.
 func Passwd(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
 		return help.Command(os.Stdout, passwdCommand)

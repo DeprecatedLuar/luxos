@@ -818,8 +818,12 @@ func TestWalk_SelectionOnlyAllowedInUsers(t *testing.T) {
 	modulesDir, hostDir, _ := scopes(t)
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "users", "luar", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(hostDir, "modules", "users", "luar", "modules", "default.nix"), selectionOf())
-	if _, _, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), ""); err == nil {
-		t.Error("a host bundle with modules/default.nix was accepted")
+	_, _, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), "")
+	if err == nil {
+		t.Fatal("a host bundle with modules/default.nix was accepted")
+	}
+	if want := filepath.Join("users", "luar", "modules") + " has its own default.nix"; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want %q", err, want)
 	}
 }
 

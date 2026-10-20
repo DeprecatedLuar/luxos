@@ -92,20 +92,21 @@ func (h *Host) walk(visit func(m Module, file string) []string) error {
 	return nil
 }
 
-// Validate checks only what the host actually builds: starting from its
+// Validate checks what the host actually builds: starting from its
 // selection, it follows every luxos.modules name to its module, transitively,
 // and collects every boundary, dynamic-path, call-shape and unresolved-name
 // violation in that closure, not just the first. Bundle rules: a bundle's
 // own files may not reference paths inside its modules/, luxos.modules may
 // not name a submodule, and a selected submodule needs its bundle selected
-// too. A module nothing reaches is never checked: selecting it makes it part
-// of the closure on the next run. err is returned for a selection that
-// resolves to no module, or for I/O or parser-lookup failure (e.g.
+// too. A module nothing reaches is not checked for these: selecting it makes
+// it part of the closure on the next run. err is returned for a selection
+// that resolves to no module, or for I/O or parser-lookup failure (e.g.
 // nix-instantiate missing); a file that itself fails to parse is reported as
 // a Violation instead. User rules: a user is not shadowed and lives only in
 // users/, a host or machine selection never lists a path inside a user, a
 // selected user's selection lists only its own modules, and a user's files
-// never use luxos.modules.
+// never use luxos.modules. The shadow and users/ rules run over every module,
+// reached or not.
 func (h *Host) Validate() ([]Violation, error) {
 	selection := h.Selection()
 	selected := make(map[string]bool, len(selection))

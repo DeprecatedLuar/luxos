@@ -111,8 +111,8 @@ func TestCheckPasswords_OnlyBuiltUsers(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	if !strings.Contains(buf.String(), "luxos passwd ana") {
-		t.Errorf("output %q does not name luxos passwd ana", buf.String())
+	if !strings.Contains(buf.String(), "luxos user passwd ana") {
+		t.Errorf("output %q does not name luxos user passwd ana", buf.String())
 	}
 	if strings.Contains(buf.String(), "bob") {
 		t.Errorf("unselected bob was checked: %s", buf.String())
@@ -138,7 +138,7 @@ func TestCheckPasswords_PulledUser(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 user") {
 		t.Fatalf("err = %v, want one failing user", err)
 	}
-	if !strings.Contains(buf.String(), "luxos passwd ana") {
+	if !strings.Contains(buf.String(), "luxos user passwd ana") {
 		t.Errorf("pulled ana not checked: %s", buf.String())
 	}
 	if strings.Contains(buf.String(), "bob") {
@@ -172,7 +172,7 @@ func TestCheckPasswords_ReportsEveryFailure(t *testing.T) {
 		t.Fatalf("err = %v, want 2 failing users", err)
 	}
 	for _, name := range []string{"ana", "bob"} {
-		if !strings.Contains(buf.String(), "luxos passwd "+name) {
+		if !strings.Contains(buf.String(), "luxos user passwd "+name) {
 			t.Errorf("output does not name %s: %s", name, buf.String())
 		}
 	}
@@ -219,7 +219,7 @@ func TestCheckPasswords_AllPass(t *testing.T) {
 func TestRequirePassword(t *testing.T) {
 	h := userHost(t)
 	ana, _ := h.Find("ana")
-	if err := requirePassword(ana); err == nil || !strings.Contains(err.Error(), "luxos passwd ana") {
+	if err := requirePassword(ana); err == nil || !strings.Contains(err.Error(), "luxos user passwd ana") {
 		t.Errorf("err = %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(ana.Abs, password.File), []byte("x"), 0o644); err != nil {

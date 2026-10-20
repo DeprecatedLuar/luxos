@@ -155,15 +155,15 @@ func Users(keysDir string) ([]string, error) {
 func Check(unitDir, keysDir, user string, uid int) error {
 	file := filepath.Join(unitDir, File)
 	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return fmt.Errorf("user %s has no password: luxos passwd %s", user, user)
+		return fmt.Errorf("user %s has no password: luxos user passwd %s", user, user)
 	} else if err != nil {
 		return err
 	}
 	if err := CheckKey(keysDir, user, uid); err != nil {
-		return fmt.Errorf("user %s: %w\n  fix: luxos key add %s", user, err, user)
+		return fmt.Errorf("user %s: %w\n  fix: luxos user key add %s", user, err, user)
 	}
 	if err := Decrypt(file, KeyPath(keysDir, user)); err != nil {
-		return fmt.Errorf("user %s: the key on this computer does not decrypt %s: %v\n  fix: luxos key add %s (or set a new password: luxos passwd %s)", user, file, err, user, user)
+		return fmt.Errorf("user %s: the key on this computer does not decrypt %s: %v\n  fix: luxos user key add %s (or set a new password: luxos user passwd %s)", user, file, err, user, user)
 	}
 	return nil
 }

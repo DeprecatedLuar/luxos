@@ -38,7 +38,7 @@ const (
 
 	setupPasswordPrompt = "Password for %s: "
 	setupAgainPrompt    = "Retype password for %s: "
-	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos key add %s"
+	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos user key add %s"
 )
 
 var errSetupMismatch = errors.New("passwords do not match")

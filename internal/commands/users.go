@@ -81,7 +81,7 @@ func requirePassword(m modules.Module) error {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(m.Abs, password.File)); os.IsNotExist(err) {
-		return fmt.Errorf("user %s has no password: luxos passwd %s", m.Name, m.Name)
+		return fmt.Errorf("user %s has no password: luxos user passwd %s", m.Name, m.Name)
 	} else if err != nil {
 		return err
 	}

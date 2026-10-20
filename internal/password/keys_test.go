@@ -90,7 +90,7 @@ func TestCheck(t *testing.T) {
 	keys := filepath.Join(t.TempDir(), "keys")
 
 	err := Check(unit, keys, "luar", os.Getuid())
-	if err == nil || !strings.Contains(err.Error(), "luxos passwd luar") {
+	if err == nil || !strings.Contains(err.Error(), "luxos user passwd luar") {
 		t.Errorf("no password file: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = Check(unit, keys, "luar", os.Getuid())
-	if err == nil || !strings.Contains(err.Error(), "luxos key add luar") {
+	if err == nil || !strings.Contains(err.Error(), "luxos user key add luar") {
 		t.Errorf("no key: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = Check(unit, keys, "luar", os.Getuid())
-	if err == nil || !strings.Contains(err.Error(), "luxos key add luar") {
+	if err == nil || !strings.Contains(err.Error(), "luxos user key add luar") {
 		t.Errorf("wrong key: %v", err)
 	}
 	ageErr := Decrypt(filepath.Join(unit, File), KeyPath(keys, "luar"))
