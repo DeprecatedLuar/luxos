@@ -47,6 +47,8 @@ $ luxos flake <list|input...|update> [flags]
 $ luxos user <verb> <name>
 > Same verbs as module, for users.
 - add <name> | Create a user | luxos user add alice --enable
+- passwd <user> | Set a user's password | luxos user passwd alice
+- key <verb> <user> | Manage a user's key on this computer | luxos user key add alice
 - --enable | add: enable it too
 
 ## passwd
@@ -77,8 +79,9 @@ $ luxos key <verb> <user>
 - flakes | flake list
 - update | flake update
 - packages | package list
-- keys | key list
-- password, user passwd | passwd
+- passwd | user passwd
+- key | user key
+- keys | user key list
 - list, edit, configure | module list, edit, configure
 - enable, disable | module enable, disable
 - remove, rename | module remove, rename
@@ -204,6 +207,7 @@ $ luxos rebuild [flags] <action> [nixos-rebuild args]
 
 # users | user folders, passwords and keys
 > A user is a bundle in modules/users/, named after the user. luxos user add creates it.
+> A host enables the user; the user enables its own modules, the same on every host. A user's modules cannot use luxos.modules or declare options.
 
 ## Folder
 > luxos restores its three files if you change them. Set groups in the host's settings file.
@@ -212,19 +216,20 @@ $ luxos rebuild [flags] <action> [nixos-rebuild args]
 - options.nix | luxos': the groups option
 - .password.age | The encrypted password
 - modules/ | Yours: each file is a submodule
+- modules/default.nix | Yours: the modules this user brings to every host
 - modules/packages.nix | The user's packages, created with the user
 
 ## Example
 - luxos user add alice --enable | Creates modules/users/alice and enables it
-- luxos passwd alice | Sets the password; the key is printed once
-- luxos key add alice | On another computer: store the saved key
+- luxos user passwd alice | Sets the password; the key is printed once
+- luxos user key add alice | On another computer: store the saved key
 
 ## Passwords
-> luxos passwd <user> asks the password twice and saves its hash, encrypted with the user's key, to .password.age. The first time it creates the key and prints it once: save it.
+> luxos user passwd <user> asks the password twice and saves its hash, encrypted with the user's key, to .password.age. The first time it creates the key and prints it once: save it.
 
 ## Keys
 > A key decrypts a user's password on one computer. It lives in /var/lib/luxos/keys/<user>, readable by root only, never in your config.
-> Every computer that builds the user needs the key: luxos key add <user>. Without it the account stays locked.
+> Every computer that builds the user needs the key: luxos user key add <user>. Without it the account stays locked.
 
 
 # markers | what list symbols mean

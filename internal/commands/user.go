@@ -49,8 +49,10 @@ func User(args []string) error {
 		return moduleRemove(p, rest)
 	case "rename", "rn":
 		return moduleRename(p, rest)
-	case "passwd", "password":
+	case "passwd":
 		return Passwd(rest)
+	case "key":
+		return Key(rest)
 	default:
 		return help.Misuse(os.Stderr, userCommand, fmt.Errorf(unknownVerbFormat, verb))
 	}

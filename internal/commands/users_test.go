@@ -245,3 +245,11 @@ func TestUserHelpFlag(t *testing.T) {
 func TestUserAddMissingName(t *testing.T) {
 	assertMisuse(t, func() error { return userAdd(paths.Paths{}, nil) }, "missing user name", "luxos user")
 }
+
+func TestUserKeyRoutesToKey(t *testing.T) {
+	assertMisuse(t, func() error { return User([]string{"key"}) }, "luxos key <verb> <user>")
+}
+
+func TestUserPasswordAliasRemoved(t *testing.T) {
+	assertMisuse(t, func() error { return User([]string{"password", "ana"}) }, "password")
+}
