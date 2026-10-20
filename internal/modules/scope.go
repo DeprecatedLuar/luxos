@@ -18,7 +18,9 @@ type Scope struct {
 // ScopeOf picks the reach of a remove or rename of m. A host unit reaches
 // the active host; a machine unit, this machine. A shared unit reaches every
 // host and machine folder except those holding their own unit of that name
-// (its bundle's, for a submodule), which keep meaning their own.
+// (its bundle's, for a submodule), which keep meaning their own. A user's
+// submodule also reaches its user's selection; a user unit never does, since
+// its lines move with its folder.
 func ScopeOf(hostsDir, machinesDir string, h *Host, m Module) (Scope, error) {
 	own := func(dir, scope string) Scope {
 		return Scope{
@@ -57,6 +59,12 @@ func ScopeOf(hostsDir, machinesDir string, h *Host, m Module) (Scope, error) {
 			s.Selections = append(s.Selections, SelectionFile{Scope: root.scope, File: config.SelectionPath(folder)})
 			s.UnitDirs = append(s.UnitDirs, filepath.Join(folder, config.ScopeModulesDir))
 			s.SettingsDirs = append(s.SettingsDirs, folder)
+		}
+	}
+	if user := UserOf(m); user != "" && !IsUser(m) {
+		file := config.UserSelectionPath(filepath.Join(h.ModulesDir, usersCategory, user))
+		if isFile(file) {
+			s.Selections = append(s.Selections, SelectionFile{Scope: config.UserScope(user), File: file})
 		}
 	}
 	return s, nil

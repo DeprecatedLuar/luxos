@@ -14,6 +14,11 @@ import (
 // selectionAttr is the only top-level name a selection may set.
 const selectionAttr = "imports"
 
+const (
+	userMachineFormat     = "'%s' belongs to user %s: a user's modules are enabled in its own selection"
+	noUserSelectionFormat = "user %s has no selection: run luxos rebuild build first"
+)
+
 // bundleModulesInfix separates a bundle's path from its submodules' in an
 // import path.
 const bundleModulesInfix = "/modules/"
@@ -82,9 +87,9 @@ func CheckSelection(file string) error {
 	return nil
 }
 
-// AllSelections returns every host's and every machine's selection, hosts
-// first, each sorted by folder name.
-func AllSelections(hostsDir, machinesDir string) ([]SelectionFile, error) {
+// AllSelections returns every host's, every machine's and every user's
+// selection, in that order, each sorted by folder name.
+func AllSelections(modulesDir, hostsDir, machinesDir string) ([]SelectionFile, error) {
 	var out []SelectionFile
 	for _, root := range []struct{ scope, dir string }{{config.ScopeHost, hostsDir}, {config.ScopeMachine, machinesDir}} {
 		names, err := scopeFolders(root.scope, root.dir)
@@ -95,7 +100,43 @@ func AllSelections(hostsDir, machinesDir string) ([]SelectionFile, error) {
 			out = append(out, SelectionFile{Scope: root.scope, File: config.SelectionPath(filepath.Join(root.dir, n))})
 		}
 	}
+	users, err := UserSelections(modulesDir)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, users...), nil
+}
+
+// UserSelections returns the selection of every user unit under modulesDir
+// holding one, by name.
+func UserSelections(modulesDir string) ([]SelectionFile, error) {
+	dir := filepath.Join(modulesDir, usersCategory)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []SelectionFile
+	for _, e := range entries {
+		unit := filepath.Join(dir, e.Name())
+		file := config.UserSelectionPath(unit)
+		if isFile(filepath.Join(unit, entrypointName)) && isFile(file) {
+			out = append(out, SelectionFile{Scope: config.UserScope(e.Name()), File: file})
+		}
+	}
 	return out, nil
+}
+
+// userOfScope returns the user a selection scope belongs to, "" for a host or machine scope.
+func userOfScope(scope string) string {
+	rest, ok := strings.CutPrefix(scope, usersCategory+nameSep)
+	if !ok {
+		return ""
+	}
+	name, _ := strings.CutSuffix(rest, nameSep+bundleModulesDir)
+	return name
 }
 
 func scopeFolders(scope, dir string) ([]string, error) {
@@ -218,7 +259,9 @@ func RetargetPrefix(files []SelectionFile, oldPrefix, newPrefix string) ([]Chang
 // selections (prune removes it instead) and is left alone elsewhere, as are
 // cross-scope lines of other folders. A folder whose own Walk fails errors
 // the whole call when it is active, otherwise it is skipped. Heal is
-// idempotent.
+// idempotent. A user's selection resolves against the shared units, and its
+// unresolvable lines fail only when the active host or machine selects that
+// user.
 func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prune bool) ([]Move, []Change, []string, error) {
 	activeHostSel := config.SelectionPath(filepath.Join(hostsDir, activeHost))
 	activeMachineSel := ""
@@ -231,9 +274,28 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 		return nil, nil, nil, err
 	}
 
-	files, err := AllSelections(hostsDir, machinesDir)
+	files, err := AllSelections(modulesDir, hostsDir, machinesDir)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	activeUsers := map[string]bool{}
+	for _, f := range []SelectionFile{{config.ScopeHost, activeHostSel}, {config.ScopeMachine, activeMachineSel}} {
+		if f.File == "" {
+			continue
+		}
+		lines, ok, err := nix.ListImports(f.File)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if !ok {
+			continue
+		}
+		for _, l := range lines {
+			if p := config.PathOf(f.Scope, l); filepath.Dir(p) == usersCategory {
+				activeUsers[filepath.Base(p)] = true
+			}
+		}
 	}
 
 	var changes []Change
@@ -246,13 +308,17 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 	handled := make(map[string]bool)
 
 	for _, f := range files {
-		active := f.File == activeHostSel || f.File == activeMachineSel
+		user := userOfScope(f.Scope)
+		active := f.File == activeHostSel || f.File == activeMachineSel || activeUsers[user]
 		folderModules := filepath.Join(filepath.Dir(filepath.Dir(f.File)), config.ScopeModulesDir)
 
 		var us []Module
-		if f.Scope == config.ScopeHost {
+		switch {
+		case user != "":
+			us, _, err = Walk(modulesDir, "", "")
+		case f.Scope == config.ScopeHost:
 			us, _, err = Walk(modulesDir, folderModules, "")
-		} else {
+		default:
 			us, _, err = Walk(modulesDir, "", folderModules)
 		}
 		if err != nil {
@@ -278,11 +344,10 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 			if crossScope(f.Scope, p) {
 				continue
 			}
-			var fullPath string
-			if rest, cut := strings.CutPrefix(p, f.Scope+nameSep); f.Scope != config.ScopeShared && cut {
+			rest, cut := strings.CutPrefix(p, f.Scope+nameSep)
+			fullPath := filepath.Join(modulesDir, p)
+			if cut && (f.Scope == config.ScopeHost || f.Scope == config.ScopeMachine) {
 				fullPath = filepath.Join(folderModules, rest)
-			} else {
-				fullPath = filepath.Join(modulesDir, p)
 			}
 			if _, err := os.Stat(fullPath); err == nil {
 				continue
@@ -406,11 +471,22 @@ func shapeError(file string) error {
 
 // Enable adds name's line to the selection it belongs in: a machine unit's
 // to the machine selection, any other to the host's, or to the machine's
-// when toMachine (a shared unit only). Reports false when already there.
+// when toMachine (a shared unit only). A user's submodule goes to its user's
+// selection. Reports false when already there.
 func Enable(h *Host, name string, toMachine bool) (bool, error) {
 	m, ok := h.Find(name)
 	if !ok {
 		return false, fmt.Errorf("unknown module '%s'", name)
+	}
+	if user := UserOf(m); user != "" && !IsUser(m) {
+		if toMachine {
+			return false, fmt.Errorf(userMachineFormat, name, user)
+		}
+		sel := h.UserSelection(user)
+		if sel == nil {
+			return false, fmt.Errorf(noUserSelectionFormat, user)
+		}
+		return addLine(sel, m)
 	}
 	scope := config.ScopeHost
 	switch {
@@ -425,12 +501,17 @@ func Enable(h *Host, name string, toMachine bool) (bool, error) {
 	if sel == nil {
 		return false, fmt.Errorf("no %s selection: run luxos rebuild build first", scope)
 	}
+	return addLine(sel, m)
+}
+
+// addLine adds m's line to sel; false when sel already names m.
+func addLine(sel *Selection, m Module) (bool, error) {
 	for _, p := range sel.Paths {
-		if NameFromPath(p) == name {
+		if NameFromPath(p) == m.Name {
 			return false, nil
 		}
 	}
-	if err := nix.AddImport(sel.File, config.LineOf(scope, m.Path)); err != nil {
+	if err := nix.AddImport(sel.File, config.LineOf(sel.Scope, m.Path)); err != nil {
 		return false, err
 	}
 	sel.Paths = append(sel.Paths, m.Path)
@@ -441,23 +522,25 @@ func Enable(h *Host, name string, toMachine bool) (bool, error) {
 // those files.
 func Disable(h *Host, name string) ([]string, error) {
 	var files []string
-	for i := range h.Selections {
-		sel := &h.Selections[i]
-		kept := sel.Paths[:0]
-		removed := false
-		for _, p := range sel.Paths {
-			if NameFromPath(p) != name {
-				kept = append(kept, p)
-				continue
+	for _, group := range [][]Selection{h.Selections, h.Users} {
+		for i := range group {
+			sel := &group[i]
+			kept := sel.Paths[:0]
+			removed := false
+			for _, p := range sel.Paths {
+				if NameFromPath(p) != name {
+					kept = append(kept, p)
+					continue
+				}
+				if err := nix.RemoveImport(sel.File, config.LineOf(sel.Scope, p)); err != nil {
+					return files, err
+				}
+				removed = true
 			}
-			if err := nix.RemoveImport(sel.File, config.LineOf(sel.Scope, p)); err != nil {
-				return files, err
+			sel.Paths = kept
+			if removed {
+				files = append(files, sel.File)
 			}
-			removed = true
-		}
-		sel.Paths = kept
-		if removed {
-			files = append(files, sel.File)
 		}
 	}
 	return files, nil

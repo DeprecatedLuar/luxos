@@ -647,3 +647,113 @@ func TestHealRetargetsSharedMoveInEveryFolder(t *testing.T) {
 		}
 	}
 }
+
+func userHostFixture(t *testing.T) (modulesDir, hostsDir, machinesDir, machineDir string, h *Host) {
+	t.Helper()
+	root := t.TempDir()
+	modulesDir = filepath.Join(root, "modules")
+	hostsDir = filepath.Join(root, ".local", "hosts")
+	machinesDir = filepath.Join(root, ".local", "machines")
+	machineDir = filepath.Join(machinesDir, "abcd")
+	userFixture(t, modulesDir, "luar", []string{"a.nix", "b.nix"}, "./a.nix")
+	mustWriteFile(t, filepath.Join(hostsDir, "h1", "modules", "default.nix"), selectionOf("../users/luar"))
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "default.nix"), selectionOf())
+	var err error
+	if h, err = Load(modulesDir, filepath.Join(hostsDir, "h1"), machineDir); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func TestEnable_UserSubmoduleGoesToUserSelection(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostsDir, _, _, h := userHostFixture(t)
+	if _, err := Enable(h, "luar/b", false); err != nil {
+		t.Fatal(err)
+	}
+	user := mustReadFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix"))
+	if !strings.Contains(user, "./b.nix") {
+		t.Errorf("user selection:\n%s", user)
+	}
+	if host := mustReadFile(t, hostSelection(hostsDir, "h1")); strings.Contains(host, "b.nix") {
+		t.Errorf("host selection got the user's module:\n%s", host)
+	}
+	if _, err := Enable(h, "luar/b", true); err == nil || !strings.Contains(err.Error(), "luar") {
+		t.Errorf("--machine on a user module: %v", err)
+	}
+}
+
+func TestEnable_UserWithoutSelection(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Enable(h, "luar/a", false); err == nil || !strings.Contains(err.Error(), "luxos rebuild build") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDisable_UserSubmodule(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, _, _, _, h := userHostFixture(t)
+	files, err := Disable(h, "luar/a")
+	if err != nil || len(files) != 1 {
+		t.Fatalf("Disable = %v, %v", files, err)
+	}
+	if user := mustReadFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")); strings.Contains(user, "a.nix") {
+		t.Errorf("line kept:\n%s", user)
+	}
+}
+
+func TestHeal_UserSelectionMovedSubmodule(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostsDir, machinesDir, machineDir, _ := userHostFixture(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "ui", "a.nix"), "{ }")
+	if err := os.Remove(filepath.Join(modulesDir, "users", "luar", "modules", "a.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if user := mustReadFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")); !strings.Contains(user, "./ui/a.nix") {
+		t.Errorf("user selection not healed:\n%s", user)
+	}
+}
+
+func TestHeal_UserSelectionUnresolved(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostsDir, machinesDir, machineDir, _ := userHostFixture(t)
+	userFixture(t, modulesDir, "bob", nil, "./gone.nix")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix"), selectionOf("./a.nix", "./gone.nix"))
+	_, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("users", "luar", "modules", "default.nix")) {
+		t.Fatalf("err = %v, want luar's selection named", err)
+	}
+	if strings.Contains(err.Error(), filepath.Join("users", "bob")) {
+		t.Errorf("unselected bob reported: %v", err)
+	}
+}
+
+func TestScopeOf_UserSelection(t *testing.T) {
+	modulesDir, hostsDir, machinesDir, _, h := userHostFixture(t)
+	userSel := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
+	has := func(s Scope) bool {
+		for _, f := range s.Selections {
+			if f.File == userSel {
+				return true
+			}
+		}
+		return false
+	}
+	sub, _ := h.Find("luar/a")
+	if s, err := ScopeOf(hostsDir, machinesDir, h, sub); err != nil || !has(s) {
+		t.Errorf("submodule scope lacks the user's selection: %+v, %v", s, err)
+	}
+	unit, _ := h.Find("luar")
+	if s, err := ScopeOf(hostsDir, machinesDir, h, unit); err != nil || has(s) {
+		t.Errorf("user unit scope holds its own selection: %+v, %v", s, err)
+	}
+}
