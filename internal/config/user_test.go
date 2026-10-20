@@ -16,7 +16,7 @@ func TestWriteUser(t *testing.T) {
 	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"default.nix", "account.nix", "options.nix", "modules/packages.nix"} {
+	for _, f := range []string{"default.nix", "account.nix", "options.nix", "modules/packages.nix", "modules/default.nix"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
@@ -35,8 +35,14 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 4 || changes[0].Action != ActionCreated || changes[3] != (SyncChange{Path: UserPackagesFile, Action: ActionCreated}) {
+	if len(changes) != 5 || changes[0].Action != ActionCreated ||
+		changes[3] != (SyncChange{Path: UserPackagesFile, Action: ActionCreated}) ||
+		changes[4] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
 		t.Errorf("first sync = %+v", changes)
+	}
+	sel, err := os.ReadFile(UserSelectionPath(dir))
+	if err != nil || !strings.Contains(string(sel), "./packages.nix") {
+		t.Errorf("selection = %q, %v; want it to select ./packages.nix", sel, err)
 	}
 
 	acct := filepath.Join(dir, "account.nix")
@@ -77,8 +83,12 @@ func TestSyncUser_KeepsExistingModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 3 {
-		t.Errorf("sync = %+v, want only the vendored files", changes)
+	if len(changes) != 4 || changes[3] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
+		t.Errorf("sync = %+v, want the vendored files and an empty selection", changes)
+	}
+	sel, err := os.ReadFile(UserSelectionPath(dir))
+	if err != nil || strings.Contains(string(sel), "./") {
+		t.Errorf("selection = %q, %v; want an empty imports list", sel, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, UserPackagesFile)); !os.IsNotExist(err) {
 		t.Error("starter written into an existing modules/")
@@ -170,5 +180,34 @@ func assertParses(t *testing.T, path string) {
 	t.Helper()
 	if out, err := exec.Command("nix-instantiate", "--parse", path).CombinedOutput(); err != nil {
 		t.Errorf("%s does not parse: %v\n%s", path, err, out)
+	}
+}
+
+func TestSyncUser_KeepsExistingSelection(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := "{ ... }:\n{\n  # mine\n  imports = [\n    ./a.nix\n  ];\n}\n"
+	if err := os.WriteFile(UserSelectionPath(dir), []byte(mine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncUser(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(UserSelectionPath(dir)); string(got) != mine {
+		t.Errorf("selection rewritten: %q", got)
+	}
+}
+
+func TestUserScope(t *testing.T) {
+	if got := UserScope("luar"); got != "users/luar/modules" {
+		t.Errorf("UserScope = %q", got)
+	}
+	if got := LineOf(UserScope("luar"), "users/luar/modules/ui/a.nix"); got != "./ui/a.nix" {
+		t.Errorf("LineOf = %q", got)
+	}
+	if got := PathOf(UserScope("luar"), "./a.nix"); got != "users/luar/modules/a.nix" {
+		t.Errorf("PathOf = %q", got)
 	}
 }

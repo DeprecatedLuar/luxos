@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/templates"
@@ -11,6 +12,15 @@ import (
 
 const (
 	userPackagesStarter = "starters/user/modules/packages.nix"
+
+	// UsersDir is the category of modules/ that holds user units.
+	UsersDir = "users"
+
+	// UserSelectionFile is the user's selection inside a user unit.
+	UserSelectionFile = "modules/default.nix"
+
+	userSelectionTemplate = "modules.nix.tmpl"
+	userPackagesLine      = "./packages.nix"
 
 	userModulesDir  = "modules"
 	userDefaultFile = "default.nix"
@@ -51,7 +61,9 @@ func WriteUser(dir string) error {
 // file without the luxos header is hand-written: SyncUser refuses it and
 // writes nothing for the unit, except default.nix, which a unit cannot load
 // without: that one is kept as default.nix.old and replaced. A unit without
-// a modules/ folder gets one holding the starter modules/packages.nix.
+// a modules/ folder gets one holding the starter modules/packages.nix; a unit
+// without a selection gets one, selecting the starter when SyncUser wrote it.
+// An existing selection is never rewritten.
 func SyncUser(dir string) ([]SyncChange, error) {
 	type pending struct {
 		name, path string
@@ -108,22 +120,48 @@ func SyncUser(dir string) ([]SyncChange, error) {
 	}
 
 	modulesDir := filepath.Join(dir, userModulesDir)
-	if _, err := os.Stat(modulesDir); err == nil {
+	var lines []string
+	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
+		if err := Mkdir(modulesDir); err != nil {
+			return nil, err
+		}
+		data, err := templates.File(userPackagesStarter)
+		if err != nil {
+			return nil, err
+		}
+		if err := WriteFile(filepath.Join(dir, UserPackagesFile), data); err != nil {
+			return nil, err
+		}
+		changes = append(changes, SyncChange{Path: UserPackagesFile, Action: ActionCreated})
+		lines = []string{userPackagesLine}
+	} else if err != nil {
+		return nil, err
+	}
+
+	selection := UserSelectionPath(dir)
+	if _, err := os.Lstat(selection); err == nil {
 		return changes, nil
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	if err := Mkdir(modulesDir); err != nil {
-		return nil, err
-	}
-	data, err := templates.File(userPackagesStarter)
+	data, err := templates.Render(userSelectionTemplate, lines)
 	if err != nil {
 		return nil, err
 	}
-	if err := WriteFile(filepath.Join(dir, UserPackagesFile), data); err != nil {
+	if err := WriteFile(selection, data); err != nil {
 		return nil, err
 	}
-	return append(changes, SyncChange{Path: UserPackagesFile, Action: ActionCreated}), nil
+	return append(changes, SyncChange{Path: UserSelectionFile, Action: ActionCreated}), nil
+}
+
+// UserScope is the modules-relative folder a user's selection lines are relative to.
+func UserScope(name string) string {
+	return path.Join(UsersDir, name, userModulesDir)
+}
+
+// UserSelectionPath is the selection of the user unit dir.
+func UserSelectionPath(dir string) string {
+	return filepath.Join(dir, UserSelectionFile)
 }
 
 // UserGroups is the host settings file setup writes for its first user.
