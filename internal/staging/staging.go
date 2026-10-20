@@ -176,6 +176,8 @@ func Materialize(stagingDir string, h *modules.Host, environmentFile string, inp
 // under host/, the machine's under machine/, the fixed entry and both
 // selections, rendered. A shadow is staged at the location of the unit it
 // hides, which is not staged, and every selection line naming it points there.
+// A user's lines follow the user's own line in the selection that selects it;
+// a user's selection file is not staged.
 func stageModules(h *modules.Host, dst string) error {
 	skip := map[string]map[string]bool{
 		config.ScopeShared:  {config.DefaultFile: true, config.HostLinkName: true, config.MachineLinkName: true},
@@ -191,6 +193,9 @@ func stageModules(h *modules.Host, dst string) error {
 			shadows = append(shadows, m)
 			skip[m.Scope][scopeRel(m)] = true
 		}
+	}
+	for _, u := range h.Users {
+		skip[config.ScopeShared][filepath.Join(u.Scope, config.DefaultFile)] = true
 	}
 
 	if err := copyDerefSkip(h.ModulesDir, dst, skip[config.ScopeShared]); err != nil {
@@ -225,6 +230,9 @@ func stageModules(h *modules.Host, dst string) error {
 		lines := make([]string, 0, len(sel.Paths))
 		for _, p := range sel.Paths {
 			lines = append(lines, config.LineOf(sel.Scope, stagedSelectionPath(h, p)))
+			for _, up := range h.UserPaths(p) {
+				lines = append(lines, config.LineOf(sel.Scope, up))
+			}
 		}
 		rendered, err := templates.Render(selectionTemplate, lines)
 		if err != nil {

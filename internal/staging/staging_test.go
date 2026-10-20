@@ -998,3 +998,27 @@ func TestMaterializeSelectionIgnoresComments(t *testing.T) {
 		t.Errorf("comments reached the stage:\n%s\nvs\n%s", plain, commented)
 	}
 }
+
+func TestMaterializeFoldsUserSelection(t *testing.T) {
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+	modulesDir, hostDir, _, environmentFile := fixture(t)
+	writeTo(t, filepath.Join(modulesDir, "users", "luar", "default.nix"), "{ }")
+	writeTo(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ }")
+	writeTo(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix"), "{ ... }:\n{\n  # mine\n  imports = [\n    ./a.nix\n  ];\n}\n")
+	writeTo(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n    ../users/luar\n  ];\n}\n")
+
+	if err := materialize(stagingDir, modulesDir, hostDir, environmentFile, testNixpkgs); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+	mods := filepath.Join(stagingDir, "config", "modules")
+	want := "{ ... }:\n{\n  imports = [\n    ../users/luar\n    ../users/luar/modules/a.nix\n  ];\n}\n"
+	if got, err := os.ReadFile(filepath.Join(mods, "host", "default.nix")); err != nil || string(got) != want {
+		t.Errorf("host/default.nix = %q, %v; want %q", got, err, want)
+	}
+	if _, err := os.Stat(filepath.Join(mods, "users", "luar", "modules", "default.nix")); !os.IsNotExist(err) {
+		t.Error("the user's selection was staged")
+	}
+	if _, err := os.Stat(filepath.Join(mods, "users", "luar", "modules", "a.nix")); err != nil {
+		t.Errorf("a.nix: %v", err)
+	}
+}
