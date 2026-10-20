@@ -29,6 +29,7 @@ let
         system.stateVersion = "25.11";
         luar.groups = %s;
       }
+      (%s)
     ];
   };
   c = sys.config;
@@ -48,6 +49,8 @@ const (
 	groupsWheel   = `[ "wheel" "networkmanager" ]`
 	groupsNone    = `[ ]`
 	noWheelMarker = "no user is in wheel"
+	strayMarker   = "not declared by a user unit: stray"
+	mutableMarker = "users.mutableUsers must stay false"
 )
 
 type usersEval struct {
@@ -62,8 +65,8 @@ type usersEval struct {
 }
 
 // evalUsers evaluates the users framework with two vendored user units and
-// luar.groups set to groups, a Nix list.
-func evalUsers(t *testing.T, groups string) usersEval {
+// luar.groups set to groups, a Nix list, plus extra, a Nix module.
+func evalUsers(t *testing.T, groups, extra string) usersEval {
 	t.Helper()
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		t.Skip("nix-instantiate not on PATH")
@@ -94,7 +97,7 @@ func evalUsers(t *testing.T, groups string) usersEval {
 		write(u+"/.password.age", []byte("x"))
 	}
 
-	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "-E", fmt.Sprintf(usersEvalExpr, groups))
+	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "-E", fmt.Sprintf(usersEvalExpr, groups, extra))
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -109,7 +112,7 @@ func evalUsers(t *testing.T, groups string) usersEval {
 }
 
 func TestUsersFramework(t *testing.T) {
-	got := evalUsers(t, groupsWheel)
+	got := evalUsers(t, groupsWheel, "{ }")
 	if !reflect.DeepEqual(got.LuarGroups, []string{"wheel", "networkmanager"}) || len(got.BobGroups) != 0 {
 		t.Errorf("groups: luar %v, bob %v", got.LuarGroups, got.BobGroups)
 	}
@@ -143,13 +146,40 @@ func TestUsersFramework(t *testing.T) {
 }
 
 func TestUsersFramework_NoWheelUserFails(t *testing.T) {
-	got := evalUsers(t, groupsNone)
+	got := evalUsers(t, groupsNone, "{ }")
+	if !failedWith(got, noWheelMarker) {
+		t.Errorf("failed assertions %v lack %q", got.Failed, noWheelMarker)
+	}
+}
+
+func failedWith(got usersEval, marker string) bool {
 	for _, m := range got.Failed {
-		if strings.Contains(m, noWheelMarker) {
-			return
+		if strings.Contains(m, marker) {
+			return true
 		}
 	}
-	t.Errorf("failed assertions %v lack %q", got.Failed, noWheelMarker)
+	return false
+}
+
+func TestUsersFramework_StrayUserFails(t *testing.T) {
+	got := evalUsers(t, groupsWheel, `{ users.users.stray.isNormalUser = true; }`)
+	if !failedWith(got, strayMarker) {
+		t.Errorf("failed assertions %v lack %q", got.Failed, strayMarker)
+	}
+}
+
+func TestUsersFramework_MutableUsersFails(t *testing.T) {
+	got := evalUsers(t, groupsWheel, `{ lib, ... }: { users.mutableUsers = lib.mkForce true; }`)
+	if !failedWith(got, mutableMarker) {
+		t.Errorf("failed assertions %v lack %q", got.Failed, mutableMarker)
+	}
+}
+
+func TestUsersFramework_SystemUserPasses(t *testing.T) {
+	got := evalUsers(t, groupsWheel, `{ users.users.svc = { isSystemUser = true; group = "svc"; }; users.groups.svc = { }; }`)
+	if len(got.Failed) != 0 {
+		t.Errorf("failed assertions: %v", got.Failed)
+	}
 }
 
 func TestSystemNix_MutableUsersOffByDefault(t *testing.T) {

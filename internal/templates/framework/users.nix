@@ -3,11 +3,15 @@
 
 # Each user unit points luxos.users.<name>.password at its age-encrypted hash.
 # Activation decrypts it with this computer's key before NixOS writes users.
+# Every normal user comes from a user unit, and users stay immutable.
 
 let
   keysDir = "/var/lib/luxos/keys";
   runDir = "/run/luxos/passwords";
   age = "${pkgs.age}/bin/age";
+
+  stray = lib.attrNames (lib.filterAttrs
+    (n: u: u.isNormalUser && !(config.luxos.users ? ${n})) config.users.users);
 
   decrypt = name: user: ''
     if ${age} -d -i ${lib.escapeShellArg "${keysDir}/${name}"} -o ${lib.escapeShellArg "${runDir}/${name}"} ${user.password}; then
@@ -31,11 +35,21 @@ in
   };
 
   config = {
-    assertions = [{
-      assertion = lib.any (u: lib.elem "wheel" u.extraGroups) (lib.attrValues config.users.users)
-        || config.users.users.root.openssh.authorizedKeys.keys != [ ];
-      message = "luxos: no user is in wheel, so nobody can sudo: lux user config <user>";
-    }];
+    assertions = [
+      {
+        assertion = lib.any (u: lib.elem "wheel" u.extraGroups) (lib.attrValues config.users.users)
+          || config.users.users.root.openssh.authorizedKeys.keys != [ ];
+        message = "luxos: no user is in wheel, so nobody can sudo: lux user config <user>";
+      }
+      {
+        assertion = !config.users.mutableUsers;
+        message = "luxos: users.mutableUsers must stay false; users are declared by user units: luxos user add <name>";
+      }
+      {
+        assertion = stray == [ ];
+        message = "luxos: users not declared by a user unit: ${lib.concatStringsSep ", " stray}; create them with luxos user add <name>";
+      }
+    ];
 
     users.users = lib.mapAttrs (name: _: { hashedPasswordFile = "${runDir}/${name}"; }) config.luxos.users;
 
