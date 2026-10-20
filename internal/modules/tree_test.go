@@ -449,11 +449,11 @@ func TestWalk_DuplicateInsideOneBundleErrors(t *testing.T) {
 
 func TestWalk_BundleModulesWithDefaultNixErrors(t *testing.T) {
 	root := t.TempDir()
-	b := filepath.Join(root, "users", "eduardo")
+	b := filepath.Join(root, "apps", "eduardo")
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "default.nix"), "{ }")
 	_, _, err := Walk(root, "", "")
-	if err == nil || !strings.Contains(err.Error(), "users/eduardo/modules has its own default.nix: a bundle's modules/ folder is not a module") {
+	if err == nil || !strings.Contains(err.Error(), "apps/eduardo/modules has its own default.nix: a bundle's modules/ folder is not a module") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -748,7 +748,7 @@ func TestIsUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"ana": true, "bob": true, "solo": false, "zed": false, "ana2": false}
+	want := map[string]bool{"ana": true, "bob": false, "solo": false, "zed": false, "ana2": false}
 	for name, isUser := range want {
 		m, ok := Find(units, name)
 		if !ok {
@@ -757,5 +757,88 @@ func TestIsUser(t *testing.T) {
 		if got := IsUser(m); got != isUser {
 			t.Errorf("IsUser(%s) = %v (Path %q, Shadows %q)", name, got, m.Path, m.Shadows)
 		}
+	}
+}
+
+// userFixture writes a user unit users/<name> with submodules subs and a
+// selection holding lines.
+func userFixture(t *testing.T, modulesDir, name string, subs []string, lines ...string) {
+	t.Helper()
+	dir := filepath.Join(modulesDir, "users", name)
+	mustWriteFile(t, filepath.Join(dir, "default.nix"), "{ }")
+	for _, s := range subs {
+		mustWriteFile(t, filepath.Join(dir, "modules", s), "{ }")
+	}
+	mustWriteFile(t, filepath.Join(dir, "modules", "default.nix"), selectionOf(lines...))
+}
+
+func TestLoad_UserSelections(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	userFixture(t, modulesDir, "luar", []string{"a.nix"}, "./a.nix")
+	userFixture(t, modulesDir, "bob", []string{"b.nix"}, "./b.nix")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar"))
+
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Users) != 2 || h.Users[0].Scope != "users/bob/modules" || h.Users[1].Scope != "users/luar/modules" {
+		t.Fatalf("Users = %+v", h.Users)
+	}
+	if got := h.Selection(); !equalStrings(got, []string{"users/luar", "users/luar/modules/a.nix"}) {
+		t.Errorf("Selection = %v", got)
+	}
+	if sel := h.SelectedUsers(); len(sel) != 1 || sel[0].Scope != "users/luar/modules" {
+		t.Errorf("SelectedUsers = %+v", sel)
+	}
+	if _, ok := h.Find("luar/default"); ok {
+		t.Error("the user's selection was walked as a unit")
+	}
+}
+
+func TestLoad_UserWithoutSelection(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar"))
+
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Users) != 0 || h.UserSelection("luar") != nil {
+		t.Errorf("Users = %+v", h.Users)
+	}
+	if got := h.Selection(); !equalStrings(got, []string{"users/luar"}) {
+		t.Errorf("Selection = %v", got)
+	}
+}
+
+func TestWalk_SelectionOnlyAllowedInUsers(t *testing.T) {
+	modulesDir, hostDir, _ := scopes(t)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "users", "luar", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "users", "luar", "modules", "default.nix"), selectionOf())
+	if _, _, err := Walk(modulesDir, filepath.Join(hostDir, "modules"), ""); err == nil {
+		t.Error("a host bundle with modules/default.nix was accepted")
+	}
+}
+
+func TestUserOf(t *testing.T) {
+	modulesDir, _, _ := scopes(t)
+	userFixture(t, modulesDir, "luar", []string{"a.nix", "ui/b.nix"})
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "bob.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "desktop", "kit", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "desktop", "kit", "modules", "c.nix"), "{ }")
+	us, _, err := Walk(modulesDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"luar": "luar", "luar/a": "luar", "luar/b": "luar", "bob": "", "kit": "", "kit/c": ""} {
+		if got := UserOf(unitByName(t, us, name)); got != want {
+			t.Errorf("UserOf(%s) = %q, want %q", name, got, want)
+		}
+	}
+	if !IsUser(unitByName(t, us, "luar")) || IsUser(unitByName(t, us, "luar/a")) || IsUser(unitByName(t, us, "bob")) {
+		t.Error("IsUser")
 	}
 }

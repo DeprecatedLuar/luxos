@@ -20,7 +20,7 @@ const (
 	MachinePrefix = config.ScopeMachine + nameSep
 
 	// usersCategory holds the units that are luxos users.
-	usersCategory = "users"
+	usersCategory = config.UsersDir
 )
 
 // entrypointName is the file name that turns a directory into a unit (and
@@ -70,11 +70,13 @@ type Host struct {
 	Modules                               []Module    // sorted by name; hidden units removed
 	Hidden                                []Module    // units a higher scope hides
 	Selections                            []Selection // host first, then machine when MachineDir != ""
+	Users                                 []Selection // the selection of every user unit holding one, by name
 }
 
 // Load reads one host's view: the shared units, the host's and the
 // machine's own units, and both selections. machineDir "" leaves the machine
-// scope out. Nothing is read through modules/host or modules/machine.
+// scope out. Every user unit's selection is read into Users. Nothing is read
+// through modules/host or modules/machine.
 func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 	machineModules := ""
 	if machineDir != "" {
@@ -97,6 +99,21 @@ func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 		}
 		h.Selections = append(h.Selections, Selection{Scope: s.scope, File: file, Paths: paths})
 	}
+	for _, m := range units {
+		if !IsUser(m) {
+			continue
+		}
+		file := config.UserSelectionPath(m.Abs)
+		if !isFile(file) {
+			continue
+		}
+		scope := config.UserScope(m.Name)
+		paths, err := ReadSelection(file, scope)
+		if err != nil {
+			return nil, err
+		}
+		h.Users = append(h.Users, Selection{Scope: scope, File: file, Paths: paths})
+	}
 	return h, nil
 }
 
@@ -105,15 +122,68 @@ func (h *Host) Find(name string) (Module, bool) {
 	return Find(h.Modules, name)
 }
 
-// Selection is every selected path, host first, each once.
+// Selection is every selected path, each once: the host's lines, then the
+// machine's, then the lines of each user they select.
 func (h *Host) Selection() []string {
 	seen := map[string]bool{}
 	var out []string
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
 	for _, s := range h.Selections {
 		for _, p := range s.Paths {
-			if !seen[p] {
-				seen[p] = true
-				out = append(out, p)
+			add(p)
+		}
+	}
+	for _, p := range append([]string(nil), out...) {
+		for _, up := range h.UserPaths(p) {
+			add(up)
+		}
+	}
+	return out
+}
+
+// UserSelection returns the selection of user name, nil when absent.
+func (h *Host) UserSelection(name string) *Selection {
+	scope := config.UserScope(name)
+	for i := range h.Users {
+		if h.Users[i].Scope == scope {
+			return &h.Users[i]
+		}
+	}
+	return nil
+}
+
+// UserPaths returns the selection paths of the user unit p names, nil when p
+// names no user or the user has no selection.
+func (h *Host) UserPaths(p string) []string {
+	m, ok := h.Find(NameFromPath(p))
+	if !ok || !IsUser(m) {
+		return nil
+	}
+	if sel := h.UserSelection(m.Name); sel != nil {
+		return sel.Paths
+	}
+	return nil
+}
+
+// SelectedUsers returns the selections of the users the host's and the
+// machine's selections name.
+func (h *Host) SelectedUsers() []Selection {
+	var out []Selection
+	seen := map[string]bool{}
+	for _, s := range h.Selections {
+		for _, p := range s.Paths {
+			m, ok := h.Find(NameFromPath(p))
+			if !ok || !IsUser(m) || seen[m.Name] {
+				continue
+			}
+			seen[m.Name] = true
+			if sel := h.UserSelection(m.Name); sel != nil {
+				out = append(out, *sel)
 			}
 		}
 	}
@@ -158,7 +228,7 @@ func walkScope(dir, scope string) ([]Module, error) {
 		skip = reservedRoot
 	}
 	var raw []Module
-	if err := walkDir(dir, dir, "", skip, &raw); err != nil {
+	if err := walkDir(dir, dir, "", skip, scope == config.ScopeShared, &raw); err != nil {
 		return nil, err
 	}
 	for i := range raw {
@@ -274,8 +344,9 @@ func checkDuplicates(us []Module) error {
 // walkDir emits (unsorted, duplicates left in) units found under dir into
 // *out. root is the fixed walk root, used to compute relative paths.
 // prefix is the qualified-name prefix of the bundle being walked ("" outside
-// one). skipRoot names the entries skipped at the walk root.
-func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) error {
+// one). skip names the entries skipped, by path relative to root. shared is
+// true when walking the shared tree.
+func walkDir(root, dir, prefix string, skip map[string]bool, shared bool, out *[]Module) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -291,7 +362,7 @@ func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) 
 			continue
 		}
 
-		if dir == root && skipRoot[entry.Name()] {
+		if rel, err := filepath.Rel(root, entryPath); err == nil && skip[rel] {
 			continue
 		}
 
@@ -304,7 +375,7 @@ func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) 
 				name := prefix + entry.Name()
 				*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
 				if IsBundle(entryPath) {
-					if err := walkBundle(root, entryPath, relPath, name, skipRoot, out); err != nil {
+					if err := walkBundle(root, entryPath, relPath, name, skip, shared, out); err != nil {
 						return err
 					}
 				}
@@ -312,7 +383,7 @@ func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) 
 				if entry.Name() == bundleModulesDir {
 					return fmt.Errorf("%s: a folder named modules is only allowed directly inside a module (a bundle)", relPath)
 				}
-				if err := walkDir(root, entryPath, prefix, skipRoot, out); err != nil {
+				if err := walkDir(root, entryPath, prefix, skip, shared, out); err != nil {
 					return err
 				}
 			}
@@ -333,13 +404,21 @@ func walkDir(root, dir, prefix string, skipRoot map[string]bool, out *[]Module) 
 }
 
 // walkBundle emits the submodules under a bundle's modules/ folder, named
-// under the bundle's qualified name.
-func walkBundle(root, bundleDir, rel, name string, skipRoot map[string]bool, out *[]Module) error {
+// under the bundle's qualified name. Only a user unit's modules/ may hold a
+// default.nix: it is the user's selection, never a unit.
+func walkBundle(root, bundleDir, rel, name string, skip map[string]bool, shared bool, out *[]Module) error {
 	modulesDir := filepath.Join(bundleDir, bundleModulesDir)
 	if isFile(filepath.Join(modulesDir, entrypointName)) {
-		return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
+		if !shared || filepath.Dir(rel) != usersCategory {
+			return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
+		}
+		withSelection := map[string]bool{filepath.Join(rel, bundleModulesDir, entrypointName): true}
+		for k := range skip {
+			withSelection[k] = true
+		}
+		skip = withSelection
 	}
-	return walkDir(root, modulesDir, name+nameSep, skipRoot, out)
+	return walkDir(root, modulesDir, name+nameSep, skip, shared, out)
 }
 
 // IsBundle reports whether dir is a folder unit with a modules/ subdirectory.
@@ -351,18 +430,29 @@ func IsBundle(dir string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// IsUser reports whether m is a luxos user: a folder unit directly in users/,
-// or a folder unit staged in place of one.
+// IsUser reports whether m is a luxos user: a shared folder unit directly in users/.
 func IsUser(m Module) bool {
-	path := m.Path
-	if m.Shadows != "" {
-		path = m.Shadows
-	}
-	if path != usersCategory+nameSep+m.Name {
+	if m.Scope != config.ScopeShared || m.Path != usersCategory+nameSep+m.Name {
 		return false
 	}
 	fi, err := os.Stat(m.Abs)
 	return err == nil && fi.IsDir()
+}
+
+// UserOf returns the name of the user whose unit m is or lies in, "" when none.
+func UserOf(m Module) string {
+	if m.Scope != config.ScopeShared {
+		return ""
+	}
+	top := Top(m.Name)
+	unit := usersCategory + nameSep + top
+	if m.Path != unit && !strings.HasPrefix(m.Path, unit+nameSep) {
+		return ""
+	}
+	if fi, err := os.Stat(filepath.Join(m.Root(), unit)); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return top
 }
 
 // isFile reports whether path, symlinks followed, exists and is not a directory.
