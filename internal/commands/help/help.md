@@ -53,7 +53,7 @@ $ luxos user <verb> <name>
 
 ## passwd
 $ luxos passwd <user>
-> Set a user's password.
+> Set a user's password. Same as luxos user passwd.
 
 ## setup
 $ luxos setup [--config <dir>]
@@ -61,10 +61,11 @@ $ luxos setup [--config <dir>]
 
 ## key
 $ luxos key <verb> <user>
-- list | List keys on this computer | luxos key list
-- add <user> | Store a key, typed or piped in | pass show alice-key | luxos key add alice
-- get <user> | Print a key | luxos key get alice
-- remove <user> | Delete a key | luxos key remove alice -y
+> Same as luxos user key.
+- list | List keys on this computer | luxos user key list
+- add <user> | Store a key, typed or piped in | pass show alice-key | luxos user key add alice
+- get <user> | Print a key | luxos user key get alice
+- remove <user> | Delete a key | luxos user key remove alice -y
 - -y, --yes | remove: skip the confirmation
 
 ## Flags
