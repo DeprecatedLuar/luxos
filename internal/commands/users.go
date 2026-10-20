@@ -39,7 +39,7 @@ func syncUsers(out *ui.Progress, h *modules.Host) error {
 }
 
 // checkPasswords runs the password preflight on every user unit in the
-// build, shadows included, and reports every failing user before failing.
+// build and reports every failing user before failing.
 func checkPasswords(out *ui.Progress, h *modules.Host, keysDir string, uid int) error {
 	out.Printf("Checking user passwords...\n")
 	users, err := builtUsers(h)
@@ -60,7 +60,7 @@ func checkPasswords(out *ui.Progress, h *modules.Host, keysDir string, uid int) 
 }
 
 // builtUsers returns every user unit the host builds, selected or pulled in
-// through luxos.modules; a shadow stands in for the unit it hides.
+// through luxos.modules.
 func builtUsers(h *modules.Host) ([]modules.Module, error) {
 	built, err := h.Built()
 	if err != nil {

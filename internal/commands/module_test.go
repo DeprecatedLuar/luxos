@@ -1054,3 +1054,21 @@ func TestToggleModule_DisableUserKeepsItsSelection(t *testing.T) {
 		t.Errorf("user selection emptied:\n%s", user)
 	}
 }
+
+func TestToggleModule_UserSubmoduleNeverSelectsUserOnHost(t *testing.T) {
+	skipIfNoNix(t)
+	p := userBundleFixture(t)
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith())
+	if err := toggleModule(p, "luar/nvim/lsp", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostImports(t, p, "host1"); len(got) != 0 {
+		t.Errorf("host1 = %v", got)
+	}
+	user := mustReadFile(t, filepath.Join(p.Modules, "users", "luar", "modules", "default.nix"))
+	for _, want := range []string{"./nvim\n", "./nvim/modules/lsp.nix"} {
+		if !strings.Contains(user, want) {
+			t.Errorf("user selection lacks %q:\n%s", want, user)
+		}
+	}
+}

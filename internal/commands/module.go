@@ -594,7 +594,7 @@ func moduleAddUser(modulesRoot, target string) error {
 		return err
 	}
 	ui.Done(os.Stdout, fmt.Sprintf("Created modules/%s/{default.nix,account.nix,options.nix,modules/default.nix,modules/packages.nix}", target))
-	ui.Text(os.Stdout, fmt.Sprintf("Set its password, then enable it: luxos passwd %s && luxos user enable %s", name, name))
+	ui.Text(os.Stdout, fmt.Sprintf("Set its password, then enable it: luxos user passwd %s && luxos user enable %s", name, name))
 	return nil
 }
 
