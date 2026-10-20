@@ -76,8 +76,8 @@ type Host struct {
 // Load reads one host's view: the shared units, the host's and the
 // machine's own units, and both selections. machineDir "" leaves the machine
 // scope out. Every user unit's selection is read into Users; one that does
-// not read is an error only for a user both selections name, and is left out
-// otherwise. Nothing is read through modules/host or modules/machine.
+// not read is an error only for a user the host's or the machine's selection names,
+// and is left out otherwise. Nothing is read through modules/host or modules/machine.
 func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 	machineModules := ""
 	if machineDir != "" {

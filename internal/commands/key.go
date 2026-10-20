@@ -27,7 +27,7 @@ var errWantOneUser = errors.New("want exactly one user")
 
 var errKeyMissing = errors.New("no key provided")
 
-var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: luxos key rm <user> --yes")
+var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: luxos user key rm <user> --yes")
 
 // Key runs `luxos key ls|add|get|rm`.
 func Key(args []string) error {

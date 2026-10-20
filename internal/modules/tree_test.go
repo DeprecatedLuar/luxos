@@ -867,4 +867,10 @@ func TestLoad_UnselectedUserBrokenSelection(t *testing.T) {
 	if _, err := Load(modulesDir, hostDir, machineDir); err == nil || !strings.Contains(err.Error(), bob) {
 		t.Errorf("Load with selected bob broken: err = %v", err)
 	}
+
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar"))
+	mustWriteFile(t, filepath.Join(machineDir, "modules", "default.nix"), selectionOf("../users/bob"))
+	if _, err := Load(modulesDir, hostDir, machineDir); err == nil || !strings.Contains(err.Error(), bob) {
+		t.Errorf("Load with bob selected by the machine only: err = %v", err)
+	}
 }
