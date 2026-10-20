@@ -842,3 +842,25 @@ func TestUserOf(t *testing.T) {
 		t.Error("IsUser")
 	}
 }
+
+func TestLoad_UnselectedUserBrokenSelection(t *testing.T) {
+	modulesDir, hostDir, machineDir := scopes(t)
+	userFixture(t, modulesDir, "luar", []string{"a.nix"}, "./a.nix")
+	userFixture(t, modulesDir, "bob", []string{"b.nix"})
+	bob := filepath.Join(modulesDir, "users", "bob", "modules", "default.nix")
+	mustWriteFile(t, bob, "{ ... }: { }\n")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar"))
+
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatalf("Load with unselected bob broken: %v", err)
+	}
+	if h.UserSelection("bob") != nil || h.UserSelection("luar") == nil {
+		t.Errorf("Users = %+v", h.Users)
+	}
+
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar", "../users/bob"))
+	if _, err := Load(modulesDir, hostDir, machineDir); err == nil || !strings.Contains(err.Error(), bob) {
+		t.Errorf("Load with selected bob broken: err = %v", err)
+	}
+}

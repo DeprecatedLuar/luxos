@@ -789,3 +789,28 @@ func TestScopeOf_UserSelection(t *testing.T) {
 		t.Errorf("user unit scope holds its own selection: %+v, %v", s, err)
 	}
 }
+
+func TestHeal_UserSelectedByDefaultNixLine(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostsDir, machinesDir, machineDir, _ := userHostFixture(t)
+	mustWriteFile(t, filepath.Join(hostsDir, "h1", "modules", "default.nix"), selectionOf("../users/luar/default.nix"))
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix"), selectionOf("./a.nix", "./gone.nix"))
+	_, _, _, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("users", "luar", "modules", "default.nix")) {
+		t.Fatalf("err = %v, want luar's selection named", err)
+	}
+}
+
+func TestHeal_SelectedUserBrokenSelection(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostsDir, machinesDir, machineDir, _ := userHostFixture(t)
+	file := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
+	mustWriteFile(t, file, "{ ... }: { }\n")
+	_, _, warnings, err := Heal(modulesDir, hostsDir, machinesDir, "h1", machineDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), file) {
+		t.Errorf("warnings = %v, want %s named", warnings, file)
+	}
+}

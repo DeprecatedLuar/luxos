@@ -276,23 +276,9 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 		return nil, nil, nil, err
 	}
 
-	activeUsers := map[string]bool{}
-	for _, f := range []SelectionFile{{config.ScopeHost, activeHostSel}, {config.ScopeMachine, activeMachineSel}} {
-		if f.File == "" {
-			continue
-		}
-		lines, ok, err := nix.ListImports(f.File)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if !ok {
-			continue
-		}
-		for _, l := range lines {
-			if p := config.PathOf(f.Scope, l); filepath.Dir(p) == usersCategory {
-				activeUsers[filepath.Base(p)] = true
-			}
-		}
+	activeUsers, err := activeUsersOf(modulesDir, activeHostSel, activeMachineSel)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	var changes []Change
@@ -389,6 +375,40 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 	}
 
 	return moves, changes, warnings, nil
+}
+
+// activeUsersOf returns the users the active host's and this machine's
+// selections name ("" leaves a selection out), resolved as Load resolves them.
+// An unrecognizable selection names none.
+func activeUsersOf(modulesDir, hostSel, machineSel string) (map[string]bool, error) {
+	scopeModules := func(sel string) string {
+		if sel == "" {
+			return ""
+		}
+		return filepath.Dir(sel)
+	}
+	units, _, err := Walk(modulesDir, scopeModules(hostSel), scopeModules(machineSel))
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, f := range []SelectionFile{{config.ScopeHost, hostSel}, {config.ScopeMachine, machineSel}} {
+		if f.File == "" {
+			continue
+		}
+		lines, ok, err := nix.ListImports(f.File)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			paths = append(paths, pathsOf(f.Scope, lines)...)
+		}
+	}
+	active := map[string]bool{}
+	for _, name := range usersNamedBy(units, paths) {
+		active[name] = true
+	}
+	return active, nil
 }
 
 // crossScope reports whether path p, written in a selection of scope, names

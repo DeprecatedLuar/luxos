@@ -75,8 +75,9 @@ type Host struct {
 
 // Load reads one host's view: the shared units, the host's and the
 // machine's own units, and both selections. machineDir "" leaves the machine
-// scope out. Every user unit's selection is read into Users. Nothing is read
-// through modules/host or modules/machine.
+// scope out. Every user unit's selection is read into Users; one that does
+// not read is an error only for a user both selections name, and is left out
+// otherwise. Nothing is read through modules/host or modules/machine.
 func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 	machineModules := ""
 	if machineDir != "" {
@@ -99,6 +100,10 @@ func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 		}
 		h.Selections = append(h.Selections, Selection{Scope: s.scope, File: file, Paths: paths})
 	}
+	selected := map[string]bool{}
+	for _, name := range h.selectedUserNames() {
+		selected[name] = true
+	}
 	for _, m := range units {
 		if !IsUser(m) {
 			continue
@@ -110,7 +115,10 @@ func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 		scope := config.UserScope(m.Name)
 		paths, err := ReadSelection(file, scope)
 		if err != nil {
-			return nil, err
+			if selected[m.Name] {
+				return nil, err
+			}
+			continue
 		}
 		h.Users = append(h.Users, Selection{Scope: scope, File: file, Paths: paths})
 	}
@@ -174,18 +182,35 @@ func (h *Host) UserPaths(p string) []string {
 // machine's selections name.
 func (h *Host) SelectedUsers() []Selection {
 	var out []Selection
-	seen := map[string]bool{}
-	for _, s := range h.Selections {
-		for _, p := range s.Paths {
-			m, ok := h.Find(NameFromPath(p))
-			if !ok || !IsUser(m) || seen[m.Name] {
-				continue
-			}
-			seen[m.Name] = true
-			if sel := h.UserSelection(m.Name); sel != nil {
-				out = append(out, *sel)
-			}
+	for _, name := range h.selectedUserNames() {
+		if sel := h.UserSelection(name); sel != nil {
+			out = append(out, *sel)
 		}
+	}
+	return out
+}
+
+// selectedUserNames returns the users the host's and the machine's
+// selections name, each once, in selection order.
+func (h *Host) selectedUserNames() []string {
+	var paths []string
+	for _, s := range h.Selections {
+		paths = append(paths, s.Paths...)
+	}
+	return usersNamedBy(h.Modules, paths)
+}
+
+// usersNamedBy returns the users of units that paths name, each once, in order.
+func usersNamedBy(units []Module, paths []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range paths {
+		m, ok := Find(units, NameFromPath(p))
+		if !ok || !IsUser(m) || seen[m.Name] {
+			continue
+		}
+		seen[m.Name] = true
+		out = append(out, m.Name)
 	}
 	return out
 }
