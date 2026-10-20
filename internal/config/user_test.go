@@ -211,3 +211,24 @@ func TestUserScope(t *testing.T) {
 		t.Errorf("PathOf = %q", got)
 	}
 }
+
+func TestCreateUserSelection(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateUserSelection(dir, []string{"./a.nix"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(UserSelectionPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := templates.Render(selectionTemplate, []string{"./a.nix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("selection = %q, want %q", got, want)
+	}
+}

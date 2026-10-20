@@ -17,7 +17,7 @@ const (
 	vendoredHeader    = "# LUXOS property - keep walking buddy\n"
 	userShadowFormat  = "shadows user '%s': users cannot be shadowed; rename or delete it"
 	userShapeMessage  = "holds luxos' account.nix, so it is a user: users live in modules/users/"
-	userLineFormat    = "selects %s inside user %s: a user's modules are enabled in its own selection: luxos user enable %s"
+	userLineFormat    = "selects %s inside user %s: luxos module disable %s, then luxos user enable %s"
 	userForeignFormat = "lists %s: a user's selection holds only its own modules"
 	userModulesFormat = "luxos.modules: a user's modules may not use luxos.modules (%s); the host enables shared modules"
 )
@@ -236,7 +236,7 @@ func (h *Host) userViolations() []Violation {
 				continue
 			}
 			if user := UserOf(m); user != "" && !IsUser(m) {
-				vs = append(vs, Violation{File: sel.File, Message: fmt.Sprintf(userLineFormat, m.Name, user, m.Name)})
+				vs = append(vs, Violation{File: sel.File, Message: fmt.Sprintf(userLineFormat, m.Name, user, m.Name, m.Name)})
 			}
 		}
 	}

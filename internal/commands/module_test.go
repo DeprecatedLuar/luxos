@@ -1072,3 +1072,47 @@ func TestToggleModule_UserSubmoduleNeverSelectsUserOnHost(t *testing.T) {
 		}
 	}
 }
+
+func TestUserMigration_HostLinesInsideUser(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	luar := filepath.Join(p.Modules, "users", "luar")
+	write(t, filepath.Join(luar, "default.nix"), "{ }\n")
+	write(t, filepath.Join(luar, ".password.age"), "x")
+	write(t, filepath.Join(luar, "modules", "packages.nix"), "{ }\n")
+	write(t, filepath.Join(luar, "modules", "appearance.nix"), "{ }\n")
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("../users/luar", "../users/luar/modules/packages.nix", "../users/luar/modules/appearance.nix"))
+	machineDir := filepath.Join(p.Machines, "k1")
+
+	var out strings.Builder
+	if err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err == nil {
+		t.Fatal("healAndValidate passed with host lines inside a user")
+	}
+	want := "selects luar/packages inside user luar: luxos module disable luar/packages, then luxos user enable luar/packages"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, out.String())
+	}
+
+	for _, name := range []string{"luar/packages", "luar/appearance"} {
+		if err := toggleModule(p, name, false, false); err != nil {
+			t.Fatalf("disable %s: %v", name, err)
+		}
+		if err := toggleModule(p, name, true, false); err != nil {
+			t.Fatalf("enable %s: %v", name, err)
+		}
+	}
+
+	user := mustReadFile(t, config.UserSelectionPath(luar))
+	for _, line := range []string{"./packages.nix", "./appearance.nix"} {
+		if !strings.Contains(user, line) {
+			t.Errorf("user selection lacks %s:\n%s", line, user)
+		}
+	}
+	if got := hostImports(t, p, "host1"); !reflect.DeepEqual(got, []string{"users/luar"}) {
+		t.Errorf("host1 = %v", got)
+	}
+	out.Reset()
+	if err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err != nil {
+		t.Errorf("healAndValidate: %v\n%s", err, out.String())
+	}
+}

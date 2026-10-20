@@ -1023,7 +1023,7 @@ func TestValidate_HostLineInsideUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := messages(vs); !strings.Contains(got, "luxos user enable luar/a") {
+	if got := messages(vs); !strings.Contains(got, "selects luar/a inside user luar: luxos module disable luar/a, then luxos user enable luar/a") {
 		t.Errorf("violations:\n%s", got)
 	}
 }

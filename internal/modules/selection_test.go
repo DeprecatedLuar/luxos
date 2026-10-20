@@ -684,6 +684,7 @@ func TestEnable_UserSubmoduleGoesToUserSelection(t *testing.T) {
 }
 
 func TestEnable_UserWithoutSelection(t *testing.T) {
+	skipIfNoNix(t)
 	modulesDir, hostDir, machineDir := scopes(t)
 	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ }")
@@ -691,8 +692,39 @@ func TestEnable_UserWithoutSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Enable(h, "luar/a", false); err == nil || !strings.Contains(err.Error(), "luxos rebuild build") {
+	if changed, err := Enable(h, "luar/a", false); err != nil || !changed {
+		t.Fatalf("Enable = %v, %v", changed, err)
+	}
+	file := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
+	got, err := ReadSelection(file, config.UserScope("luar"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"users/luar/modules/a.nix"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("selection = %v, want %v", got, want)
+	}
+	if sel := h.UserSelection("luar"); sel == nil || !reflect.DeepEqual(sel.Paths, got) {
+		t.Errorf("loaded selection = %+v", sel)
+	}
+}
+
+func TestEnable_UserUnreadableSelection(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
+	bad := "{ ... }: { }\n"
+	mustWriteFile(t, file, bad)
+	if _, err := Enable(h, "luar/a", false); err == nil || !strings.Contains(err.Error(), file) {
 		t.Errorf("err = %v", err)
+	}
+	if got := mustReadFile(t, file); got != bad {
+		t.Errorf("selection rewritten: %q", got)
 	}
 }
 

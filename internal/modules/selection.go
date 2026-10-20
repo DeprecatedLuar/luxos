@@ -14,10 +14,7 @@ import (
 // selectionAttr is the only top-level name a selection may set.
 const selectionAttr = "imports"
 
-const (
-	userMachineFormat     = "'%s' belongs to user %s: a user's modules are enabled in its own selection"
-	noUserSelectionFormat = "user %s has no selection: run luxos rebuild build first"
-)
+const userMachineFormat = "'%s' belongs to user %s: a user's modules are enabled in its own selection"
 
 // bundleModulesInfix separates a bundle's path from its submodules' in an
 // import path.
@@ -472,7 +469,7 @@ func shapeError(file string) error {
 // Enable adds name's line to the selection it belongs in: a machine unit's
 // to the machine selection, any other to the host's, or to the machine's
 // when toMachine (a shared unit only). A user's submodule goes to its user's
-// selection. Reports false when already there.
+// selection, created when the user has none. Reports false when already there.
 func Enable(h *Host, name string, toMachine bool) (bool, error) {
 	m, ok := h.Find(name)
 	if !ok {
@@ -482,9 +479,9 @@ func Enable(h *Host, name string, toMachine bool) (bool, error) {
 		if toMachine {
 			return false, fmt.Errorf(userMachineFormat, name, user)
 		}
-		sel := h.UserSelection(user)
-		if sel == nil {
-			return false, fmt.Errorf(noUserSelectionFormat, user)
+		sel, err := h.ensureUserSelection(user)
+		if err != nil {
+			return false, err
 		}
 		return addLine(sel, m)
 	}
@@ -502,6 +499,30 @@ func Enable(h *Host, name string, toMachine bool) (bool, error) {
 		return false, fmt.Errorf("no %s selection: run luxos rebuild build first", scope)
 	}
 	return addLine(sel, m)
+}
+
+// ensureUserSelection returns the selection of user, creating an empty one
+// when the user has no selection file. An existing file that does not read is
+// an error and is never rewritten.
+func (h *Host) ensureUserSelection(user string) (*Selection, error) {
+	if sel := h.UserSelection(user); sel != nil {
+		return sel, nil
+	}
+	dir := filepath.Join(h.ModulesDir, usersCategory, user)
+	file := config.UserSelectionPath(dir)
+	scope := config.UserScope(user)
+	var paths []string
+	if _, err := os.Lstat(file); err == nil {
+		if paths, err = ReadSelection(file, scope); err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	} else if err := config.CreateUserSelection(dir, nil); err != nil {
+		return nil, err
+	}
+	h.Users = append(h.Users, Selection{Scope: scope, File: file, Paths: paths})
+	return &h.Users[len(h.Users)-1], nil
 }
 
 // addLine adds m's line to sel; false when sel already names m.

@@ -19,8 +19,7 @@ const (
 	// UserSelectionFile is the user's selection inside a user unit.
 	UserSelectionFile = "modules/default.nix"
 
-	userSelectionTemplate = "modules.nix.tmpl"
-	userPackagesLine      = "./packages.nix"
+	userPackagesLine = "./packages.nix"
 
 	userModulesDir  = "modules"
 	userDefaultFile = "default.nix"
@@ -144,14 +143,20 @@ func SyncUser(dir string) ([]SyncChange, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	data, err := templates.Render(userSelectionTemplate, lines)
-	if err != nil {
-		return nil, err
-	}
-	if err := WriteFile(selection, data); err != nil {
+	if err := CreateUserSelection(dir, lines); err != nil {
 		return nil, err
 	}
 	return append(changes, SyncChange{Path: UserSelectionFile, Action: ActionCreated}), nil
+}
+
+// CreateUserSelection writes the selection of the user unit dir, holding
+// lines. The caller makes sure none exists.
+func CreateUserSelection(dir string, lines []string) error {
+	data, err := templates.Render(selectionTemplate, lines)
+	if err != nil {
+		return err
+	}
+	return WriteFile(UserSelectionPath(dir), data)
 }
 
 // UserScope is the modules-relative folder a user's selection lines are relative to.
