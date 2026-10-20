@@ -52,16 +52,15 @@ $ luxos user <verb> <name>
 - --enable | add: enable it too
 
 ## passwd
-$ luxos passwd <user>
-> Set a user's password. Same as luxos user passwd.
+$ luxos user passwd <user>
+> Set a user's password.
 
 ## setup
 $ luxos setup [--config <dir>]
 > Create a config, or add this computer to one. rebuild runs it when there is no config.
 
 ## key
-$ luxos key <verb> <user>
-> Same as luxos user key.
+$ luxos user key <verb> <user>
 - list | List keys on this computer | luxos user key list
 - add <user> | Store a key, typed or piped in | pass show alice-key | luxos user key add alice
 - get <user> | Print a key | luxos user key get alice

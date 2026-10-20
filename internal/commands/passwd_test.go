@@ -185,9 +185,9 @@ func TestStorePassword_EncryptFailsStoresNoKey(t *testing.T) {
 }
 
 func TestPasswdHelp(t *testing.T) {
-	assertHelp(t, func() error { return Passwd([]string{"-h"}) }, "luxos passwd <user>")
+	assertHelp(t, func() error { return Passwd([]string{"-h"}) }, "luxos user passwd <user>")
 }
 
 func TestPasswdNoArgs(t *testing.T) {
-	assertMisuse(t, func() error { return Passwd(nil) }, "want exactly one user", "luxos passwd <user>")
+	assertMisuse(t, func() error { return Passwd(nil) }, "want exactly one user", "luxos user passwd <user>")
 }
