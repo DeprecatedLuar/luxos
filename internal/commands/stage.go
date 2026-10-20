@@ -25,8 +25,8 @@ type flakeSteps struct {
 
 var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
-// healAndValidate checks both selections hold only imports, moves
-// cross-scope lines, heals broken lines, then checks the active host's
+// healAndValidate checks both selections and every selected user's hold only
+// imports, moves cross-scope lines, heals broken lines, then checks the active host's
 // module boundaries. prune removes unresolvable lines from the active host's
 // and this computer's selections instead of failing.
 func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, prune bool) error {
@@ -57,6 +57,11 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, p
 	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
 		return err
+	}
+	for _, sel := range h.SelectedUsers() {
+		if err := modules.CheckSelection(sel.File); err != nil {
+			return err
+		}
 	}
 	violations, err := h.Validate()
 	if err != nil {

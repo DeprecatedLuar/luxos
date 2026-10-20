@@ -14,19 +14,13 @@ import (
 // keyOwnerUID is the uid that must own the stored user keys.
 const keyOwnerUID = 0
 
-// userPackagesModule is the starter's submodule name under a user's bundle.
-const userPackagesModule = "packages"
-
-// syncUsers restores the vendored files of every user unit in the build,
-// shadows included; a hidden original is left alone. A starter packages.nix
-// it creates is enabled.
+// syncUsers restores the vendored files of every user unit in the build.
 func syncUsers(out *ui.Progress, h *modules.Host) error {
 	out.Printf("Syncing user units...\n")
 	users, err := builtUsers(h)
 	if err != nil {
 		return err
 	}
-	var starters []string
 	for _, m := range users {
 		changes, err := config.SyncUser(m.Abs)
 		if err != nil {
@@ -38,20 +32,6 @@ func syncUsers(out *ui.Progress, h *modules.Host) error {
 				out.Changef("created: %s", line)
 			} else {
 				out.Warnf("%s: %s", c.Action, line)
-			}
-			if c.Path == config.UserPackagesFile {
-				starters = append(starters, m.Name+"/"+userPackagesModule)
-			}
-		}
-	}
-	if len(starters) > 0 {
-		h, err := modules.Load(h.ModulesDir, h.HostDir, h.MachineDir)
-		if err != nil {
-			return err
-		}
-		for _, name := range starters {
-			if _, err := modules.Enable(h, name, false); err != nil {
-				return err
 			}
 		}
 	}

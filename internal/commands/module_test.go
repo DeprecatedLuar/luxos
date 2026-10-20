@@ -1006,3 +1006,51 @@ func TestModuleRenameMissingNames(t *testing.T) {
 func TestModuleDisableMissingNames(t *testing.T) {
 	assertMisuse(t, func() error { return moduleDisable(paths.Paths{}, nil) }, "missing module names")
 }
+
+// userBundleFixture adds user luar, with submodules a.nix and
+// nvim/{default.nix,modules/lsp.nix} and a selection holding ./a.nix, to the
+// two-host fixture, and selects luar on host1.
+func userBundleFixture(t *testing.T) paths.Paths {
+	t.Helper()
+	p := twoHostScopeFixture(t)
+	luar := filepath.Join(p.Modules, "users", "luar")
+	write(t, filepath.Join(luar, "default.nix"), "{ }\n")
+	write(t, filepath.Join(luar, ".password.age"), "x")
+	write(t, filepath.Join(luar, "modules", "a.nix"), "{ }\n")
+	write(t, filepath.Join(luar, "modules", "nvim", "default.nix"), "{ }\n")
+	write(t, filepath.Join(luar, "modules", "nvim", "modules", "lsp.nix"), "{ }\n")
+	write(t, filepath.Join(luar, "modules", "default.nix"), selectionWith("./a.nix"))
+	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith("../users/luar"))
+	return p
+}
+
+func TestToggleModule_NestedUserSubmodule(t *testing.T) {
+	skipIfNoNix(t)
+	p := userBundleFixture(t)
+	if err := toggleModule(p, "luar/nvim/lsp", true, false); err != nil {
+		t.Fatal(err)
+	}
+	user := mustReadFile(t, filepath.Join(p.Modules, "users", "luar", "modules", "default.nix"))
+	for _, want := range []string{"./nvim\n", "./nvim/modules/lsp.nix"} {
+		if !strings.Contains(user, want) {
+			t.Errorf("user selection lacks %q:\n%s", want, user)
+		}
+	}
+	if got := hostImports(t, p, "host1"); !reflect.DeepEqual(got, []string{"users/luar"}) {
+		t.Errorf("host1 = %v", got)
+	}
+}
+
+func TestToggleModule_DisableUserKeepsItsSelection(t *testing.T) {
+	skipIfNoNix(t)
+	p := userBundleFixture(t)
+	if err := toggleModule(p, "luar", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostImports(t, p, "host1"); len(got) != 0 {
+		t.Errorf("host1 = %v", got)
+	}
+	if user := mustReadFile(t, filepath.Join(p.Modules, "users", "luar", "modules", "default.nix")); !strings.Contains(user, "./a.nix") {
+		t.Errorf("user selection emptied:\n%s", user)
+	}
+}

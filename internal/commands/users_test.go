@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
@@ -16,7 +17,7 @@ import (
 )
 
 func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
-	h := userHost(t, false, "users/ana")
+	h := userHost(t, "users/ana")
 	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
 		t.Fatal(err)
 	}
@@ -34,42 +35,28 @@ func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
 	}
 }
 
-func TestSyncUsers_EnablesStarter(t *testing.T) {
-	h := userHost(t, false, "users/ana")
+func TestSyncUsers_SeedsUserSelection(t *testing.T) {
+	h := userHost(t, "users/ana")
 	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
 		t.Fatal(err)
 	}
-	sel, err := os.ReadFile(filepath.Join(h.HostDir, "modules", "default.nix"))
+	host, err := os.ReadFile(filepath.Join(h.HostDir, "modules", "default.nix"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(sel), "users/ana/modules/packages.nix") {
-		t.Errorf("starter not enabled:\n%s", sel)
+	if strings.Contains(string(host), "packages.nix") {
+		t.Errorf("starter enabled on the host:\n%s", host)
 	}
-	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSyncUsers_Shadow(t *testing.T) {
-	h := userHost(t, true)
-	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
-		t.Fatal(err)
-	}
-	bob, _ := h.Find("bob")
-	if _, err := os.Stat(filepath.Join(bob.Abs, "account.nix")); err != nil {
-		t.Errorf("shadow bob: %v", err)
-	}
-	hidden := filepath.Join(h.ModulesDir, "users", "bob", "account.nix")
-	if _, err := os.Stat(hidden); !os.IsNotExist(err) {
-		t.Error("hidden original got account.nix")
+	ana, _ := h.Find("ana")
+	user, err := os.ReadFile(config.UserSelectionPath(ana.Abs))
+	if err != nil || !strings.Contains(string(user), "./packages.nix") {
+		t.Errorf("user selection = %q, %v", user, err)
 	}
 }
 
 // userHost loads a host with shared users ana and bob and a non-user unit x,
-// selecting the shared units named in selected. With shadowBob, a host unit
-// bob shadows users/bob and is selected as ./bob.
-func userHost(t *testing.T, shadowBob bool, selected ...string) *modules.Host {
+// selecting the shared units named in selected.
+func userHost(t *testing.T, selected ...string) *modules.Host {
 	t.Helper()
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
@@ -82,10 +69,6 @@ func userHost(t *testing.T, shadowBob bool, selected ...string) *modules.Host {
 	lines := ""
 	for _, name := range selected {
 		lines += "    ../" + name + "\n"
-	}
-	if shadowBob {
-		files = append(files, filepath.Join(hostDir, "modules", "bob", "default.nix"))
-		lines += "    ./bob\n"
 	}
 	vendored, err := templates.File("user/default.nix")
 	if err != nil {
@@ -118,7 +101,7 @@ func userHost(t *testing.T, shadowBob bool, selected ...string) *modules.Host {
 }
 
 func TestCheckPasswords_OnlyBuiltUsers(t *testing.T) {
-	h := userHost(t, false, "users/ana")
+	h := userHost(t, "users/ana")
 	err := checkPasswords(ui.NewProgress(io.Discard), h, t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "1 user") {
 		t.Fatalf("err = %v, want one failing user", err)
@@ -148,7 +131,7 @@ func pullAna(t *testing.T, h *modules.Host) {
 
 func TestCheckPasswords_PulledUser(t *testing.T) {
 	skipIfNoNix(t)
-	h := userHost(t, false, "desktop/x")
+	h := userHost(t, "desktop/x")
 	pullAna(t, h)
 	var buf strings.Builder
 	err := checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
@@ -165,7 +148,7 @@ func TestCheckPasswords_PulledUser(t *testing.T) {
 
 func TestBuiltUsers(t *testing.T) {
 	skipIfNoNix(t)
-	h := userHost(t, true, "desktop/x")
+	h := userHost(t, "desktop/x")
 	pullAna(t, h)
 	users, err := builtUsers(h)
 	if err != nil {
@@ -175,14 +158,14 @@ func TestBuiltUsers(t *testing.T) {
 	for _, m := range users {
 		got = append(got, m.Name+"="+m.Path)
 	}
-	want := "bob=host/bob,ana=users/ana"
+	want := "ana=users/ana"
 	if strings.Join(got, ",") != want {
 		t.Errorf("built users = %v, want %s", got, want)
 	}
 }
 
 func TestCheckPasswords_ReportsEveryFailure(t *testing.T) {
-	h := userHost(t, false, "users/ana", "users/bob")
+	h := userHost(t, "users/ana", "users/bob")
 	var buf strings.Builder
 	err := checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "2 user") {
@@ -201,7 +184,7 @@ func TestCheckPasswords_AllPass(t *testing.T) {
 			t.Skipf("%s not available", bin)
 		}
 	}
-	h := userHost(t, false, "users/ana", "users/bob")
+	h := userHost(t, "users/ana", "users/bob")
 	keys := t.TempDir()
 	for _, name := range []string{"ana", "bob"} {
 		secret, err := password.NewKey()
@@ -234,7 +217,7 @@ func TestCheckPasswords_AllPass(t *testing.T) {
 }
 
 func TestRequirePassword(t *testing.T) {
-	h := userHost(t, false)
+	h := userHost(t)
 	ana, _ := h.Find("ana")
 	if err := requirePassword(ana); err == nil || !strings.Contains(err.Error(), "luxos passwd ana") {
 		t.Errorf("err = %v", err)
@@ -248,23 +231,6 @@ func TestRequirePassword(t *testing.T) {
 	x, _ := h.Find("x")
 	if err := requirePassword(x); err != nil {
 		t.Errorf("non-user unit: %v", err)
-	}
-}
-
-func TestRequirePassword_Shadow(t *testing.T) {
-	h := userHost(t, true)
-	bob, ok := h.Find("bob")
-	if !ok || bob.Shadows == "" {
-		t.Fatalf("bob = %+v, want a shadow", bob)
-	}
-	if err := requirePassword(bob); err == nil {
-		t.Error("shadow without a password file passed")
-	}
-	if err := os.WriteFile(filepath.Join(bob.Abs, password.File), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := requirePassword(bob); err != nil {
-		t.Errorf("shadow with its own password file: %v", err)
 	}
 }
 

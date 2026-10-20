@@ -48,8 +48,6 @@ const (
 	localPackagesSelection = "host/packages.nix"
 	unstableSelection      = "unstable.nix"
 	usersCategory          = "users"
-	userPackagesSelection  = "modules/packages.nix" // under the user unit
-	userPackagesModule     = "packages"             // submodule name under the user's bundle
 )
 
 var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -207,7 +205,6 @@ func (w *Wizard) enableUser(host string) error {
 	if err != nil {
 		return err
 	}
-	created := false
 	if _, ok := h.Find(w.Paths.User); !ok {
 		pw, err := w.askPassword()
 		if err != nil {
@@ -219,7 +216,6 @@ func (w *Wizard) enableUser(host string) error {
 		if h, err = modules.Load(w.Paths.Modules, hostDir, ""); err != nil {
 			return err
 		}
-		created = true
 	}
 	changed, err := modules.Enable(h, w.Paths.User, false)
 	if err != nil {
@@ -227,11 +223,6 @@ func (w *Wizard) enableUser(host string) error {
 	}
 	if changed {
 		ui.Done(w.Out, fmt.Sprintf(userEnabled, w.Paths.User, host))
-	}
-	if created {
-		if _, err := modules.Enable(h, w.Paths.User+"/"+userPackagesModule, false); err != nil {
-			return err
-		}
 	}
 	return w.writeGroups(host)
 }
@@ -257,10 +248,9 @@ func (w *Wizard) userPath() string {
 	return usersCategory + "/" + w.Paths.User
 }
 
-// userLines are the selection lines of a user unit setup creates: the unit
-// and its packages submodule.
+// userLines are the selection lines of a user unit setup creates.
 func (w *Wizard) userLines() []string {
-	return []string{w.userPath(), w.userPath() + "/" + userPackagesSelection}
+	return []string{w.userPath()}
 }
 
 // askPassword asks the user's password twice; both must match and not be empty.

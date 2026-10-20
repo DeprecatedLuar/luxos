@@ -593,8 +593,8 @@ func moduleAddUser(modulesRoot, target string) error {
 	if err := config.WriteUser(filepath.Join(modulesRoot, target)); err != nil {
 		return err
 	}
-	ui.Done(os.Stdout, fmt.Sprintf("Created modules/%s/{default.nix,account.nix,options.nix,modules/packages.nix}", target))
-	ui.Text(os.Stdout, fmt.Sprintf("Set its password, then enable it: luxos passwd %s && luxos user enable %s %s/packages", name, name, name))
+	ui.Done(os.Stdout, fmt.Sprintf("Created modules/%s/{default.nix,account.nix,options.nix,modules/default.nix,modules/packages.nix}", target))
+	ui.Text(os.Stdout, fmt.Sprintf("Set its password, then enable it: luxos passwd %s && luxos user enable %s", name, name))
 	return nil
 }
 
@@ -849,7 +849,8 @@ func printStates(p paths.Paths, names []string) error {
 }
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
-// outermost first, and returns the ones it enabled.
+// outermost first, and returns the ones it enabled. A user is selected by the
+// host, never by its own modules.
 func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, error) {
 	var chain []string
 	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
@@ -857,6 +858,9 @@ func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, erro
 	}
 	var enabled []string
 	for _, bundle := range chain {
+		if b, ok := h.Find(bundle); ok && modules.IsUser(b) {
+			continue
+		}
 		changed, err := modules.Enable(h, bundle, toMachine)
 		if err != nil {
 			return nil, err
@@ -869,9 +873,9 @@ func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, erro
 }
 
 // disableSubmodules removes every enabled line for a submodule of m when m is
-// a bundle, and returns the submodules it removed.
+// a bundle that is not a user, and returns the submodules it removed.
 func disableSubmodules(h *modules.Host, m modules.Module) ([]string, error) {
-	if !modules.IsBundle(m.Abs) {
+	if !modules.IsBundle(m.Abs) || modules.IsUser(m) {
 		return nil, nil
 	}
 	var removed []string
