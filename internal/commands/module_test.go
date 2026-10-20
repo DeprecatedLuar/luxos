@@ -493,9 +493,9 @@ func TestModuleRenderRemoved(t *testing.T) {
 
 const (
 	bundleName   = "luar"
-	bundlePath   = "users/luar"
+	bundlePath   = "apps/luar"
 	subName      = "luar/demo"
-	subPath      = "users/luar/modules/demo.nix"
+	subPath      = "apps/luar/modules/demo.nix"
 	emptyImports = "{ ... }:\n{\n  imports = [\n  ];\n}\n"
 )
 
@@ -617,10 +617,10 @@ func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
 	if err := moduleRename(p, []string{subName, "demo2", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(p.Modules, "users/luar/modules/demo2.nix")); err != nil {
+	if _, err := os.Stat(filepath.Join(p.Modules, "apps/luar/modules/demo2.nix")); err != nil {
 		t.Errorf("renamed file missing: %v", err)
 	}
-	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath+",users/luar/modules/demo2.nix" {
+	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath+",apps/luar/modules/demo2.nix" {
 		t.Errorf("imports = %v", got)
 	}
 }
@@ -628,7 +628,7 @@ func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
 func TestModuleRename_SubmoduleCollisionIsQualified(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	write(t, filepath.Join(p.Modules, "users/luar/modules/taken.nix"), "{ }\n")
+	write(t, filepath.Join(p.Modules, "apps/luar/modules/taken.nix"), "{ }\n")
 	// the same bare name in another bundle is not a collision
 	write(t, filepath.Join(p.Modules, "users/bob/default.nix"), "{ }\n")
 	write(t, filepath.Join(p.Modules, "users/bob/modules/demo2.nix"), "{ }\n")
@@ -652,7 +652,7 @@ func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	if err := moduleRename(p, []string{bundleName, "luar2", "-y"}); err != nil {
 		t.Fatalf("moduleRename: %v", err)
 	}
-	want := "users/luar2,users/luar2/modules/demo.nix"
+	want := "apps/luar2,apps/luar2/modules/demo.nix"
 	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != want {
 		t.Errorf("imports = %v, want %s", got, want)
 	}
@@ -660,9 +660,9 @@ func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 
 func bundleUnits() []modules.Module {
 	return []modules.Module{
-		{Name: "eduardo", Path: "users/eduardo"},
-		{Name: "eduardo/git", Path: "users/eduardo/modules/git.nix"},
-		{Name: "eduardo/zsh", Path: "users/eduardo/modules/cli/zsh.nix"},
+		{Name: "eduardo", Path: "apps/eduardo"},
+		{Name: "eduardo/git", Path: "apps/eduardo/modules/git.nix"},
+		{Name: "eduardo/zsh", Path: "apps/eduardo/modules/cli/zsh.nix"},
 		{Name: "hyprland", Path: "desktop/hyprland.nix"},
 	}
 }
@@ -679,7 +679,7 @@ func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
 		t.Errorf("bundle row = %+v", b)
 	}
 	g := byUnit["eduardo/git"]
-	if g.name != "git" || g.bundle || strings.Join(g.category, "/") != "users/eduardo/modules" {
+	if g.name != "git" || g.bundle || strings.Join(g.category, "/") != "apps/eduardo/modules" {
 		t.Errorf("submodule row = %+v", g)
 	}
 	if byUnit["hyprland"].bundle {
@@ -688,7 +688,7 @@ func TestModuleBuildRows_BundleAndSubmoduleRows(t *testing.T) {
 }
 
 func TestModuleBuildRows_BundleTargetIsRelativeToItsModules(t *testing.T) {
-	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "users/eduardo/modules")
+	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "apps/eduardo/modules")
 	if len(rows) != 2 {
 		t.Fatalf("rows = %+v", rows)
 	}
@@ -720,11 +720,11 @@ func TestCollapseBundles(t *testing.T) {
 
 func TestCollapseBundles_NestedBundleStaysCollapsed(t *testing.T) {
 	us := []modules.Module{
-		{Name: "eduardo", Path: "users/eduardo"},
-		{Name: "eduardo/nvim", Path: "users/eduardo/modules/nvim"},
-		{Name: "eduardo/nvim/lsp", Path: "users/eduardo/modules/nvim/modules/lsp.nix"},
+		{Name: "eduardo", Path: "apps/eduardo"},
+		{Name: "eduardo/nvim", Path: "apps/eduardo/modules/nvim"},
+		{Name: "eduardo/nvim/lsp", Path: "apps/eduardo/modules/nvim/modules/lsp.nix"},
 	}
-	rows := moduleRows(statusesFor(us, nil, nil), "users/eduardo/modules")
+	rows := moduleRows(statusesFor(us, nil, nil), "apps/eduardo/modules")
 	view := collapseBundles(rows, "eduardo")
 	if len(view) != 1 || view[0].name != "nvim" || !view[0].bundle {
 		t.Errorf("view = %+v", view)
@@ -735,20 +735,20 @@ func TestModuleRenderPlain_SubmodulesAreOwnRows(t *testing.T) {
 	rows := moduleRows(statusesFor(bundleUnits(), nil, nil), "")
 	var b strings.Builder
 	moduleRenderPlain(&b, rows)
-	if !strings.Contains(b.String(), "users/eduardo/modules/git\toff\t\tok\tnone\n") {
+	if !strings.Contains(b.String(), "apps/eduardo/modules/git\toff\t\tok\tnone\n") {
 		t.Errorf("plain output:\n%s", b.String())
 	}
 	var j strings.Builder
 	if err := moduleRenderJSON(&j, rows); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(j.String(), "users/eduardo/modules/cli/zsh") {
+	if !strings.Contains(j.String(), "apps/eduardo/modules/cli/zsh") {
 		t.Errorf("json output:\n%s", j.String())
 	}
 }
 
 func TestModuleRemovedRows_SubmoduleNameIsBase(t *testing.T) {
-	rows := moduleRows(removedStatuses("users/eduardo/modules/old.nix"), "")
+	rows := moduleRows(removedStatuses("apps/eduardo/modules/old.nix"), "")
 	if len(rows) != 1 || rows[0].name != "old" || rows[0].unit != "eduardo/old" {
 		t.Errorf("rows = %+v", rows)
 	}
@@ -871,7 +871,7 @@ func TestModuleBundleRowGlyphAndCount(t *testing.T) {
 	}
 	var plain strings.Builder
 	moduleRenderPlain(&plain, rows)
-	if !strings.Contains(plain.String(), "users/eduardo\tstaged\t\tok\tnone\n") {
+	if !strings.Contains(plain.String(), "apps/eduardo\tstaged\t\tok\tnone\n") {
 		t.Errorf("plain keeps the state word:\n%s", plain.String())
 	}
 }

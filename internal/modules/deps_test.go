@@ -800,8 +800,8 @@ func hasViolation(vs []Violation, file, substr string) bool {
 }
 
 const (
-	bundleRoot       = "users/eduardo"
-	bundleSubGitRoot = "users/eduardo/modules/git.nix"
+	bundleRoot       = "apps/eduardo"
+	bundleSubGitRoot = "apps/eduardo/modules/git.nix"
 )
 
 func TestValidate_BundlePlumbingReferencingModulesIsViolation(t *testing.T) {

@@ -685,8 +685,8 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 	stagingDir := filepath.Join(t.TempDir(), "staging")
 	modulesDir, hostDir, _, environmentFile := fixture(t)
 
-	writeTo(t, filepath.Join(modulesDir, "users", "eduardo", "default.nix"), "{ shared = 1; }")
-	writeTo(t, filepath.Join(modulesDir, "users", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
+	writeTo(t, filepath.Join(modulesDir, "apps", "eduardo", "default.nix"), "{ shared = 1; }")
+	writeTo(t, filepath.Join(modulesDir, "apps", "eduardo", "modules", "zsh.nix"), "{ shared = 2; }")
 	writeTo(t, filepath.Join(hostDir, "modules", "eduardo", "default.nix"), "{ local = 1; }")
 	writeTo(t, filepath.Join(hostDir, "modules", "eduardo", "modules", "git.nix"), "{ local = 2; }")
 	writeTo(t, config.SelectionPath(hostDir),
@@ -698,15 +698,15 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 
 	mods := filepath.Join(stagingDir, "config", "modules")
 	for rel, want := range map[string]string{
-		"users/eduardo/default.nix":     "{ local = 1; }",
-		"users/eduardo/modules/git.nix": "{ local = 2; }",
+		"apps/eduardo/default.nix":     "{ local = 1; }",
+		"apps/eduardo/modules/git.nix": "{ local = 2; }",
 	} {
 		got, err := os.ReadFile(filepath.Join(mods, rel))
 		if err != nil || string(got) != want {
 			t.Errorf("staged %s = %q, %v", rel, got, err)
 		}
 	}
-	for _, gone := range []string{"users/eduardo/modules/zsh.nix", "host/eduardo"} {
+	for _, gone := range []string{"apps/eduardo/modules/zsh.nix", "host/eduardo"} {
 		if _, err := os.Stat(filepath.Join(mods, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s should not be staged (err=%v)", gone, err)
 		}
@@ -715,7 +715,7 @@ func TestMaterialize_ShadowBundleStagedAtOriginalLocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{ ... }:\n{\n  imports = [\n    ../users/eduardo\n    ../users/eduardo/modules/git.nix\n    ../system/desktop.nix\n  ];\n}\n"
+	want := "{ ... }:\n{\n  imports = [\n    ../apps/eduardo\n    ../apps/eduardo/modules/git.nix\n    ../system/desktop.nix\n  ];\n}\n"
 	if string(entry) != want {
 		t.Errorf("staged host selection = %q, want %q", entry, want)
 	}

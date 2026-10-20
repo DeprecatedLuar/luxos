@@ -329,13 +329,13 @@ func TestNameFromPath_Bundles(t *testing.T) {
 		path string
 		want string
 	}{
-		{"users/eduardo/modules/git.nix", "eduardo/git"},
-		{"users/eduardo/modules/cli/git.nix", "eduardo/git"},
+		{"apps/eduardo/modules/git.nix", "eduardo/git"},
+		{"apps/eduardo/modules/cli/git.nix", "eduardo/git"},
 		{"a/eduardo/modules/nvim/modules/lsp/default.nix", "eduardo/nvim/lsp"},
 		{"host/eduardo/modules/git.nix", "eduardo/git"},
 		{"desktop/hyprland.nix", "hyprland"},
 		{"modules/foo.nix", "foo"},
-		{"users/eduardo/modules/git/default.nix", "eduardo/git"},
+		{"apps/eduardo/modules/git/default.nix", "eduardo/git"},
 	}
 	for _, c := range cases {
 		if got := NameFromPath(c.path); got != c.want {
@@ -383,17 +383,17 @@ func bundleFixture(t *testing.T, root, category string) {
 
 func TestWalk_BundleSubmodulesQualified(t *testing.T) {
 	root := t.TempDir()
-	bundleFixture(t, root, "users")
-	mustWriteFile(t, filepath.Join(root, "users", "eduardo", "plumbing.nix"), "{ }")
+	bundleFixture(t, root, "apps")
+	mustWriteFile(t, filepath.Join(root, "apps", "eduardo", "plumbing.nix"), "{ }")
 
 	us, _, err := Walk(root, "", "")
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
 	for name, path := range map[string]string{
-		"eduardo":     "users/eduardo",
-		"eduardo/git": "users/eduardo/modules/git.nix",
-		"eduardo/zsh": "users/eduardo/modules/cli/zsh.nix",
+		"eduardo":     "apps/eduardo",
+		"eduardo/git": "apps/eduardo/modules/git.nix",
+		"eduardo/zsh": "apps/eduardo/modules/cli/zsh.nix",
 	} {
 		if u := unitByName(t, us, name); u.Path != path {
 			t.Errorf("%s Path = %q, want %q", name, u.Path, path)
@@ -406,7 +406,7 @@ func TestWalk_BundleSubmodulesQualified(t *testing.T) {
 
 func TestWalk_NestedBundle(t *testing.T) {
 	root := t.TempDir()
-	b := filepath.Join(root, "users", "eduardo")
+	b := filepath.Join(root, "apps", "eduardo")
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "nvim", "modules", "lsp.nix"), "{ }")
@@ -415,7 +415,7 @@ func TestWalk_NestedBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	if u := unitByName(t, us, "eduardo/nvim/lsp"); u.Path != "users/eduardo/modules/nvim/modules/lsp.nix" {
+	if u := unitByName(t, us, "eduardo/nvim/lsp"); u.Path != "apps/eduardo/modules/nvim/modules/lsp.nix" {
 		t.Errorf("Path = %q", u.Path)
 	}
 	unitByName(t, us, "eduardo/nvim")
@@ -424,8 +424,8 @@ func TestWalk_NestedBundle(t *testing.T) {
 func TestWalk_SameSubmoduleNameInTwoBundles(t *testing.T) {
 	root := t.TempDir()
 	for _, b := range []string{"eduardo", "luar"} {
-		mustWriteFile(t, filepath.Join(root, "users", b, "default.nix"), "{ }")
-		mustWriteFile(t, filepath.Join(root, "users", b, "modules", "git.nix"), "{ }")
+		mustWriteFile(t, filepath.Join(root, "apps", b, "default.nix"), "{ }")
+		mustWriteFile(t, filepath.Join(root, "apps", b, "modules", "git.nix"), "{ }")
 	}
 	us, _, err := Walk(root, "", "")
 	if err != nil {
@@ -437,7 +437,7 @@ func TestWalk_SameSubmoduleNameInTwoBundles(t *testing.T) {
 
 func TestWalk_DuplicateInsideOneBundleErrors(t *testing.T) {
 	root := t.TempDir()
-	b := filepath.Join(root, "users", "eduardo")
+	b := filepath.Join(root, "apps", "eduardo")
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "a", "git.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "b", "git.nix"), "{ }")
@@ -470,7 +470,7 @@ func TestWalk_ModulesFolderUnderCategoryErrors(t *testing.T) {
 func TestWalk_LocalBundleShadowsSharedBundle(t *testing.T) {
 	root := t.TempDir()
 	local := t.TempDir()
-	bundleFixture(t, root, "users")
+	bundleFixture(t, root, "apps")
 	b := filepath.Join(local, "eduardo")
 	mustWriteFile(t, filepath.Join(b, "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(b, "modules", "git.nix"), "{ }")
@@ -480,13 +480,13 @@ func TestWalk_LocalBundleShadowsSharedBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	if u := unitByName(t, us, "eduardo"); u.Path != "host/eduardo" || u.Shadows != "users/eduardo" {
+	if u := unitByName(t, us, "eduardo"); u.Path != "host/eduardo" || u.Shadows != "apps/eduardo" {
 		t.Errorf("bundle = %+v", u)
 	}
-	if u := unitByName(t, us, "eduardo/git"); u.Path != "host/eduardo/modules/git.nix" || u.Shadows != "users/eduardo/modules/git.nix" {
+	if u := unitByName(t, us, "eduardo/git"); u.Path != "host/eduardo/modules/git.nix" || u.Shadows != "apps/eduardo/modules/git.nix" {
 		t.Errorf("git = %+v", u)
 	}
-	if u := unitByName(t, us, "eduardo/extra"); u.Shadows != "users/eduardo/modules/extra.nix" {
+	if u := unitByName(t, us, "eduardo/extra"); u.Shadows != "apps/eduardo/modules/extra.nix" {
 		t.Errorf("extra = %+v", u)
 	}
 	// The shared-only submodule is dropped with its bundle.
