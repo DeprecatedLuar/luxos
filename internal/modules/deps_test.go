@@ -992,3 +992,110 @@ func TestValidateMachineReferencesShadowedSharedName(t *testing.T) {
 		t.Fatalf("a shared name shadowed by the host is allowed: %v %+v", err, vs)
 	}
 }
+
+const vendoredAccount = "# LUXOS property - keep walking buddy\n{ }\n"
+
+func loadUsers(t *testing.T, hostLines ...string) (modulesDir, hostDir string, h *Host) {
+	t.Helper()
+	modulesDir, hostDir, machineDir := scopes(t)
+	userFixture(t, modulesDir, "luar", []string{"a.nix"}, "./a.nix")
+	mustWriteFile(t, filepath.Join(modulesDir, "desktop", "x.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf(hostLines...))
+	var err error
+	if h, err = Load(modulesDir, hostDir, machineDir); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func messages(vs []Violation) string {
+	var b strings.Builder
+	for _, v := range vs {
+		b.WriteString(v.File + ": " + v.Message + "\n")
+	}
+	return b.String()
+}
+
+func TestValidate_HostLineInsideUser(t *testing.T) {
+	skipIfNoNix(t)
+	_, _, h := loadUsers(t, "../users/luar", "../users/luar/modules/a.nix")
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(vs); !strings.Contains(got, "luxos user enable luar/a") {
+		t.Errorf("violations:\n%s", got)
+	}
+}
+
+func TestValidate_UserSelectionOutsideItsUser(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, _ := loadUsers(t, "../users/luar")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix"), selectionOf("./a.nix", "../../../desktop/x.nix"))
+	h, err := Load(modulesDir, hostDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(vs); !strings.Contains(got, "only its own modules") {
+		t.Errorf("violations:\n%s", got)
+	}
+}
+
+func TestValidate_UserUsesLuxosModules(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, _ := loadUsers(t, "../users/luar")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "a.nix"), "{ luxos, ... }: { imports = luxos.modules [ \"x\" ]; }")
+	h, err := Load(modulesDir, hostDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(vs); !strings.Contains(got, "may not use luxos.modules") {
+		t.Errorf("violations:\n%s", got)
+	}
+}
+
+func TestValidate_UserShadowed(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	userFixture(t, modulesDir, "luar", nil)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "luar.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("./luar.nix"))
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(vs); !strings.Contains(got, "users cannot be shadowed") {
+		t.Errorf("violations:\n%s", got)
+	}
+}
+
+func TestValidate_UserShapeOutsideUsers(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "people", "bob", "default.nix"), "{ imports = [ ./account.nix ]; }")
+	mustWriteFile(t, filepath.Join(modulesDir, "people", "bob", "account.nix"), vendoredAccount)
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf())
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := h.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(vs); !strings.Contains(got, "people/bob") || !strings.Contains(got, "modules/users/") {
+		t.Errorf("violations:\n%s", got)
+	}
+}

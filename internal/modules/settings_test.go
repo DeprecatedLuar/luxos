@@ -379,3 +379,26 @@ func TestVendoredUserFilesFollowTheRules(t *testing.T) {
 		t.Errorf("Validate = %+v, %v", violations, err)
 	}
 }
+
+func TestSettings_UserSubmoduleOptionsAreAProblem(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	userFixture(t, modulesDir, "luar", nil, "./ui")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "ui", "default.nix"), "{ imports = [ ./options.nix ]; }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "ui", "options.nix"), "{ lib, ... }: { options.luar.ui.size = lib.mkOption { type = lib.types.int; default = 1; }; }")
+	mustWriteFile(t, filepath.Join(hostDir, "modules", "default.nix"), selectionOf("../users/luar"))
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := SyncSettings(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Broken) != 1 || !strings.Contains(strings.Join(rep.Broken[0].Problems, "\n"), "write the values in the module") {
+		t.Errorf("Broken = %+v", rep.Broken)
+	}
+	if _, err := os.Stat(filepath.Join(hostDir, "settings")); !os.IsNotExist(err) {
+		t.Error("a settings file was written for a user's module")
+	}
+}

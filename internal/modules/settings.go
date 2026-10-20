@@ -19,6 +19,8 @@ const optionsTop = "options"
 
 const attrSep = "."
 
+const userOptionsFormat = "%s: a user's modules take no options; write the values in the module"
+
 // SettingsState is how a unit's settings stand.
 type SettingsState string
 
@@ -77,11 +79,15 @@ func (h *Host) settings(ms []Module, fileOf func(Module) string) ([]UnitSettings
 		if !ok {
 			continue
 		}
+		if UserOf(m) != "" && !IsUser(m) {
+			out = append(out, UnitSettings{Module: m, Options: opts, File: fileOf(m), Problems: []string{fmt.Sprintf(userOptionsFormat, opts)}})
+			continue
+		}
 		out = append(out, UnitSettings{Module: m, Options: opts, File: fileOf(m)})
 		files = append(files, opts)
 	}
-	if len(out) == 0 {
-		return nil, nil
+	if len(files) == 0 {
+		return out, nil
 	}
 	read, broken, err := nix.ReadOptions(files...)
 	if err != nil {
@@ -89,6 +95,9 @@ func (h *Host) settings(ms []Module, fileOf func(Module) string) ([]UnitSettings
 	}
 	for i := range out {
 		u := &out[i]
+		if len(u.Problems) > 0 {
+			continue
+		}
 		abs, err := filepath.Abs(u.Options)
 		if err != nil {
 			return nil, err

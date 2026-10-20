@@ -12,6 +12,16 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
+const (
+	accountFile       = "account.nix"
+	vendoredHeader    = "# LUXOS property - keep walking buddy\n"
+	userShadowFormat  = "shadows user '%s': users cannot be shadowed; rename or delete it"
+	userShapeMessage  = "holds luxos' account.nix, so it is a user: users live in modules/users/"
+	userLineFormat    = "selects %s inside user %s: a user's modules are enabled in its own selection: luxos user enable %s"
+	userForeignFormat = "lists %s: a user's selection holds only its own modules"
+	userModulesFormat = "luxos.modules: a user's modules may not use luxos.modules (%s); the host enables shared modules"
+)
+
 // Violation is one module-boundary rule a file breaks.
 type Violation struct {
 	File, Message string
@@ -92,7 +102,10 @@ func (h *Host) walk(visit func(m Module, file string) []string) error {
 // of the closure on the next run. err is returned for a selection that
 // resolves to no module, or for I/O or parser-lookup failure (e.g.
 // nix-instantiate missing); a file that itself fails to parse is reported as
-// a Violation instead.
+// a Violation instead. User rules: a user is not shadowed and lives only in
+// users/, a host or machine selection never lists a path inside a user, a
+// selected user's selection lists only its own modules, and a user's files
+// never use luxos.modules.
 func (h *Host) Validate() ([]Violation, error) {
 	selection := h.Selection()
 	selected := make(map[string]bool, len(selection))
@@ -113,6 +126,7 @@ func (h *Host) Validate() ([]Violation, error) {
 			})
 		}
 	}
+	violations = append(violations, h.userViolations()...)
 
 	var walkErr error
 	err := h.walk(func(m Module, file string) []string {
@@ -163,6 +177,11 @@ func (h *Host) Validate() ([]Violation, error) {
 			report("%s", v)
 		}
 
+		if UserOf(m) != "" && len(names) > 0 {
+			report(userModulesFormat, strings.Join(names, ", "))
+			return nil
+		}
+
 		var follow []string
 		for _, name := range names {
 			if name == m.Name {
@@ -191,6 +210,50 @@ func (h *Host) Validate() ([]Violation, error) {
 
 	sort.SliceStable(violations, func(i, j int) bool { return violations[i].File < violations[j].File })
 	return violations, nil
+}
+
+// userViolations checks the user rules: no shadowed user, no user-shaped
+// folder outside users/, no host or machine line inside a user, and no
+// selected user's line outside that user.
+func (h *Host) userViolations() []Violation {
+	var vs []Violation
+	for _, m := range h.Modules {
+		if m.Shadows != "" && Parent(m.Name) == "" {
+			for _, hidden := range h.Hidden {
+				if hidden.Path == m.Shadows && IsUser(hidden) {
+					vs = append(vs, Violation{File: m.Path, Message: fmt.Sprintf(userShadowFormat, m.Name)})
+				}
+			}
+		}
+		if !IsUser(m) && hasVendoredAccount(m.Abs) {
+			vs = append(vs, Violation{File: m.Path, Message: userShapeMessage})
+		}
+	}
+	for _, sel := range h.Selections {
+		for _, p := range sel.Paths {
+			m, ok := h.Find(NameFromPath(p))
+			if !ok {
+				continue
+			}
+			if user := UserOf(m); user != "" && !IsUser(m) {
+				vs = append(vs, Violation{File: sel.File, Message: fmt.Sprintf(userLineFormat, m.Name, user, m.Name)})
+			}
+		}
+	}
+	for _, sel := range h.SelectedUsers() {
+		for _, p := range sel.Paths {
+			if !strings.HasPrefix(p, sel.Scope+nameSep) {
+				vs = append(vs, Violation{File: sel.File, Message: fmt.Sprintf(userForeignFormat, p)})
+			}
+		}
+	}
+	return vs
+}
+
+// hasVendoredAccount reports whether dir holds luxos' account.nix.
+func hasVendoredAccount(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, accountFile))
+	return err == nil && strings.HasPrefix(string(data), vendoredHeader)
 }
 
 // Closure returns, for every module name reached from the selection via a
