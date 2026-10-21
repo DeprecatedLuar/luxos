@@ -1,0 +1,2 @@
+# SSH public keys that may log in as this user, one per line, as in a .pub file:
+# ssh-ed25519 AAAAC3Nza... you@laptop
