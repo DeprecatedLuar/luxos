@@ -97,6 +97,11 @@ func ExitCode(err error) (int, bool) {
 	return 0, false
 }
 
+// NotFound reports whether err is a program missing from PATH.
+func NotFound(err error) bool {
+	return errors.Is(err, exec.ErrNotFound)
+}
+
 // Self returns the path of this binary with symlinks resolved.
 func Self() (string, error) {
 	exe, err := os.Executable()

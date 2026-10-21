@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"syscall"
+
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
 const (
@@ -116,6 +118,9 @@ func readSecret(path string) (string, error) {
 		return "", fmt.Errorf("%s: %w (%v)", path, ErrNotKey, err)
 	}
 	if _, err := PublicKey(secret); err != nil {
+		if shell.NotFound(err) {
+			return "", err
+		}
 		return "", fmt.Errorf("%s: %w (%v)", path, ErrNotKey, err)
 	}
 	return secret, nil
@@ -160,9 +165,15 @@ func Check(unitDir, keysDir, user string, uid int) error {
 		return err
 	}
 	if err := CheckKey(keysDir, user, uid); err != nil {
+		if shell.NotFound(err) {
+			return fmt.Errorf("user %s: %w", user, err)
+		}
 		return fmt.Errorf("user %s: %w\n  fix: luxos user key add %s", user, err, user)
 	}
 	if err := Decrypt(file, KeyPath(keysDir, user)); err != nil {
+		if shell.NotFound(err) {
+			return fmt.Errorf("user %s: %w", user, err)
+		}
 		return fmt.Errorf("user %s: the key on this computer does not decrypt %s: %v\n  fix: luxos user key add %s (or set a new password: luxos user passwd %s)", user, file, err, user, user)
 	}
 	return nil

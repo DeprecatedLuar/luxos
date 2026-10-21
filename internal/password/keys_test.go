@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
 func TestWriteKeyModes(t *testing.T) {
@@ -170,5 +172,29 @@ func TestRepairKey(t *testing.T) {
 	}
 	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
 		t.Errorf("garbage was repaired: mode %v", fi.Mode().Perm())
+	}
+}
+
+func TestMissingToolIsNotBadKey(t *testing.T) {
+	saved := ageKeygenBin
+	ageKeygenBin = "luxos-test-missing-age-keygen"
+	t.Cleanup(func() { ageKeygenBin = saved })
+
+	keys, unit := t.TempDir(), t.TempDir()
+	uid := os.Getuid()
+	if err := os.WriteFile(KeyPath(keys, "luar"), []byte(secretPrefix+"X\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unit, File), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := RepairKey(keys, "luar", uid)
+	if errors.Is(err, ErrNotKey) || !shell.NotFound(err) {
+		t.Errorf("RepairKey: %v, want a missing-program error", err)
+	}
+	err = Check(unit, keys, "luar", uid)
+	if !shell.NotFound(err) || strings.Contains(err.Error(), "key add") {
+		t.Errorf("Check: %v, want a missing-program error without a key fix", err)
 	}
 }
