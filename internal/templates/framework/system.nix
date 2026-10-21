@@ -18,14 +18,13 @@ in
   nixpkgs.config.allowUnfree = lib.mkDefault true;
   environment.systemPackages = with pkgs; [
     ncdu
-    fastfetch
+    fastfetchMinimal
 
     nano
     vim
     git
     wget
     lsof
-    ffmpeg
     fd
     jq
     tmux
@@ -48,6 +47,8 @@ in
     # The luxos binary itself, from the flake input declared by the framework.
     inputs.luxos.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
+
+  environment.shellAliases.fetch = lib.mkDefault "fastfetch";
 
   programs.nix-ld.enable = lib.mkDefault true;
 

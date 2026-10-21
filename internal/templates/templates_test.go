@@ -131,3 +131,21 @@ func TestSystemCopiesBothSelections(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemNix_BasePackages(t *testing.T) {
+	sys, err := File("framework/system.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(sys)
+	for _, want := range []string{"    fastfetchMinimal\n", `environment.shellAliases.fetch = lib.mkDefault "fastfetch";`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("system.nix lacks %q", want)
+		}
+	}
+	for _, gone := range []string{"    ffmpeg\n", "    fastfetch\n"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("system.nix still installs %q", strings.TrimSpace(gone))
+		}
+	}
+}
