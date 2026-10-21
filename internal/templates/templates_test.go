@@ -74,13 +74,13 @@ func TestSystemNix_ImportsNoHardwareFiles(t *testing.T) {
 	}
 }
 
-func TestSystemDefaultsWatchdogAndGC(t *testing.T) {
+func TestSystemDefaultsPanicAndGC(t *testing.T) {
 	sys, err := File("framework/system.nix")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "20s";`,
+		`boot.kernel.sysctl."kernel.panic" = lib.mkDefault 10;`,
 		`automatic = lib.mkDefault true;`,
 		`dates = lib.mkDefault "weekly";`,
 		`options = lib.mkDefault "--delete-older-than 14d";`,
@@ -89,8 +89,29 @@ func TestSystemDefaultsWatchdogAndGC(t *testing.T) {
 			t.Errorf("system.nix lacks %q", want)
 		}
 	}
+	for _, gone := range []string{"panic_on_oops", "hardlockup_panic", "RuntimeWatchdogSec"} {
+		if strings.Contains(string(sys), gone) {
+			t.Errorf("system.nix still sets %s", gone)
+		}
+	}
 	if _, err := File("starters/hardware.nix"); err == nil {
 		t.Error("starters/hardware.nix still embedded")
+	}
+}
+
+func TestAutoRebootStarter(t *testing.T) {
+	src, err := File("starters/modules/hardware/auto-reboot.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"kernel.panic_on_oops" = 1;`,
+		`"kernel.hardlockup_panic" = 1;`,
+		`systemd.settings.Manager.RuntimeWatchdogSec = "20s";`,
+	} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("auto-reboot.nix lacks %q", want)
+		}
 	}
 }
 

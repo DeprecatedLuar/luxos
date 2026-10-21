@@ -95,15 +95,8 @@ in
 
   zramSwap.enable = lib.mkDefault true; # 50% RAM compressed swap, no disk needed
 
-  # A frozen kernel leaves no logs; panicking is what gets a crash into pstore.
-  boot.kernel.sysctl = {
-    "kernel.hardlockup_panic" = lib.mkDefault 1;
-    "kernel.panic_on_oops" = lib.mkDefault 1;
-    "kernel.panic" = lib.mkDefault 10;
-  };
-
-  # Resets a hung machine; systemd ignores it without a watchdog device.
-  systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "20s";
+  # Reboot 10s after a kernel panic instead of hanging.
+  boot.kernel.sysctl."kernel.panic" = lib.mkDefault 10;
 
   nix.gc = {
     automatic = lib.mkDefault true;

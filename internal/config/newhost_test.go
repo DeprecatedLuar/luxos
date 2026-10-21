@@ -51,7 +51,7 @@ func TestCopyStarterModules(t *testing.T) {
 	if err := CopyStarterModules(modulesDir); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{"desktop/compositors/hyprland.nix", "desktop/greeters/greetd.nix", "hardware/laptop/options.nix", "unstable.nix"} {
+	for _, rel := range []string{"desktop/compositors/hyprland.nix", "desktop/greeters/greetd.nix", "hardware/laptop/options.nix", "hardware/auto-reboot.nix", "unstable.nix"} {
 		if _, err := os.Stat(filepath.Join(modulesDir, rel)); err != nil {
 			t.Errorf("%s: %v", rel, err)
 		}
