@@ -161,13 +161,13 @@ func TestDesktopNix_Defaults(t *testing.T) {
 		"services.printing.enable = true;",
 		"nssmdns4 = true;",
 		"services.fwupd.enable = true;",
-		`boot.kernelModules = [ "uinput" ];`,
+		"hardware.uinput.enable = true;",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("desktop.nix lacks %q", want)
 		}
 	}
-	for _, gone := range []string{"v4l2loopback", "programs.nix-ld.enable", "Workspace"} {
+	for _, gone := range []string{"v4l2loopback", "programs.nix-ld.enable", "Workspace", "boot.kernelModules"} {
 		if strings.Contains(s, gone) {
 			t.Errorf("desktop.nix still contains %q", gone)
 		}

@@ -119,7 +119,6 @@ in
   #──[Input Devices]─────────────────────────────────────────────────────────
 
   hardware.uinput.enable = true;
-  boot.kernelModules = [ "uinput" ];
 
   #──[Services]──────────────────────────────────────────────────────────────
 
