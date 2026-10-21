@@ -503,7 +503,7 @@ func TestFlakeLeadingFlag(t *testing.T) {
 }
 
 func TestUpdateHelpFlag(t *testing.T) {
-	assertHelp(t, func() error { return Update([]string{"-h"}) }, "luxos update")
+	assertHelp(t, func() error { return Update([]string{"-h"}) }, "luxos flake")
 }
 
 func TestFlakeShowMissingInput(t *testing.T) {

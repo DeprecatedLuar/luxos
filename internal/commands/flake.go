@@ -18,10 +18,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
-const (
-	flakeCommand  = "flake"
-	updateCommand = "update"
-)
+const flakeCommand = "flake"
 
 const flakeFlagSpec = "host:value config|C:value"
 
@@ -89,7 +86,7 @@ func Flake(args []string) error {
 // Update is `flake update`; with no inputs it updates luxos after a confirmation.
 func Update(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
-		return help.Command(os.Stdout, updateCommand)
+		return help.Command(os.Stdout, flakeCommand)
 	}
 
 	opts, names, err := shared.Parse(updateFlagSpec, args)

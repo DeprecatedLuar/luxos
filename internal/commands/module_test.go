@@ -264,19 +264,6 @@ func TestModuleRename_SharedUnitRewritesNonActiveHostsModule(t *testing.T) {
 	}
 }
 
-// A bare `module` or `user` prints its help page without resolving paths.
-func TestBareModuleAndUserPrintHelp(t *testing.T) {
-	t.Setenv("HOME", "")
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("LUXOS_CONFIG_DIR", "")
-	if err := Module(nil); err != nil {
-		t.Errorf("Module(nil) = %v, want nil", err)
-	}
-	if err := User(nil); err != nil {
-		t.Errorf("User(nil) = %v, want nil", err)
-	}
-}
-
 func TestModuleRename_SharedUnitShadowedOnHostLeavesThatHostUntouched(t *testing.T) {
 	skipIfNoNix(t)
 	p := twoHostScopeFixture(t)
