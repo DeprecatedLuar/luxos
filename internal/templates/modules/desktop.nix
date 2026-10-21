@@ -76,37 +76,18 @@ in
     binfmt = true;
     package = appimage-run;
   };
-  programs.nix-ld.enable = true;
-  # Portable (non-AppImage) binaries in ~/Workspace/tools/ need these to
-  # resolve their dynamic libs against nix-ld's shimmed ld.so.
-  programs.nix-ld.libraries = with pkgs; [
-    xorg.libxcb
-    xorg.libX11
-    xorg.libXrandr
-    xorg.libXi
-    xorg.libXcursor
-    xorg.libXdamage
-    xorg.libXcomposite
-    xorg.libXfixes
-    xorg.libXext
+
+  # Prebuilt desktop binaries resolve their libraries through nix-ld: the set
+  # nixpkgs gives AppImages, plus what it lacks.
+  programs.nix-ld.libraries = (pkgs.appimageTools.defaultFhsEnvArgs.multiPkgs pkgs) ++ (with pkgs; [
     gtk3
     webkitgtk_4_1
     libsoup_3
-    glib
-    cairo
-    pango
-    gdk-pixbuf
-    at-spi2-core
-    dbus
-    mesa
-    libglvnd
-    alsa-lib
-    nss
-    nspr
-    cups
-    libnotify
     libayatana-appindicator
-  ];
+    libnotify
+    libxshmfence
+    mesa
+  ]);
 
   #──[Audio & Bluetooth]─────────────────────────────────────────────────────
 
@@ -138,18 +119,20 @@ in
   #──[Input Devices]─────────────────────────────────────────────────────────
 
   hardware.uinput.enable = true;
+  boot.kernelModules = [ "uinput" ];
 
   #──[Services]──────────────────────────────────────────────────────────────
 
   services.upower.enable = true;
+  services.fwupd.enable = true;
 
-  #──[Virtual Camera Support]───────────────────────────────────────────────
-
-  boot.extraModulePackages = with pkgs; [ linuxPackages.v4l2loopback ];
-  boot.kernelModules = [ "v4l2loopback" "uinput" ];
-  boot.extraModprobeConfig = ''
-    options v4l2loopback devices=1 video_nr=10 card_label="Virtual Camera" exclusive_caps=1
-  '';
+  # Network printers announce themselves over mDNS.
+  services.printing.enable = true;
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+    openFirewall = true;
+  };
 
   #──[Qt Theming]───────────────────────────────────────────────────────────
   # The qt6ct plugin also answers to "qt5ct", so one value themes Qt5 and Qt6.

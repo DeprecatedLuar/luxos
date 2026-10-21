@@ -12,6 +12,7 @@ import (
 
 const (
 	userPackagesStarter = "starters/user/modules/packages.nix"
+	userKeysStarter     = "starters/user/authorized_keys"
 
 	// UsersDir is the category of modules/ that holds user units.
 	UsersDir = "users"
@@ -27,6 +28,9 @@ const (
 
 	// UserPackagesFile is the starter's path inside a user unit.
 	UserPackagesFile = "modules/packages.nix"
+
+	// UserKeysFile is the user's SSH authorized keys file inside a user unit.
+	UserKeysFile = "authorized_keys"
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
 
@@ -60,6 +64,7 @@ func WriteUser(dir string) error {
 // file without the luxos header is hand-written: SyncUser refuses it and
 // writes nothing for the unit, except default.nix, which a unit cannot load
 // without: that one is kept as default.nix.old and replaced. A unit without
+// authorized_keys gets the starter, never rewritten. A unit without
 // a modules/ folder gets one holding the starter modules/packages.nix; a unit
 // without a selection gets one, selecting the starter when SyncUser wrote it.
 // An existing selection is never rewritten.
@@ -116,6 +121,20 @@ func SyncUser(dir string) ([]SyncChange, error) {
 			return nil, err
 		}
 		changes = append(changes, SyncChange{Path: f.name, Action: action})
+	}
+
+	keys := filepath.Join(dir, UserKeysFile)
+	if _, err := os.Lstat(keys); os.IsNotExist(err) {
+		data, err := templates.File(userKeysStarter)
+		if err != nil {
+			return nil, err
+		}
+		if err := WriteFile(keys, data); err != nil {
+			return nil, err
+		}
+		changes = append(changes, SyncChange{Path: UserKeysFile, Action: ActionCreated})
+	} else if err != nil {
+		return nil, err
 	}
 
 	modulesDir := filepath.Join(dir, userModulesDir)

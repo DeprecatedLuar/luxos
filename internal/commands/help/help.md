@@ -215,7 +215,7 @@ $ luxos rebuild [flags] <action> [nixos-rebuild args]
 - account.nix | luxos': the account, its password file and authorized_keys
 - options.nix | luxos': the groups option
 - .password.age | The encrypted password
-- authorized_keys | Yours, optional: SSH public keys that may log in, one per line
+- authorized_keys | Yours: SSH public keys that may log in, one per line, created empty
 - modules/ | Yours: each file is a submodule
 - modules/default.nix | Yours: the modules this user brings to every host
 - modules/packages.nix | The user's packages, created with the user

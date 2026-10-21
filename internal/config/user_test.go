@@ -16,7 +16,7 @@ func TestWriteUser(t *testing.T) {
 	if err := WriteUser(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"default.nix", "account.nix", "options.nix", "modules/packages.nix", "modules/default.nix"} {
+	for _, f := range []string{"default.nix", "account.nix", "options.nix", "authorized_keys", "modules/packages.nix", "modules/default.nix"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
@@ -35,9 +35,10 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 5 || changes[0].Action != ActionCreated ||
-		changes[3] != (SyncChange{Path: UserPackagesFile, Action: ActionCreated}) ||
-		changes[4] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
+	if len(changes) != 6 || changes[0].Action != ActionCreated ||
+		changes[3] != (SyncChange{Path: UserKeysFile, Action: ActionCreated}) ||
+		changes[4] != (SyncChange{Path: UserPackagesFile, Action: ActionCreated}) ||
+		changes[5] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
 		t.Errorf("first sync = %+v", changes)
 	}
 	sel, err := os.ReadFile(UserSelectionPath(dir))
@@ -83,7 +84,7 @@ func TestSyncUser_KeepsExistingModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 4 || changes[3] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
+	if len(changes) != 5 || changes[4] != (SyncChange{Path: UserSelectionFile, Action: ActionCreated}) {
 		t.Errorf("sync = %+v, want the vendored files and an empty selection", changes)
 	}
 	sel, err := os.ReadFile(UserSelectionPath(dir))

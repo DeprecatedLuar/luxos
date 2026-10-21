@@ -38,7 +38,6 @@ in {
   bobGroups = c.users.users.bob.extraGroups;
   luarFile = c.users.users.luar.hashedPasswordFile;
   luarKeyFiles = map toString c.users.users.luar.openssh.authorizedKeys.keyFiles;
-  bobKeyFiles = map toString c.users.users.bob.openssh.authorizedKeys.keyFiles;
   hasLuar = c.users.users ? luar;
   hasModulesUser = c.users.users ? modules;
   deps = c.system.activationScripts.users.deps;
@@ -60,7 +59,6 @@ type usersEval struct {
 	BobGroups      []string `json:"bobGroups"`
 	LuarFile       string   `json:"luarFile"`
 	LuarKeyFiles   []string `json:"luarKeyFiles"`
-	BobKeyFiles    []string `json:"bobKeyFiles"`
 	HasLuar        bool     `json:"hasLuar"`
 	HasModulesUser bool     `json:"hasModulesUser"`
 	Deps           []string `json:"deps"`
@@ -99,8 +97,8 @@ func evalUsers(t *testing.T, groups, extra string) usersEval {
 		write(u+"/account.nix", read("user/account.nix"))
 		write(u+"/options.nix", read("user/options.nix"))
 		write(u+"/.password.age", []byte("x"))
+		write(u+"/authorized_keys", read("starters/user/authorized_keys"))
 	}
-	write("luar/authorized_keys", []byte("ssh-ed25519 AAAA luar@test\n"))
 
 	cmd := exec.Command("nix-instantiate", "--eval", "--strict", "--json", "-E", fmt.Sprintf(usersEvalExpr, groups, extra))
 	cmd.Dir = dir
@@ -124,8 +122,8 @@ func TestUsersFramework(t *testing.T) {
 	if !got.HasLuar || got.HasModulesUser {
 		t.Errorf("packages submodule named the wrong user: hasLuar %v, hasModulesUser %v", got.HasLuar, got.HasModulesUser)
 	}
-	if len(got.LuarKeyFiles) != 1 || !strings.HasSuffix(got.LuarKeyFiles[0], "/luar/authorized_keys") || len(got.BobKeyFiles) != 0 {
-		t.Errorf("authorized key files: luar %v, bob %v", got.LuarKeyFiles, got.BobKeyFiles)
+	if len(got.LuarKeyFiles) != 1 || !strings.HasSuffix(got.LuarKeyFiles[0], "/luar/authorized_keys") {
+		t.Errorf("authorized key files = %v", got.LuarKeyFiles)
 	}
 	if got.LuarFile != "/run/luxos/passwords/luar" {
 		t.Errorf("hashedPasswordFile = %q", got.LuarFile)
