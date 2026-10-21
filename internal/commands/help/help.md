@@ -212,9 +212,10 @@ $ luxos rebuild [flags] <action> [nixos-rebuild args]
 ## Folder
 > luxos restores its three files if you change them. Set groups in the host's settings file.
 - default.nix | luxos': imports account.nix and options.nix
-- account.nix | luxos': the account and its password file
+- account.nix | luxos': the account, its password file and authorized_keys
 - options.nix | luxos': the groups option
 - .password.age | The encrypted password
+- authorized_keys | Yours, optional: SSH public keys that may log in, one per line
 - modules/ | Yours: each file is a submodule
 - modules/default.nix | Yours: the modules this user brings to every host
 - modules/packages.nix | The user's packages, created with the user
