@@ -330,13 +330,13 @@ func (h *Host) Built() ([]Module, error) {
 	return out, nil
 }
 
-// Dependents returns every module file under modulesDir (its reserved root
+// dependents returns every module file under modulesDir (its reserved root
 // entries skipped) plus every unitDirs entry (its selection skipped), whose
 // luxos.modules list contains name. Read-only. A file mentioning luxos and
 // name that fails to parse is an error naming it; a file whose luxos.modules
 // use isn't the recognized shape is skipped, since it can't be a hit. A
 // missing unitDirs entry is skipped.
-func Dependents(modulesDir string, unitDirs []string, name string) ([]string, error) {
+func dependents(modulesDir string, unitDirs []string, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 	files, err := findAllNix(root, reservedRoot)
 	if err != nil {
@@ -380,42 +380,17 @@ func Dependents(modulesDir string, unitDirs []string, name string) ([]string, er
 	return out, nil
 }
 
-// RetargetRefs is the single writer of module files: in
-// every module file under modulesDir whose luxos.modules list contains
-// name, rewrite it to newName if given, else delete it from the list.
-// Every dependent's call shape is validated (nix.Names, which errors on an
-// unrecognized use of luxos) before any file is touched, so a bad shape
-// anywhere refuses the whole operation before anything changes.
-// nix.RetargetModuleName refuses any candidate that differs from the
-// original by more than the one substitution.
-func RetargetRefs(modulesDir string, unitDirs []string, name, newName string) ([]Change, error) {
-	files, err := Dependents(modulesDir, unitDirs, name)
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return nil, nil
-	}
-
-	// Validate shape everywhere first — Names errors naming the file.
+// retargetRefs rewrites name to newName, or deletes it when newName is "", in
+// the luxos.modules list of every file of files. nix.RetargetModuleName
+// refuses any candidate that differs from the original by more than the one
+// substitution.
+func retargetRefs(files []string, name, newName string) error {
 	for _, file := range files {
-		if _, err := nix.Names(file); err != nil {
-			return nil, err
+		if _, err := nix.RetargetModuleName(file, name, newName); err != nil {
+			return err
 		}
 	}
-
-	var changes []Change
-	for _, file := range files {
-		changed, err := nix.RetargetModuleName(file, name, newName)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			changes = append(changes, Change{File: file, Old: name, New: newName})
-		}
-	}
-
-	return changes, nil
+	return nil
 }
 
 //──[private: tree walk]──────────────────────────────────────────────────────

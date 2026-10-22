@@ -363,11 +363,11 @@ func joinPaths(paths [][]string) []string {
 	return out
 }
 
-// MoveSettings renames unit name's settings file, and the folder of its
+// moveSettings renames unit name's settings file, and the folder of its
 // submodules' settings when it is a bundle, to newName in every folder of
 // scopeDirs; newName "" deletes them. A missing entry is skipped. An entry
 // whose target already exists is left in place and returned in kept.
-func MoveSettings(scopeDirs []string, name, newName string) (kept []string, err error) {
+func moveSettings(scopeDirs []string, name, newName string) (kept []string, err error) {
 	for _, dir := range scopeDirs {
 		pairs := [][2]string{
 			{config.SettingsPath(dir, name), ""},

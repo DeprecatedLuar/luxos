@@ -38,7 +38,7 @@ func TestRetarget_Rename(t *testing.T) {
 	host1, host2 := setupTwoHosts(t)
 	files := sharedFiles(host1, host2)
 
-	changes, err := RetargetSelections(files, "foo", "b/foo.nix")
+	changes, _, err := retarget(files, "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestRetarget_Rename(t *testing.T) {
 	}
 
 	// Second run: no changes (idempotent).
-	changes2, err := RetargetSelections(files, "foo", "b/foo.nix")
+	changes2, _, err := retarget(files, "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -71,7 +71,7 @@ func TestRetarget_Delete(t *testing.T) {
 	host1, host2 := setupTwoHosts(t)
 	files := sharedFiles(host1, host2)
 
-	changes, err := RetargetSelections(files, "foo", "")
+	changes, _, err := retarget(files, "foo", "")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRetarget_Delete(t *testing.T) {
 		}
 	}
 
-	changes2, err := RetargetSelections(files, "foo", "")
+	changes2, _, err := retarget(files, "foo", "")
 	if err != nil {
 		t.Fatalf("Retarget (2nd): %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRetarget_OnlyGivenFiles(t *testing.T) {
 	skipIfNoNix(t)
 	host1, host2 := setupTwoHosts(t)
 
-	changes, err := RetargetSelections(sharedFiles(host1), "foo", "b/foo.nix")
+	changes, _, err := retarget(sharedFiles(host1), "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -129,10 +129,10 @@ func TestRetarget_ScopedLines(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "default.nix")
 	mustWriteFile(t, f, "{ ... }:\n{\n  imports = [\n    ./old/foo.nix\n    ../a/bar.nix\n  ];\n}\n")
 	files := []SelectionFile{{Scope: config.ScopeHost, File: f}}
-	if _, err := RetargetSelections(files, "foo", "host/new/foo.nix"); err != nil {
+	if _, _, err := retarget(files, "foo", "host/new/foo.nix"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RetargetSelections(files, "bar", "b/bar.nix"); err != nil {
+	if _, _, err := retarget(files, "bar", "b/bar.nix"); err != nil {
 		t.Fatal(err)
 	}
 	lines, _, _ := nix.ListImports(f)
@@ -383,7 +383,7 @@ func TestRetarget_SkippedFileUntouched(t *testing.T) {
 	skipIfNoNix(t)
 	host1, host2 := setupTwoHosts(t)
 
-	changes, err := RetargetSelections(sharedFiles(host2), "foo", "b/foo.nix")
+	changes, _, err := retarget(sharedFiles(host2), "foo", "b/foo.nix")
 	if err != nil {
 		t.Fatalf("Retarget: %v", err)
 	}
@@ -414,12 +414,8 @@ func TestRetargetPrefix_Rename(t *testing.T) {
 	skipIfNoNix(t)
 	host1, host2 := bundleHosts(t)
 
-	changes, err := RetargetPrefix(sharedFiles(host1, host2), "users/luar", "users/lua")
-	if err != nil {
-		t.Fatalf("RetargetPrefix: %v", err)
-	}
-	if len(changes) != 4 {
-		t.Fatalf("changes = %v, want 4 (two lines in each host)", changes)
+	if err := retargetPrefix(sharedFiles(host1, host2), "users/luar", "users/lua"); err != nil {
+		t.Fatalf("retargetPrefix: %v", err)
 	}
 	want := []string{"users/luar", "users/lua/modules/git.nix", "users/lua/modules/cli/zsh.nix", "users/luarx/modules/git.nix"}
 	for _, f := range []string{host1, host2} {
@@ -437,8 +433,8 @@ func TestRetargetPrefix_Remove(t *testing.T) {
 	skipIfNoNix(t)
 	host1, _ := bundleHosts(t)
 
-	if _, err := RetargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
-		t.Fatalf("RetargetPrefix: %v", err)
+	if err := retargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
+		t.Fatalf("retargetPrefix: %v", err)
 	}
 	got, err := ReadSelection(host1, sharedScope)
 	if err != nil {
@@ -454,7 +450,7 @@ func TestRetargetPrefix_OnlyGivenFiles(t *testing.T) {
 	skipIfNoNix(t)
 	host1, host2 := bundleHosts(t)
 
-	if _, err := RetargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
+	if err := retargetPrefix(sharedFiles(host1), "users/luar", ""); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := ReadSelection(host2, sharedScope)
@@ -772,7 +768,7 @@ func TestHeal_UserSelectionUnresolved(t *testing.T) {
 func TestScopeOf_UserSelection(t *testing.T) {
 	modulesDir, hostsDir, machinesDir, _, h := userHostFixture(t)
 	userSel := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
-	has := func(s Scope) bool {
+	has := func(s reach) bool {
 		for _, f := range s.Selections {
 			if f.File == userSel {
 				return true
@@ -781,11 +777,11 @@ func TestScopeOf_UserSelection(t *testing.T) {
 		return false
 	}
 	sub, _ := h.Find("luar/a")
-	if s, err := ScopeOf(hostsDir, machinesDir, h, sub); err != nil || !has(s) {
+	if s, err := scopeOf(hostsDir, machinesDir, h, sub); err != nil || !has(s) {
 		t.Errorf("submodule scope lacks the user's selection: %+v, %v", s, err)
 	}
 	unit, _ := h.Find("luar")
-	if s, err := ScopeOf(hostsDir, machinesDir, h, unit); err != nil || has(s) {
+	if s, err := scopeOf(hostsDir, machinesDir, h, unit); err != nil || has(s) {
 		t.Errorf("user unit scope holds its own selection: %+v, %v", s, err)
 	}
 }

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"io"
 	"os"
@@ -41,21 +42,6 @@ func TestUserTarget(t *testing.T) {
 	for _, c := range cases {
 		if got := userTarget(c.in); got != c.want {
 			t.Errorf("userTarget(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-func TestJoinCategory(t *testing.T) {
-	cases := []struct {
-		category, base, want string
-	}{
-		{"", "foo", "foo"},
-		{"misc", "foo", "misc/foo"},
-		{"users", "foo.nix", "users/foo.nix"},
-	}
-	for _, c := range cases {
-		if got := joinCategory(c.category, c.base); got != c.want {
-			t.Errorf("joinCategory(%q, %q) = %q, want %q", c.category, c.base, got, c.want)
 		}
 	}
 }
@@ -1127,5 +1113,27 @@ func TestModuleListBundleViewFolderShadowsFile(t *testing.T) {
 	})
 	if !strings.Contains(out, "x") {
 		t.Errorf("bundle view is missing submodule x:\n%q", out)
+	}
+}
+
+func TestModuleRenameSharedAlwaysAsks(t *testing.T) {
+	skipIfNoNix(t)
+	stdin, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(f *os.File) { os.Stdin = f }(os.Stdin)
+	os.Stdin = stdin
+
+	p := twoHostScopeFixture(t)
+	foo := filepath.Join(p.Modules, "apps", "foo.nix")
+	write(t, foo, "{ }\n")
+	captureStdout(t, func() {
+		if err := moduleRename(p, []string{"foo", "baz"}); err != nil && !errors.Is(err, io.EOF) {
+			t.Fatalf("moduleRename: %v", err)
+		}
+	})
+	if _, err := os.Stat(foo); err != nil {
+		t.Errorf("renamed without confirmation: %v", err)
 	}
 }

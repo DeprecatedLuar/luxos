@@ -284,6 +284,16 @@ func equalStrings(got, want []string) bool {
 // Suite: tests/retarget.sh — refs.Retarget, the one writer of module files.
 //============================================================================
 
+// retargetDependents rewrites name to newName in every dependent of name.
+func retargetDependents(t *testing.T, mods string, unitDirs []string, name, newName string) error {
+	t.Helper()
+	files, err := dependents(mods, unitDirs, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return retargetRefs(files, name, newName)
+}
+
 func TestRetarget(t *testing.T) {
 	skipIfNoNix(t)
 	F := t.TempDir()
@@ -297,28 +307,13 @@ func TestRetarget(t *testing.T) {
 		write(t, filepath.Join(mods, "c.nix"), `{ }`)
 		write(t, filepath.Join(mods, "wayland.nix"), `{ }`)
 
-		changes, err := RetargetRefs(mods, nil, "wayland", "wl")
-		if err != nil {
+		if err := retargetDependents(t, mods, nil, "wayland", "wl"); err != nil {
 			t.Fatalf("Retarget: %v", err)
 		}
 
-		byFile := make(map[string]Change)
-		for _, c := range changes {
-			byFile[c.File] = c
-		}
 		aFile := filepath.Join(mods, "a.nix")
 		bFile := filepath.Join(mods, "b.nix")
 		cFile := filepath.Join(mods, "c.nix")
-
-		if c, ok := byFile[aFile]; !ok || c.Old != "wayland" || c.New != "wl" {
-			t.Errorf("a.nix change = %+v, ok=%v", c, ok)
-		}
-		if c, ok := byFile[bFile]; !ok || c.Old != "wayland" || c.New != "wl" {
-			t.Errorf("b.nix change = %+v, ok=%v", c, ok)
-		}
-		if _, ok := byFile[cFile]; ok {
-			t.Errorf("c.nix should not be mentioned")
-		}
 
 		if got := mustReadFile(t, aFile); got != `{ luxos, ... }: { imports = luxos.modules [ "wl" ]; }`+"\n" {
 			t.Errorf("a.nix content = %q", got)
@@ -345,20 +340,10 @@ func TestRetarget(t *testing.T) {
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./a.nix ./d.nix ]; }`)
 		write(t, filepath.Join(mods, "d.nix"), `{ luxos, ... }: { imports = luxos.modules [ "wl" ]; }`)
 
-		changes, err := RetargetRefs(mods, nil, "wl", "")
-		if err != nil {
+		if err := retargetDependents(t, mods, nil, "wl", ""); err != nil {
 			t.Fatalf("Retarget: %v", err)
 		}
 		dFile := filepath.Join(mods, "d.nix")
-		found := false
-		for _, c := range changes {
-			if c.File == dFile && c.Old == "wl" && c.New == "" {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("remove not reported: %v", changes)
-		}
 		if got := mustReadFile(t, dFile); got != `{ luxos, ... }: { imports = luxos.modules [ ]; }`+"\n" {
 			t.Errorf("d.nix content = %q", got)
 		}
@@ -368,55 +353,23 @@ func TestRetarget(t *testing.T) {
 	})
 
 	t.Run("no dependents: no-op, no error", func(t *testing.T) {
-		changes, err := RetargetRefs(mods, nil, "nonexistent-name", "newname")
-		if err != nil {
+		if err := retargetDependents(t, mods, nil, "nonexistent-name", "newname"); err != nil {
 			t.Fatalf("Retarget: %v", err)
-		}
-		if len(changes) != 0 {
-			t.Errorf("expected no changes, got %v", changes)
-		}
-	})
-
-	t.Run("item 20: a dependent with an unrecognized luxos shape refuses the whole write", func(t *testing.T) {
-		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./e.nix ./f.nix ]; }`)
-		eFile := write(t, filepath.Join(mods, "e.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
-		fFile := write(t, filepath.Join(mods, "f.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; extra = luxos; }`)
-		beforeE := mustReadFile(t, eFile)
-		beforeF := mustReadFile(t, fFile)
-
-		if _, err := RetargetRefs(mods, nil, "shared", "renamed"); err == nil {
-			t.Fatalf("Retarget: want error refusing the whole write")
-		}
-		if mustReadFile(t, eFile) != beforeE {
-			t.Errorf("e.nix was written despite refusal")
-		}
-		if mustReadFile(t, fFile) != beforeF {
-			t.Errorf("f.nix was written despite refusal")
 		}
 	})
 
 	t.Run("idempotent: a second identical retarget changes nothing further", func(t *testing.T) {
 		write(t, filepath.Join(mods, "default.nix"), `{ imports = [ ./g.nix ]; }`)
 		gFile := write(t, filepath.Join(mods, "g.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
-		if err := os.Remove(filepath.Join(mods, "e.nix")); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Remove(filepath.Join(mods, "f.nix")); err != nil {
-			t.Fatal(err)
-		}
 
-		if _, err := RetargetRefs(mods, nil, "shared", "renamed"); err != nil {
+		if err := retargetDependents(t, mods, nil, "shared", "renamed"); err != nil {
 			t.Fatalf("Retarget (first run): %v", err)
 		}
 		before := mustReadFile(t, gFile)
-		changes2, err := RetargetRefs(mods, nil, "shared", "renamed")
-		if err != nil {
+		if err := retargetDependents(t, mods, nil, "shared", "renamed"); err != nil {
 			t.Fatalf("Retarget (second run): %v", err)
 		}
 		after := mustReadFile(t, gFile)
-		if len(changes2) != 0 {
-			t.Errorf("second run should be a no-op, got %v", changes2)
-		}
 		if before != after {
 			t.Errorf("second run changed g.nix")
 		}
@@ -597,12 +550,8 @@ func TestVerification_RenameWithDependentsRewritesBothFiles(t *testing.T) {
 	write(t, filepath.Join(mods, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "wayland" ]; }`)
 	write(t, filepath.Join(mods, "wayland.nix"), `{ }`)
 
-	changes, err := RetargetRefs(mods, nil, "wayland", "wl")
-	if err != nil {
+	if err := retargetDependents(t, mods, nil, "wayland", "wl"); err != nil {
 		t.Fatalf("Retarget: %v", err)
-	}
-	if len(changes) != 2 {
-		t.Fatalf("expected 2 changes, got %d: %v", len(changes), changes)
 	}
 	for _, f := range []string{"a.nix", "b.nix"} {
 		names, err := nix.Names(filepath.Join(mods, f))
@@ -631,7 +580,7 @@ func TestDependents_ScansLocalModulesDirs(t *testing.T) {
 	write(t, filepath.Join(local1, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
 	write(t, filepath.Join(local2, "b.nix"), `{ luxos, ... }: { imports = luxos.modules [ "other" ]; }`)
 
-	got, err := Dependents(mods, []string{local1, local2}, "shared")
+	got, err := dependents(mods, []string{local1, local2}, "shared")
 	if err != nil {
 		t.Fatalf("Dependents: %v", err)
 	}
@@ -649,7 +598,7 @@ func TestDependents_MissingLocalModulesDirSkipped(t *testing.T) {
 	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
 
 	missing := filepath.Join(F, "local", "no-such-host", "modules")
-	if _, err := Dependents(mods, []string{missing}, "shared"); err != nil {
+	if _, err := dependents(mods, []string{missing}, "shared"); err != nil {
 		t.Fatalf("Dependents: want no error for a missing localModulesDirs entry, got %v", err)
 	}
 }
@@ -662,7 +611,7 @@ func TestDependents_UnparsableCandidateFails(t *testing.T) {
 	bad := filepath.Join(mods, "bar", "default.nix")
 	write(t, bad, `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; x = ; }`)
 
-	_, err := Dependents(mods, nil, "shared")
+	_, err := dependents(mods, nil, "shared")
 	if err == nil || !strings.Contains(err.Error(), bad) {
 		t.Fatalf("Dependents err = %v, want a parse error naming %s", err, bad)
 	}
@@ -680,12 +629,8 @@ func TestRetarget_ScopedToOneHostsLocalModulesDir(t *testing.T) {
 	aFile := write(t, filepath.Join(local1, "a.nix"), `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; }`)
 
 	// A rename scoped to host1's local dir only.
-	changes, err := RetargetRefs(mods, []string{local1}, "shared", "renamed-shared")
-	if err != nil {
+	if err := retargetDependents(t, mods, []string{local1}, "shared", "renamed-shared"); err != nil {
 		t.Fatalf("Retarget: %v", err)
-	}
-	if len(changes) != 1 || changes[0].File != aFile {
-		t.Fatalf("changes = %v, want exactly one change to %s", changes, aFile)
 	}
 	names, err := nix.Names(aFile)
 	if err != nil {

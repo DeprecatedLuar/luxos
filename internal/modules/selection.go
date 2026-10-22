@@ -143,11 +143,11 @@ func scopeFolders(scope, dir string) ([]string, error) {
 	return config.Machines(dir)
 }
 
-// Importers returns every file of files with a line whose name (from its
+// importers returns every file of files with a line whose name (from its
 // path, per NameFromPath) matches name, stale paths included. Read-only. A
-// file that isn't recognizable is silently skipped (same tolerance as
-// Retarget and Heal: it just can't be a hit).
-func Importers(files []SelectionFile, name string) ([]string, error) {
+// selection without exactly one recognizable imports block is an error
+// naming it.
+func importers(files []SelectionFile, name string) ([]string, error) {
 	var out []string
 	for _, f := range files {
 		lines, ok, err := nix.ListImports(f.File)
@@ -155,7 +155,7 @@ func Importers(files []SelectionFile, name string) ([]string, error) {
 			return nil, err
 		}
 		if !ok {
-			continue
+			return nil, fmt.Errorf("%s does not have exactly one recognizable imports block", f.File)
 		}
 		for _, p := range pathsOf(f.Scope, lines) {
 			if NameFromPath(p) == name {
@@ -167,16 +167,11 @@ func Importers(files []SelectionFile, name string) ([]string, error) {
 	return out, nil
 }
 
-// RetargetSelections is the writer of selections: rewrite every import line
-// of files whose name matches name to newPath (modules-relative), or delete
-// it when newPath is "". Returns every change made; a no-op line (already at
-// newPath) is left untouched and unreported, so a second run returns no
-// changes. A file that isn't recognizable is left untouched.
-func RetargetSelections(files []SelectionFile, name, newPath string) ([]Change, error) {
-	changes, _, err := retarget(files, name, newPath)
-	return changes, err
-}
-
+// retarget is the writer of selections: rewrite every import line of files
+// whose name matches name to newPath (modules-relative), or delete it when
+// newPath is "". Returns every change made; a no-op line (already at newPath)
+// is left untouched and unreported. A file that isn't recognizable is left
+// untouched and named in warnings.
 func retarget(files []SelectionFile, name, newPath string) ([]Change, []string, error) {
 	newPath = strings.TrimPrefix(newPath, "./")
 
@@ -205,16 +200,15 @@ func retarget(files []SelectionFile, name, newPath string) ([]Change, []string, 
 	return changes, warnings, nil
 }
 
-// RetargetPrefix rewrites every import line of files that selects a submodule
+// retargetPrefix rewrites every import line of files that selects a submodule
 // of the bundle at oldPrefix (a path starting with oldPrefix + "/modules/") so
 // the bundle prefix becomes newPrefix, or deletes the line when newPrefix is
 // "". A file that isn't recognizable is left untouched.
-func RetargetPrefix(files []SelectionFile, oldPrefix, newPrefix string) ([]Change, error) {
-	var changes []Change
+func retargetPrefix(files []SelectionFile, oldPrefix, newPrefix string) error {
 	for _, f := range files {
 		lines, ok, err := nix.ListImports(f.File)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !ok {
 			continue
@@ -225,25 +219,17 @@ func RetargetPrefix(files []SelectionFile, oldPrefix, newPrefix string) ([]Chang
 				continue
 			}
 			done[path] = true
-			newPath := ""
+			newLine := ""
 			if newPrefix != "" {
-				newPath = newPrefix + strings.TrimPrefix(path, oldPrefix)
+				newLine = config.LineOf(f.Scope, newPrefix+strings.TrimPrefix(path, oldPrefix))
 			}
 			line := config.LineOf(f.Scope, path)
-			newLine := ""
-			if newPath != "" {
-				newLine = config.LineOf(f.Scope, newPath)
-			}
-			old, _, err := nix.RetargetImports(f.File, func(l string) bool { return l == line }, newLine)
-			if err != nil {
-				return nil, err
-			}
-			for _, o := range pathsOf(f.Scope, old) {
-				changes = append(changes, Change{File: f.File, Old: o, New: newPath})
+			if _, _, err := nix.RetargetImports(f.File, func(l string) bool { return l == line }, newLine); err != nil {
+				return err
 			}
 		}
 	}
-	return changes, nil
+	return nil
 }
 
 // Heal first moves every cross-scope line of the active host's and this

@@ -215,9 +215,9 @@ func TestMoveSettings_BundleFolderMoves(t *testing.T) {
 		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo.nix"), "{ }\n")
 		mustWriteFile(t, filepath.Join(hosts, host, "settings", "eduardo", "git.nix"), "{ }\n")
 	}
-	kept, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "eduardo", "luar")
+	kept, err := moveSettings([]string{filepath.Join(hosts, "host1")}, "eduardo", "luar")
 	if err != nil || len(kept) > 0 {
-		t.Fatalf("MoveSettings: %v %v", kept, err)
+		t.Fatalf("moveSettings: %v %v", kept, err)
 	}
 	for _, p := range []string{"host1/settings/luar.nix", "host1/settings/luar/git.nix", "host2/settings/eduardo.nix", "host2/settings/eduardo/git.nix"} {
 		if _, err := os.Stat(filepath.Join(hosts, p)); err != nil {
@@ -236,11 +236,11 @@ func TestMoveSettings_RemoveAndKept(t *testing.T) {
 	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "a.nix"), "{ }\n")
 	mustWriteFile(t, filepath.Join(hosts, "host1", "settings", "b.nix"), "{ }\n")
 
-	kept, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "a", "b")
+	kept, err := moveSettings([]string{filepath.Join(hosts, "host1")}, "a", "b")
 	if err != nil || !reflect.DeepEqual(kept, []string{filepath.Join(hosts, "host1", "settings", "a.nix")}) {
 		t.Errorf("rename onto an existing file: kept = %v, err = %v", kept, err)
 	}
-	if _, err := MoveSettings([]string{filepath.Join(hosts, "host1")}, "a", ""); err != nil {
+	if _, err := moveSettings([]string{filepath.Join(hosts, "host1")}, "a", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(hosts, "host1", "settings", "a.nix")); !os.IsNotExist(err) {

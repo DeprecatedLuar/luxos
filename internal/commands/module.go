@@ -1004,226 +1004,88 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 	}
 }
 
-// errBootUnit refuses remove and rename of the machine's boot unit.
-var errBootUnit = errors.New("'boot' holds this computer's boot loader and luxos recreates it when missing; edit it with: luxos module edit boot")
-
 func moduleRemove(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {
 		return err
 	}
-
-	var name string
-	if len(rest) > 0 {
-		name = rest[0]
-	}
-	if name == "" {
+	if len(rest) == 0 || rest[0] == "" {
 		return help.Misuse(os.Stderr, moduleCommand, errMissingName)
 	}
+	name := rest[0]
 
 	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
-	m, err := ownedUnit(h, name)
+	plan, err := modules.PlanRemove(h, p.Hosts, p.Machines, name)
 	if err != nil {
 		return err
 	}
-	path := m.Path
-
-	scope, err := modules.ScopeOf(p.Hosts, p.Machines, h, m)
-	if err != nil {
-		return err
-	}
-
-	importers, err := modules.Importers(scope.Selections, name)
-	if err != nil {
-		return err
-	}
-	printReferencedBy(fmt.Sprintf("'%s' is imported by:", name), importers, fmt.Sprintf("'%s' is not imported by any host.", name))
-
-	dependents, err := modules.Dependents(p.Modules, scope.UnitDirs, name)
-	if err != nil {
-		return err
-	}
-	printReferencedBy(fmt.Sprintf("'%s' is referenced by:", name), dependents, "")
-
-	printShadowed(name, scope.Skipped)
+	printReferencedBy(fmt.Sprintf("'%s' is imported by:", name), plan.Importers, fmt.Sprintf("'%s' is not imported by any host.", name))
+	printReferencedBy(fmt.Sprintf("'%s' is referenced by:", name), plan.Dependents, "")
+	printShadowed(name, plan.Skipped)
 
 	if opts["yes"] == "" {
-		ok, err := ui.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", path), false)
+		ok, err := ui.Confirm(fmt.Sprintf("Remove modules/%s and the import line(s)/reference(s) above? [y/N] ", plan.Unit.Path), false)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return declined(scope.Skipped)
+			return declined(plan.Skipped)
 		}
 	}
-
-	// modules.RetargetRefs first: it validates every dependent's call shape before
-	// writing anything and refuses the whole operation on a bad shape, so a
-	// refusal here leaves the tree completely untouched.
-	if _, err := modules.RetargetRefs(p.Modules, scope.UnitDirs, name, ""); err != nil {
+	if _, err := plan.Apply(); err != nil {
 		return err
 	}
-	if _, err := modules.RetargetSelections(scope.Selections, name, ""); err != nil {
-		return err
-	}
-	if modules.IsBundle(filepath.Join(p.Modules, path)) {
-		if _, err := modules.RetargetPrefix(scope.Selections, path, ""); err != nil {
-			return err
-		}
-	}
-	if err := os.RemoveAll(filepath.Join(p.Modules, path)); err != nil {
-		return err
-	}
-	if _, err := modules.MoveSettings(scope.SettingsDirs, name, ""); err != nil {
-		return err
-	}
-
-	ui.Done(os.Stdout, fmt.Sprintf("Removed modules/%s", path))
+	ui.Done(os.Stdout, fmt.Sprintf("Removed modules/%s", plan.Unit.Path))
 	return nil
 }
 
 //──[rename]───────────────────────────────────────────────────────────────
-
-// joinCategory joins a category ("" for root) and a basename into a
-// modules-relative path.
-func joinCategory(category, base string) string {
-	if category == "" {
-		return base
-	}
-	return category + "/" + base
-}
 
 func moduleRename(p paths.Paths, args []string) error {
 	opts, rest, err := shared.Parse(moduleYesSpec, args)
 	if err != nil {
 		return err
 	}
-
-	var oldName, newName string
-	if len(rest) > 0 {
-		oldName = rest[0]
-	}
-	if len(rest) > 1 {
-		newName = rest[1]
-	}
-	if oldName == "" || newName == "" {
+	if len(rest) < 2 || rest[0] == "" || rest[1] == "" {
 		return help.Misuse(os.Stderr, moduleCommand, errRenameArgs)
 	}
+	oldName, newName := rest[0], rest[1]
 
 	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
-	old, err := ownedUnit(h, oldName)
+	plan, err := modules.PlanRename(h, p.Hosts, p.Machines, oldName, newName)
 	if err != nil {
 		return err
 	}
-	oldPath := old.Path
-
-	newQualified := newName
-	if parent := modules.Parent(oldName); parent != "" {
-		if strings.Contains(newName, nameSep) {
-			return fmt.Errorf("rename keeps a submodule in its bundle: give only the new name")
-		}
-		newQualified = parent + nameSep + newName
-	}
-
-	shadowedPath := ""
-	if existing, found := h.Find(newQualified); found {
-		if !modules.CanShadow(oldPath, existing) {
-			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existing.Path)
-		}
-		shadowedPath = existing.Path
-	}
-
-	scope, err := modules.ScopeOf(p.Hosts, p.Machines, h, old)
-	if err != nil {
-		return err
-	}
-
-	dependents, err := modules.Dependents(p.Modules, scope.UnitDirs, oldName)
-	if err != nil {
-		return err
-	}
-	if len(dependents) > 0 || len(scope.Skipped) > 0 {
-		printReferencedBy(fmt.Sprintf("'%s' is referenced by:", oldName), dependents, "")
-		printShadowed(oldName, scope.Skipped)
-
+	if plan.Unit.Scope == config.ScopeShared || len(plan.Dependents) > 0 {
+		printReferencedBy(fmt.Sprintf("'%s' is imported by:", oldName), plan.Importers, "")
+		printReferencedBy(fmt.Sprintf("'%s' is referenced by:", oldName), plan.Dependents, "")
+		printShadowed(oldName, plan.Skipped)
 		if opts["yes"] == "" {
-			ok, err := ui.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the reference(s) above? [y/N] ", oldName, newName), false)
+			ok, err := ui.Confirm(fmt.Sprintf("Rename '%s' to '%s' and update the line(s)/reference(s) above? [y/N] ", oldName, newName), false)
 			if err != nil {
 				return err
 			}
 			if !ok {
-				return declined(scope.Skipped)
+				return declined(plan.Skipped)
 			}
 		}
 	}
-
-	oldFull := filepath.Join(p.Modules, oldPath)
-	category := filepath.Dir(oldPath)
-	if category == "." {
-		category = ""
-	}
-
-	var newPath string
-	if fi, err := os.Stat(oldFull); err == nil && fi.IsDir() {
-		newPath = joinCategory(category, newName)
-	} else {
-		newPath = joinCategory(category, newName+".nix")
-	}
-
-	// modules.RetargetRefs first (validates every dependent's call shape before
-	// writing anything, refusing the whole operation on a bad shape): a
-	// refusal here leaves the unit unmoved and every host entrypoint
-	// untouched.
-	bundle := modules.IsBundle(oldFull)
-	if _, err := modules.RetargetRefs(p.Modules, scope.UnitDirs, oldName, newQualified); err != nil {
-		return err
-	}
-	if err := os.Rename(oldFull, filepath.Join(p.Modules, newPath)); err != nil {
-		return err
-	}
-	if _, err := modules.RetargetSelections(scope.Selections, oldName, newPath); err != nil {
-		return err
-	}
-	if bundle {
-		if _, err := modules.RetargetPrefix(scope.Selections, oldPath, newPath); err != nil {
-			return err
-		}
-	}
-	kept, err := modules.MoveSettings(scope.SettingsDirs, oldName, newQualified)
+	kept, err := plan.Apply()
 	if err != nil {
 		return err
 	}
 	for _, f := range kept {
-		ui.Warn(os.Stdout, fmt.Sprintf("%s kept in place: settings for '%s' already exist there", f, newQualified))
+		ui.Warn(os.Stdout, fmt.Sprintf("%s kept in place: settings for '%s' already exist there", f, plan.NewName))
 	}
-
-	ui.Done(os.Stdout, fmt.Sprintf("Renamed modules/%s -> modules/%s", oldPath, newPath))
-	if shadowedPath != "" {
-		ui.Warn(os.Stdout, fmt.Sprintf("modules/%s now shadows modules/%s", newPath, shadowedPath))
+	ui.Done(os.Stdout, fmt.Sprintf("Renamed modules/%s -> modules/%s", plan.Unit.Path, plan.NewPath))
+	if plan.Shadows != "" {
+		ui.Warn(os.Stdout, fmt.Sprintf("modules/%s now shadows modules/%s", plan.NewPath, plan.Shadows))
 	}
 	return nil
-}
-
-//──[shared helpers]──────────────────────────────────────────────────────
-
-// ownedUnit finds name for remove and rename, refusing framework modules and
-// the machine's boot unit.
-func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
-	m, err := h.Lookup(name)
-	if err != nil {
-		return m, err
-	}
-	switch m.Role() {
-	case modules.RoleFramework:
-		return m, fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, m.Path)
-	case modules.RoleBoot:
-		return m, errBootUnit
-	}
-	return m, nil
 }

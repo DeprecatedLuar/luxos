@@ -581,14 +581,14 @@ func TestScopeOf(t *testing.T) {
 	mustWriteFile(t, filepath.Join(hosts, "stray", "modules", "x.nix"), emptyModule)
 
 	h := &Host{Name: "a", HostDir: filepath.Join(hosts, "a"), MachineDir: filepath.Join(machines, "k1")}
-	got, err := ScopeOf(hosts, machines, h, Module{Name: "git", Path: "apps/git.nix"})
+	got, err := scopeOf(hosts, machines, h, Module{Name: "git", Path: "apps/git.nix"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sel := func(scope, root, name string) SelectionFile {
 		return SelectionFile{Scope: scope, File: config.SelectionPath(filepath.Join(root, name))}
 	}
-	want := Scope{
+	want := reach{
 		Selections: []SelectionFile{
 			sel(config.ScopeHost, hosts, "a"), sel(config.ScopeHost, hosts, "c"), sel(config.ScopeMachine, machines, "k1"),
 		},
@@ -602,11 +602,11 @@ func TestScopeOf(t *testing.T) {
 		t.Errorf("shared scope = %+v, want %+v", got, want)
 	}
 
-	got, err = ScopeOf(hosts, machines, h, Module{Name: "priv", Path: "host/priv.nix", Scope: config.ScopeHost})
+	got, err = scopeOf(hosts, machines, h, Module{Name: "priv", Path: "host/priv.nix", Scope: config.ScopeHost})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = Scope{
+	want = reach{
 		Selections:   []SelectionFile{sel(config.ScopeHost, hosts, "a")},
 		UnitDirs:     []string{filepath.Join(hosts, "a", "modules")},
 		SettingsDirs: []string{filepath.Join(hosts, "a"), filepath.Join(machines, "k1")},
@@ -615,11 +615,11 @@ func TestScopeOf(t *testing.T) {
 		t.Errorf("host scope = %+v, want %+v", got, want)
 	}
 
-	got, err = ScopeOf(hosts, machines, h, Module{Name: "boot", Path: "machine/boot.nix", Scope: config.ScopeMachine})
+	got, err = scopeOf(hosts, machines, h, Module{Name: "boot", Path: "machine/boot.nix", Scope: config.ScopeMachine})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = Scope{
+	want = reach{
 		Selections:   []SelectionFile{sel(config.ScopeMachine, machines, "k1")},
 		UnitDirs:     []string{filepath.Join(machines, "k1", "modules")},
 		SettingsDirs: []string{filepath.Join(machines, "k1")},
