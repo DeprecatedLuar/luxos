@@ -33,6 +33,17 @@ func TestBootGuard(t *testing.T) {
 		t.Fatalf("boot selected: answered=%v err=%v", answered, err)
 	}
 
+	// Machine selection selects ./boot.nix but the file is missing: no prompt.
+	bootFile := filepath.Join(p.Machines, "k1", config.ScopeModulesDir, config.BootFile)
+	bootSrc := mustReadFile(t, bootFile)
+	if err := os.Remove(bootFile); err != nil {
+		t.Fatal(err)
+	}
+	if answered, err := bootGuard(p, hostDir, false); answered || err != nil {
+		t.Fatalf("boot file missing: answered=%v err=%v", answered, err)
+	}
+	write(t, bootFile, bootSrc)
+
 	// Machine selection empty, host selection holds the pre-heal line: no prompt.
 	write(t, machineSel, emptyTestSelection)
 	write(t, config.SelectionPath(hostDir), selectionWith("../machine/boot.nix"))

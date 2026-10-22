@@ -262,10 +262,15 @@ func (h *Host) Selected(name string) (string, bool) {
 }
 
 // BootSelected reports whether the machine's boot unit is selected: the unit
-// winning the boot name is the machine's, and some selection names it.
+// winning the boot name is the machine's, and some selection names it. With
+// no boot unit on disk, a selection line naming boot counts as selected.
 func (h *Host) BootSelected() bool {
 	m, ok := h.Find(bootName)
-	if !ok || m.Role() != RoleBoot {
+	if !ok {
+		_, sel := h.Selected(bootName)
+		return sel
+	}
+	if m.Role() != RoleBoot {
 		return false
 	}
 	_, selected := h.Selected(m.Name)

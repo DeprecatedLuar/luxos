@@ -935,13 +935,15 @@ func TestBootSelected(t *testing.T) {
 	cases := []struct {
 		name             string
 		hostUnit         bool // host/boot.nix exists
+		machAbsent       bool // machine/boot.nix is missing
 		hostSel, machSel []string
 		want             bool
 	}{
-		{"machine selects it", false, nil, []string{"./boot.nix"}, true},
-		{"nothing selects it", false, nil, nil, false},
-		{"pre-heal cross-scope host line", false, []string{"../machine/boot.nix"}, nil, true},
-		{"host line names a host boot the machine shadows", true, []string{"./boot.nix"}, nil, true},
+		{"machine selects it", false, false, nil, []string{"./boot.nix"}, true},
+		{"nothing selects it", false, false, nil, nil, false},
+		{"pre-heal cross-scope host line", false, false, []string{"../machine/boot.nix"}, nil, true},
+		{"host line names a host boot the machine shadows", true, false, []string{"./boot.nix"}, nil, true},
+		{"machine selects it, file missing", false, true, nil, []string{"./boot.nix"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -950,7 +952,11 @@ func TestBootSelected(t *testing.T) {
 			hostDir := filepath.Join(root, "hosts", "h")
 			machineDir := filepath.Join(root, "machines", "k")
 			mustMkdirAll(t, modulesDir)
-			mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+			if c.machAbsent {
+				mustMkdirAll(t, filepath.Join(machineDir, "modules"))
+			} else {
+				mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+			}
 			if c.hostUnit {
 				mustWriteFile(t, filepath.Join(hostDir, "modules", "boot.nix"), "{ }")
 			}
