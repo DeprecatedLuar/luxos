@@ -1,6 +1,7 @@
 // Package flake derives the status of a host's flake inputs: where each is
-// declared, whether upstream has moved past the locked revision, and which
-// version it is on. It asks upstream through an Upstream and never prints.
+// declared, whether upstream has moved past the locked revision, which
+// version it is on, and which luxos revision a lock pins. It asks upstream
+// through an Upstream and never prints.
 package flake
 
 import (

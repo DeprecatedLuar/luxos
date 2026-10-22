@@ -1,3 +1,5 @@
+// Package help defines and renders the help text of every command; no other
+// package defines help text.
 package help
 
 import (

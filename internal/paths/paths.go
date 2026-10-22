@@ -1,3 +1,4 @@
+// Package paths resolves every directory luxos uses from the environment.
 // Only internal/commands/* call Resolve(); every other package takes
 // directories as parameters so it can be tested against t.TempDir().
 package paths

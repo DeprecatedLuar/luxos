@@ -1,4 +1,3 @@
-// Every directory is a parameter; nothing here resolves paths or prints.
 package config
 
 import (

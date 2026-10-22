@@ -1,6 +1,8 @@
-// Package modules is one host's view of the module tree: the shared units, the
-// host's own local units, its selection, the rules between modules and their
-// state. Every directory is a parameter; nothing here resolves paths or prints.
+// Package modules owns what units are and which units a host builds: the
+// shared, host and machine units, their roles and shadowing, the selections,
+// the rules between modules, enabling, disabling, removing and renaming, and
+// each module's state. Every directory is a parameter; nothing here resolves
+// paths or prints.
 package modules
 
 import (
