@@ -146,3 +146,26 @@ func TestPlanRefusesUnrecognizedDependent(t *testing.T) {
 		t.Errorf("PlanRemove err = %v, want one naming %s", err, bad)
 	}
 }
+
+func TestPlanRenameRefusesPathInNewName(t *testing.T) {
+	skipIfNoNix(t)
+	h, hostsDir, machinesDir := planFixture(t)
+	bar := filepath.Join(h.ModulesDir, "apps", "bar", "default.nix")
+	beforeBar := mustReadFile(t, bar)
+	beforeSel := mustReadFile(t, h.Selections[0].File)
+
+	for _, newName := range []string{"bar/baz", "../../x"} {
+		if _, err := PlanRename(h, hostsDir, machinesDir, "foo", newName); err == nil || !strings.Contains(err.Error(), newName) {
+			t.Errorf("PlanRename(foo, %s) err = %v, want one naming %s", newName, err, newName)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(h.ModulesDir, "apps", "foo.nix")); err != nil {
+		t.Errorf("unit moved: %v", err)
+	}
+	if got := mustReadFile(t, bar); got != beforeBar {
+		t.Errorf("dependent changed:\n%s", got)
+	}
+	if got := mustReadFile(t, h.Selections[0].File); got != beforeSel {
+		t.Errorf("selection changed:\n%s", got)
+	}
+}

@@ -107,10 +107,14 @@ func PlanRename(h *Host, hostsDir, machinesDir, oldName, newName string) (Plan, 
 		return p, err
 	}
 	p.NewName = newName
-	if parent := Parent(p.Unit.Name); parent != "" {
-		if strings.Contains(newName, nameSep) {
+	parent := Parent(p.Unit.Name)
+	if strings.Contains(newName, nameSep) || strings.ContainsRune(newName, filepath.Separator) {
+		if parent != "" {
 			return p, errors.New("rename keeps a submodule in its bundle: give only the new name")
 		}
+		return p, fmt.Errorf("'%s' is not a module name: rename keeps the unit in its category, give only the new name", newName)
+	}
+	if parent != "" {
 		p.NewName = parent + nameSep + newName
 	}
 	if existing, found := h.Find(p.NewName); found {
