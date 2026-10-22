@@ -34,10 +34,6 @@ const editScratchPattern = "luxos-edit-*.nix"
 // non-user module.
 const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 
-// moduleFrameworkCategory is the reserved top-level category `remove`/`rename`
-// refuse to touch: modules/system is owned by the binary.
-const moduleFrameworkCategory = "system"
-
 // usersCategory holds user modules, scaffolded from the user starter.
 const usersCategory = config.UsersDir
 
@@ -859,7 +855,7 @@ func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, erro
 	}
 	var enabled []string
 	for _, bundle := range chain {
-		if b, ok := h.Find(bundle); ok && modules.IsUser(b) {
+		if b, ok := h.Find(bundle); ok && b.Role() == modules.RoleUser {
 			continue
 		}
 		changed, err := modules.Enable(h, bundle, toMachine)
@@ -876,7 +872,7 @@ func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, erro
 // disableSubmodules removes every enabled line for a submodule of m when m is
 // a bundle that is not a user, and returns the submodules it removed.
 func disableSubmodules(h *modules.Host, m modules.Module) ([]string, error) {
-	if !modules.IsBundle(m.Abs) || modules.IsUser(m) {
+	if !modules.IsBundle(m.Abs) || m.Role() == modules.RoleUser {
 		return nil, nil
 	}
 	var removed []string
@@ -1255,10 +1251,10 @@ func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
 	if err != nil {
 		return m, err
 	}
-	if underCategory(m.Path, moduleFrameworkCategory) {
+	switch m.Role() {
+	case modules.RoleFramework:
 		return m, fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, m.Path)
-	}
-	if m.Scope == config.ScopeMachine && m.Name == bootUnit {
+	case modules.RoleBoot:
 		return m, errBootUnit
 	}
 	return m, nil

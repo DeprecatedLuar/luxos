@@ -223,12 +223,12 @@ func (h *Host) userViolations() []Violation {
 	for _, m := range h.Modules {
 		if m.Shadows != "" && Parent(m.Name) == "" {
 			for _, hidden := range h.Hidden {
-				if hidden.Path == m.Shadows && IsUser(hidden) {
+				if hidden.Path == m.Shadows && hidden.Role() == RoleUser {
 					vs = append(vs, Violation{File: m.Path, Message: fmt.Sprintf(userShadowFormat, m.Name)})
 				}
 			}
 		}
-		if !IsUser(m) && hasVendoredAccount(m.Abs) {
+		if m.Role() != RoleUser && hasVendoredAccount(m.Abs) {
 			vs = append(vs, Violation{File: m.Path, Message: userShapeMessage})
 		}
 	}
@@ -238,7 +238,7 @@ func (h *Host) userViolations() []Violation {
 			if !ok {
 				continue
 			}
-			if user := UserOf(m); user != "" && !IsUser(m) {
+			if user := UserOf(m); user != "" && m.Role() != RoleUser {
 				vs = append(vs, Violation{File: sel.File, Message: fmt.Sprintf(userLineFormat, m.Name, user, m.Name, m.Name)})
 			}
 		}

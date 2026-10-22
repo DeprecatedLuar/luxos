@@ -51,7 +51,7 @@ func Passwd(args []string) error {
 		return err
 	}
 	m, ok := h.Find(name)
-	if !ok || !modules.IsUser(m) {
+	if !ok || m.Role() != modules.RoleUser {
 		return fmt.Errorf("'%s' is not a user: a user is a folder in modules/users/ (luxos user add %s)", name, name)
 	}
 

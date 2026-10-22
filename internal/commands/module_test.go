@@ -57,24 +57,6 @@ func TestUserCategory(t *testing.T) {
 	}
 }
 
-func TestUnderFrameworkCategory(t *testing.T) {
-	cases := []struct {
-		path string
-		want bool
-	}{
-		{"system", true},
-		{"system/desktop", true},
-		{"systemd/foo", false},
-		{"users/luar", false},
-		{"misc/foo", false},
-	}
-	for _, c := range cases {
-		if got := underCategory(c.path, moduleFrameworkCategory); got != c.want {
-			t.Errorf("underCategory(%q, %q) = %v, want %v", c.path, moduleFrameworkCategory, got, c.want)
-		}
-	}
-}
-
 func TestJoinCategory(t *testing.T) {
 	cases := []struct {
 		category, base, want string

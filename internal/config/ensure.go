@@ -16,7 +16,8 @@ const (
 	environmentTemplate = "starters/environment"
 
 	gitignoreFile = ".gitignore"
-	systemModules = "system"
+	// SystemDir is the folder of modules/ holding the framework modules.
+	SystemDir = "system"
 )
 
 var gitignoreLines = []string{"/modules/system", "/modules/default.nix", "/modules/host", "/modules/machine", "/host", "/machine"}
@@ -52,7 +53,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	}
 
 	out.Printf("Syncing framework modules...\n")
-	changes, err := Sync(filepath.Join(p.Modules, systemModules))
+	changes, err := Sync(filepath.Join(p.Modules, SystemDir))
 	if err != nil {
 		return err
 	}

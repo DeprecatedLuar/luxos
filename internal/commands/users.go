@@ -60,7 +60,7 @@ func builtUsers(h *modules.Host) ([]modules.Module, error) {
 	}
 	var users []modules.Module
 	for _, m := range built {
-		if modules.IsUser(m) {
+		if m.Role() == modules.RoleUser {
 			users = append(users, m)
 		}
 	}
@@ -69,7 +69,7 @@ func builtUsers(h *modules.Host) ([]modules.Module, error) {
 
 // requirePassword fails when m is a user unit without a password file.
 func requirePassword(m modules.Module) error {
-	if !modules.IsUser(m) {
+	if m.Role() != modules.RoleUser {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(m.Abs, password.File)); os.IsNotExist(err) {

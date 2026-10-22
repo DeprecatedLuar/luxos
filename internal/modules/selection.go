@@ -491,7 +491,7 @@ func Enable(h *Host, name string, toMachine bool) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if user := UserOf(m); user != "" && !IsUser(m) {
+	if user := UserOf(m); user != "" && m.Role() != RoleUser {
 		if toMachine {
 			return false, fmt.Errorf(userMachineFormat, name, user)
 		}

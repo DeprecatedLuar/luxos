@@ -729,34 +729,64 @@ func TestLoadReadsBothSelections(t *testing.T) {
 	}
 }
 
-func TestIsUser(t *testing.T) {
+func TestRole(t *testing.T) {
 	root := t.TempDir()
 	modulesDir := filepath.Join(root, "modules")
 	hostModules := filepath.Join(root, "host")
+	machineModules := filepath.Join(root, "machine")
 	for _, f := range []string{
 		"users/ana/default.nix",
-		"users/bob/default.nix",
 		"users/solo.nix",
 		"users/team/zed/default.nix",
 		"desktop/ana2/default.nix",
+		"system/core.nix",
+		"apps/x/default.nix",
+		"apps/x/modules/boot.nix",
 	} {
 		mustWriteFile(t, filepath.Join(modulesDir, f), "{ }")
 	}
 	mustWriteFile(t, filepath.Join(hostModules, "bob", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(machineModules, "boot.nix"), "{ }")
+
+	units, _, err := Walk(modulesDir, hostModules, machineModules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Role{
+		"ana":    RoleUser,
+		"solo":   RolePlain,
+		"zed":    RolePlain,
+		"ana2":   RolePlain,
+		"bob":    RolePlain,
+		"core":   RoleFramework,
+		"boot":   RoleBoot,
+		"x/boot": RolePlain,
+	}
+	for name, role := range want {
+		m, ok := Find(units, name)
+		if !ok {
+			t.Fatalf("%s not found", name)
+		}
+		if got := m.Role(); got != role {
+			t.Errorf("%s.Role() = %v, want %v (Path %q, Scope %q)", name, got, role, m.Path, m.Scope)
+		}
+	}
+}
+
+func TestRoleHostBootIsPlain(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	hostModules := filepath.Join(root, "host")
+	mustMkdirAll(t, modulesDir)
+	mustWriteFile(t, filepath.Join(hostModules, "boot.nix"), "{ }")
 
 	units, _, err := Walk(modulesDir, hostModules, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"ana": true, "bob": false, "solo": false, "zed": false, "ana2": false}
-	for name, isUser := range want {
-		m, ok := Find(units, name)
-		if !ok {
-			t.Fatalf("%s not found", name)
-		}
-		if got := IsUser(m); got != isUser {
-			t.Errorf("IsUser(%s) = %v (Path %q, Shadows %q)", name, got, m.Path, m.Shadows)
-		}
+	m, _ := Find(units, "boot")
+	if m.Role() != RolePlain {
+		t.Errorf("host boot Role() = %v, want RolePlain", m.Role())
 	}
 }
 
@@ -842,7 +872,7 @@ func TestUserOf(t *testing.T) {
 			t.Errorf("UserOf(%s) = %q, want %q", name, got, want)
 		}
 	}
-	if !IsUser(unitByName(t, us, "luar")) || IsUser(unitByName(t, us, "luar/a")) || IsUser(unitByName(t, us, "bob")) {
+	if unitByName(t, us, "luar").Role() != RoleUser || unitByName(t, us, "luar/a").Role() == RoleUser || unitByName(t, us, "bob").Role() == RoleUser {
 		t.Error("IsUser")
 	}
 }

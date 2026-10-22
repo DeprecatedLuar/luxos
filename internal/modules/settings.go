@@ -79,7 +79,7 @@ func (h *Host) settings(ms []Module, fileOf func(Module) string) ([]UnitSettings
 		if !ok {
 			continue
 		}
-		if UserOf(m) != "" && !IsUser(m) {
+		if UserOf(m) != "" && m.Role() != RoleUser {
 			out = append(out, UnitSettings{Module: m, Options: opts, File: fileOf(m), Problems: []string{fmt.Sprintf(userOptionsFormat, opts)}})
 			continue
 		}

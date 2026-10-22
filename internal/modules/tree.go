@@ -108,7 +108,7 @@ func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 		selected[name] = true
 	}
 	for _, m := range units {
-		if !IsUser(m) {
+		if m.Role() != RoleUser {
 			continue
 		}
 		file := config.UserSelectionPath(m.Abs)
@@ -181,7 +181,7 @@ func (h *Host) UserSelection(name string) *Selection {
 // names no user or the user has no selection.
 func (h *Host) UserPaths(p string) []string {
 	m, ok := h.Find(NameFromPath(p))
-	if !ok || !IsUser(m) {
+	if !ok || m.Role() != RoleUser {
 		return nil
 	}
 	if sel := h.UserSelection(m.Name); sel != nil {
@@ -218,7 +218,7 @@ func usersNamedBy(units []Module, paths []string) []string {
 	seen := map[string]bool{}
 	for _, p := range paths {
 		m, ok := Find(units, NameFromPath(p))
-		if !ok || !IsUser(m) || seen[m.Name] {
+		if !ok || m.Role() != RoleUser || seen[m.Name] {
 			continue
 		}
 		seen[m.Name] = true
@@ -461,13 +461,33 @@ func IsBundle(dir string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// IsUser reports whether m is a luxos user: a shared folder unit directly in users/.
-func IsUser(m Module) bool {
-	if m.Scope != config.ScopeShared || m.Path != usersCategory+nameSep+m.Name {
-		return false
+// Role is what a unit is for.
+type Role int
+
+const (
+	RolePlain     Role = iota
+	RoleUser           // a shared folder unit directly in users/
+	RoleBoot           // the machine unit holding this computer's boot loader
+	RoleFramework      // a framework module in system/, owned by the binary
+)
+
+// bootName is the name of the machine's boot unit.
+var bootName = strings.TrimSuffix(config.BootFile, nixExt)
+
+// Role reports what m is for.
+func (m Module) Role() Role {
+	switch {
+	case m.Scope == config.ScopeShared && (m.Path == config.SystemDir || strings.HasPrefix(m.Path, config.SystemDir+nameSep)):
+		return RoleFramework
+	case m.Scope == config.ScopeMachine && m.Name == bootName:
+		return RoleBoot
+	case m.Scope == config.ScopeShared && m.Path == usersCategory+nameSep+m.Name:
+		fi, err := os.Stat(m.Abs)
+		if err == nil && fi.IsDir() {
+			return RoleUser
+		}
 	}
-	fi, err := os.Stat(m.Abs)
-	return err == nil && fi.IsDir()
+	return RolePlain
 }
 
 // UserOf returns the name of the user whose unit m is or lies in, "" when none.
