@@ -22,8 +22,9 @@ const (
 	// File is the encrypted hash inside a user unit.
 	File = ".password.age"
 
-	hashMethod   = "yescrypt"
-	secretPrefix = "AGE-SECRET-KEY-1"
+	hashMethod    = "yescrypt"
+	secretPrefix  = "AGE-SECRET-KEY-1"
+	commentPrefix = "#"
 )
 
 // ErrEmpty is returned for an empty password, which mkpasswd would hash.
@@ -78,6 +79,11 @@ func SecretLine(text string) (string, error) {
 		return "", fmt.Errorf("expected exactly one %s… line, found %d", secretPrefix, len(found))
 	}
 	return found[0], nil
+}
+
+// IsKeyComment reports whether line is a comment line of age-keygen output.
+func IsKeyComment(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), commentPrefix)
 }
 
 // Encrypt returns hash encrypted, armored, to recipient.

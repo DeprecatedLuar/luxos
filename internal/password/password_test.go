@@ -142,3 +142,13 @@ func TestSealDecryptsOnlyWithItsKey(t *testing.T) {
 		t.Error("Seal to a non-key succeeded")
 	}
 }
+
+func TestIsKeyComment(t *testing.T) {
+	for line, want := range map[string]bool{
+		"# created: x": true, "  # public key: age1": true, "AGE-SECRET-KEY-1ABC": false, "": false, "garbage": false,
+	} {
+		if got := IsKeyComment(line); got != want {
+			t.Errorf("IsKeyComment(%q) = %v", line, got)
+		}
+	}
+}

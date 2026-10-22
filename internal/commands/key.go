@@ -107,11 +107,6 @@ func keyGet(p paths.Paths, args []string, out io.Writer) error {
 	return nil
 }
 
-// isKeyComment reports whether line is a comment of age-keygen output.
-func isKeyComment(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "#")
-}
-
 // readKeyInput reads the secret line from a hidden prompt (skipping the comment lines of a pasted age-keygen block), or from all of in
 // when in is not a terminal.
 func readKeyInput(in *os.File, out io.Writer) (string, error) {
@@ -120,7 +115,7 @@ func readKeyInput(in *os.File, out io.Writer) (string, error) {
 		return "", err
 	}
 	if term {
-		line, err := ui.AskSecretUnless(in, out, keyPrompt, isKeyComment)
+		line, err := ui.AskSecretUnless(in, out, keyPrompt, password.IsKeyComment)
 		if errors.Is(err, io.EOF) {
 			return "", errKeyMissing
 		}

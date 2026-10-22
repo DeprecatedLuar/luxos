@@ -81,16 +81,6 @@ func TestKeyGet(t *testing.T) {
 	}
 }
 
-func TestIsKeyComment(t *testing.T) {
-	for line, want := range map[string]bool{
-		"# created: x": true, "  # public key: age1": true, "AGE-SECRET-KEY-1ABC": false, "": false, "garbage": false,
-	} {
-		if got := isKeyComment(line); got != want {
-			t.Errorf("isKeyComment(%q) = %v", line, got)
-		}
-	}
-}
-
 func TestOneUserMisuse(t *testing.T) {
 	assertMisuse(t, func() error { _, err := oneUser(nil); return err }, "want exactly one user", "luxos user key <verb> <user>")
 }
