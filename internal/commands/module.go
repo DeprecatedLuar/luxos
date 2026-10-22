@@ -927,12 +927,11 @@ func disablesBoot(p paths.Paths, names []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if !h.BootSelected() {
+		return false, nil
+	}
 	for _, name := range names {
-		m, found := h.Find(name)
-		if !found || m.Scope != config.ScopeMachine || m.Name != bootUnit {
-			continue
-		}
-		if _, enabled := h.Selected(name); enabled {
+		if m, found := h.Find(name); found && m.Role() == modules.RoleBoot {
 			return true, nil
 		}
 	}
@@ -1207,10 +1206,6 @@ func moduleRename(p paths.Paths, args []string) error {
 		ui.Warn(os.Stdout, fmt.Sprintf("%s kept in place: settings for '%s' already exist there", f, newQualified))
 	}
 
-	if modules.Parent(oldName) == "" && underCategory(category, usersCategory) {
-		ui.Warn(os.Stdout, fmt.Sprintf("the account name in modules/%s/account.nix is still '%s' — rename it there by hand if the actual system user should change too.", newPath, oldName))
-	}
-
 	ui.Done(os.Stdout, fmt.Sprintf("Renamed modules/%s -> modules/%s", oldPath, newPath))
 	if shadowedPath != "" {
 		ui.Warn(os.Stdout, fmt.Sprintf("modules/%s now shadows modules/%s", newPath, shadowedPath))
@@ -1219,11 +1214,6 @@ func moduleRename(p paths.Paths, args []string) error {
 }
 
 //──[shared helpers]──────────────────────────────────────────────────────
-
-// underCategory reports whether a modules-relative path is category or lies under it.
-func underCategory(path, category string) bool {
-	return path == category || strings.HasPrefix(path, category+"/")
-}
 
 // ownedUnit finds name for remove and rename, refusing framework modules and
 // the machine's boot unit.

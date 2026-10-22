@@ -930,3 +930,40 @@ func TestCanShadow(t *testing.T) {
 		}
 	}
 }
+
+func TestBootSelected(t *testing.T) {
+	cases := []struct {
+		name             string
+		hostUnit         bool // host/boot.nix exists
+		hostSel, machSel []string
+		want             bool
+	}{
+		{"machine selects it", false, nil, []string{"./boot.nix"}, true},
+		{"nothing selects it", false, nil, nil, false},
+		{"pre-heal cross-scope host line", false, []string{"../machine/boot.nix"}, nil, true},
+		{"host line names a host boot the machine shadows", true, []string{"./boot.nix"}, nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			modulesDir := filepath.Join(root, "modules")
+			hostDir := filepath.Join(root, "hosts", "h")
+			machineDir := filepath.Join(root, "machines", "k")
+			mustMkdirAll(t, modulesDir)
+			mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+			if c.hostUnit {
+				mustWriteFile(t, filepath.Join(hostDir, "modules", "boot.nix"), "{ }")
+			}
+			mustWriteFile(t, config.SelectionPath(hostDir), selectionOf(c.hostSel...))
+			mustWriteFile(t, config.SelectionPath(machineDir), selectionOf(c.machSel...))
+
+			h, err := Load(modulesDir, hostDir, machineDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := h.BootSelected(); got != c.want {
+				t.Errorf("BootSelected() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

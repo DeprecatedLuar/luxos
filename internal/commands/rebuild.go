@@ -115,31 +115,23 @@ func buildPinned(ref string) (string, error) {
 	return filepath.Join(out, luxosBinRelpath), nil
 }
 
-// bootUnit is the machine unit holding the boot loader.
-const bootUnit = "boot"
-
-// bootGuard asks for confirmation when this computer's selection does not
-// select boot. Before the first rebuild there is no machine link and the
-// seeded selection selects it, so nothing is asked. Reports whether a prompt
-// was answered yes.
-func bootGuard(modulesDir string, yes bool) (bool, error) {
-	machineDir, err := config.LinkedMachineDir(modulesDir)
+// bootGuard asks for confirmation when no selection of the host at hostDir
+// selects this computer's boot unit. Before the first rebuild there is no
+// machine link and the seeded selection selects it, so nothing is asked.
+// Reports whether a prompt was answered yes.
+func bootGuard(p paths.Paths, hostDir string, yes bool) (bool, error) {
+	machineDir, err := config.LinkedMachineDir(p.Modules)
 	if errors.Is(err, config.ErrNoMachineLink) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	paths, err := modules.ReadSelection(config.SelectionPath(machineDir), config.ScopeMachine)
+	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
 		return false, err
 	}
-	for _, p := range paths {
-		if modules.NameFromPath(p) == bootUnit {
-			return false, nil
-		}
-	}
-	if yes {
+	if h.BootSelected() || yes {
 		return false, nil
 	}
 	ok, err := shared.ConfirmBootOff()
@@ -209,7 +201,7 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	answered, err := bootGuard(p.Modules, yes)
+	answered, err := bootGuard(p, hostDir, yes)
 	if err != nil {
 		return err
 	}

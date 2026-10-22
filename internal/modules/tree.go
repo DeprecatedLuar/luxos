@@ -261,6 +261,17 @@ func (h *Host) Selected(name string) (string, bool) {
 	return "", false
 }
 
+// BootSelected reports whether the machine's boot unit is selected: the unit
+// winning the boot name is the machine's, and some selection names it.
+func (h *Host) BootSelected() bool {
+	m, ok := h.Find(bootName)
+	if !ok || m.Role() != RoleBoot {
+		return false
+	}
+	_, selected := h.Selected(m.Name)
+	return selected
+}
+
 // walkScope walks one scope's units: the shared tree when scope is
 // ScopeShared, otherwise a scope's modules folder, whose units get the scope
 // prefix. "" or a missing folder gives none.
