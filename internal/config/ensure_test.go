@@ -243,8 +243,12 @@ func TestEnsureCreatesScopeLinksAndEntry(t *testing.T) {
 	writeFile(t, SelectionPath(hostDir), "{ ... }:\n{\n  imports = [ ];\n}\n")
 
 	var out bytes.Buffer
-	if err := Ensure(ui.NewProgress(&out), p, "h1"); err != nil {
+	machineDir, err := Ensure(ui.NewProgress(&out), p, "h1")
+	if err != nil {
 		t.Fatalf("Ensure: %v\n%s", err, out.String())
+	}
+	if filepath.Base(machineDir) != filepath.Base(machine) {
+		t.Errorf("Ensure machine folder = %q, want the folder %q", machineDir, filepath.Base(machine))
 	}
 
 	for link, target := range map[string]string{

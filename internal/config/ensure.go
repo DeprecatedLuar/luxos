@@ -25,14 +25,14 @@ var gitignoreLines = []string{"/modules/system", "/modules/default.nix", "/modul
 // Ensure brings CONFIG_DIR to the state a rebuild of host expects: .gitignore,
 // the environment file, the synced framework modules, modules/default.nix,
 // host.nix, the host folder (validated and protected), this computer's
-// machine folder, the scope links and the host.nix checks.
-func Ensure(out *ui.Progress, p paths.Paths, host string) error {
+// machine folder, the scope links and the host.nix checks. It returns this computer's machine folder.
+func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
 	hostDir := filepath.Join(p.Hosts, host)
 
 	out.Printf("Ensuring .gitignore...\n")
 	added, err := ensureGitignore(filepath.Join(p.Config, gitignoreFile), gitignoreLines)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, line := range added {
 		out.Changef("  added: %s", line)
@@ -41,12 +41,12 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	out.Printf("Ensuring environment file...\n")
 	tmpl, err := templates.File(environmentTemplate)
 	if err != nil {
-		return err
+		return "", err
 	}
 	envPath := filepath.Join(p.Config, EnvironmentFile)
 	created, err := CreateFile(envPath, tmpl)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if created {
 		out.Changef("  created: %s", envPath)
@@ -55,7 +55,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	out.Printf("Syncing framework modules...\n")
 	changes, err := Sync(filepath.Join(p.Modules, SystemDir))
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, c := range changes {
 		line := fmt.Sprintf("%s: %s", c.Action, c.Path)
@@ -68,7 +68,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 
 	action, err := SyncEntry(p.Modules)
 	if err != nil {
-		return err
+		return "", err
 	}
 	switch action {
 	case ActionCreated:
@@ -78,16 +78,16 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 	}
 
 	if err := ensureHostFile(out, hostDir); err != nil {
-		return err
+		return "", err
 	}
 
 	out.Printf("Validating %s...\n", hostDir)
 	if err := ValidateHost(hostDir); err != nil {
-		return err
+		return "", err
 	}
 	protected, err := ProtectHost(hostDir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if protected {
 		out.Changef("  protected: %s", filepath.Join(hostDir, plsDontTouchFile))
@@ -95,21 +95,21 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) error {
 
 	machineDir, err := EnsureMachine(out, p)
 	if err != nil {
-		return err
+		return "", err
 	}
 	out.Printf("Ensuring host and machine links...\n")
 	if err := EnsureScopeLinks(p.Config, p.Modules, hostDir, machineDir); err != nil {
-		return err
+		return "", err
 	}
 
 	if err := checkHostFile(filepath.Join(hostDir, HostFile)); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := readBaseChannel(filepath.Join(hostDir, HostFile)); err != nil {
-		return err
+		return "", err
 	}
 
-	return out.Err()
+	return machineDir, out.Err()
 }
 
 // ActiveHost returns the active host's name, read from the modules/host link

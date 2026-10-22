@@ -64,10 +64,7 @@ func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 // runAll is a whole rebuild's preparation: config, heal and validate, stage, seal.
 func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
 	out := ui.NewProgress(w)
-	if err := config.Ensure(out, p, host); err != nil {
-		return err
-	}
-	machineDir, err := config.LinkedMachineDir(p.Modules)
+	machineDir, err := config.Ensure(out, p, host)
 	if err != nil {
 		return err
 	}
@@ -603,7 +600,7 @@ func TestStageDoesNotAdopt(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config.Ensure(discard, p, host); err != nil {
+	if _, err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -669,7 +666,7 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config.Ensure(discard, p, host); err != nil {
+	if _, err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, p.Config)
@@ -695,7 +692,7 @@ func TestStageLeavesLockWritable(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if err := config.Ensure(discard, p, host); err != nil {
+	if _, err := config.Ensure(discard, p, host); err != nil {
 		t.Fatal(err)
 	}
 

@@ -295,10 +295,7 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	out := ui.NewProgress(os.Stderr)
 	out.Start()
 	defer out.Stop()
-	if err := config.Ensure(out, p, host); err != nil {
-		return err
-	}
-	machineDir, err := config.LinkedMachineDir(p.Modules)
+	machineDir, err := config.Ensure(out, p, host)
 	if err != nil {
 		return err
 	}
