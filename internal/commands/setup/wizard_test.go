@@ -356,6 +356,21 @@ func TestFresh_PasswordMismatchWritesNoPassword(t *testing.T) {
 	}
 }
 
+func TestFresh_EmptyPasswordWritesNothing(t *testing.T) {
+	skipIfNoNix(t)
+	p := testPaths(t)
+	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w.Secret = answers("")
+	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
+	_, err := w.Fresh()
+	if !errors.Is(err, password.ErrEmpty) || !strings.HasSuffix(err.Error(), "; nothing changed") {
+		t.Fatalf("err = %v, want the empty-password error ending in '; nothing changed'\n%s", err, out)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config written despite an empty password: %v", err)
+	}
+}
+
 func TestHostScreen_MismatchLeavesNoUnit(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)

@@ -1120,8 +1120,9 @@ func TestModuleListBundleViewFolderShadowsFile(t *testing.T) {
 			t.Fatalf("moduleList: %v", err)
 		}
 	})
-	if !strings.Contains(out, "x") {
-		t.Errorf("bundle view is missing submodule x:\n%q", out)
+	rows := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(rows) != 1 || !strings.HasPrefix(rows[0], "x\toff\t") {
+		t.Errorf("bundle view = %q, want the one row of submodule x, off", out)
 	}
 }
 
@@ -1137,12 +1138,57 @@ func TestModuleRenameSharedAlwaysAsks(t *testing.T) {
 	p := twoHostScopeFixture(t)
 	foo := filepath.Join(p.Modules, "apps", "foo.nix")
 	write(t, foo, "{ }\n")
-	captureStdout(t, func() {
+	out := captureStdout(t, func() {
 		if err := moduleRename(p, []string{"foo", "baz"}); err != nil && !errors.Is(err, io.EOF) {
 			t.Fatalf("moduleRename: %v", err)
 		}
 	})
 	if _, err := os.Stat(foo); err != nil {
 		t.Errorf("renamed without confirmation: %v", err)
+	}
+	if want := "Rename 'foo' to 'baz'"; !strings.Contains(out, want) {
+		t.Errorf("output lacks the prompt %q:\n%s", want, out)
+	}
+}
+
+func TestModuleRenameScopedUnitWithoutDependentsDoesNotAsk(t *testing.T) {
+	skipIfNoNix(t)
+	stdin, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(f *os.File) { os.Stdin = f }(os.Stdin)
+	os.Stdin = stdin
+
+	p := twoHostScopeFixture(t)
+	hostMods := filepath.Join(p.Hosts, "host1", config.ScopeModulesDir)
+	write(t, filepath.Join(hostMods, "qux.nix"), "{ }\n")
+	captureStdout(t, func() {
+		if err := moduleRename(p, []string{"qux", "quux"}); err != nil {
+			t.Fatalf("moduleRename: %v", err)
+		}
+	})
+	if _, err := os.Stat(filepath.Join(hostMods, "quux.nix")); err != nil {
+		t.Errorf("host unit not renamed: %v", err)
+	}
+}
+
+func TestModuleRenameFolderOntoTakenFolderMovesNothing(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	bar := filepath.Join(p.Modules, "apps", "bar", "default.nix")
+	stray := filepath.Join(p.Modules, "apps", "new", "stray")
+	write(t, bar, "{ }\n")
+	write(t, stray, "")
+
+	var err error
+	captureStdout(t, func() { err = moduleRename(p, []string{"bar", "new", "--yes"}) })
+	if want := "'modules/apps/new' already exists"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("moduleRename onto apps/new/ err = %v, want %q", err, want)
+	}
+	for _, f := range []string{bar, stray} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("%s moved: %v", f, err)
+		}
 	}
 }

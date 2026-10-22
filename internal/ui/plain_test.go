@@ -31,4 +31,11 @@ func TestJSONOneOrMany(t *testing.T) {
 	if !strings.HasPrefix(many.String(), "[") {
 		t.Errorf("many = %q, want an array", many.String())
 	}
+	var none strings.Builder
+	if err := JSONOneOrMany(&none, []obj{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := none.String(); got != "[]\n" {
+		t.Errorf("none = %q, want an empty array", got)
+	}
 }

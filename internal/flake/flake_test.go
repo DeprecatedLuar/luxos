@@ -252,7 +252,8 @@ func TestPinnedLuxos(t *testing.T) {
 	}
 
 	path := lock("path.lock", `{"nodes":{"root":{"inputs":{"luxos":"luxos"}},"luxos":{"locked":{"type":"path"}}},"root":"root","version":7}`)
-	if _, _, err := PinnedLuxos(path); err == nil || !strings.Contains(err.Error(), "github") {
-		t.Errorf("path lock err = %v, want one naming github", err)
+	_, _, err := PinnedLuxos(path)
+	if err == nil || !strings.Contains(err.Error(), `"path"`) || !strings.Contains(err.Error(), "github") {
+		t.Errorf("path lock err = %v, want one naming \"path\" and github", err)
 	}
 }

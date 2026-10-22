@@ -997,6 +997,8 @@ func TestFindUser(t *testing.T) {
 	modulesDir := filepath.Join(root, "modules")
 	mustWriteFile(t, filepath.Join(modulesDir, "users", "ana", "default.nix"), "{ }")
 	mustWriteFile(t, filepath.Join(modulesDir, "services", "eduardo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "solo.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "team", "zed", "default.nix"), "{ }")
 	units, _, err := Walk(modulesDir, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -1011,5 +1013,14 @@ func TestFindUser(t *testing.T) {
 	_, _, err = FindUser(units, "eduardo")
 	if err == nil || !strings.Contains(err.Error(), "modules/services/eduardo.nix") {
 		t.Errorf("FindUser(eduardo) err = %v, want one naming modules/services/eduardo.nix", err)
+	}
+	for name, path := range map[string]string{"solo": "users/solo.nix", "zed": "users/team/zed"} {
+		m, ok, err := FindUser(units, name)
+		if m.Role() != RolePlain {
+			t.Errorf("%s role = %v, want RolePlain", path, m.Role())
+		}
+		if ok || err == nil || !strings.Contains(err.Error(), "modules/"+path) {
+			t.Errorf("FindUser(%s) = %v, %v, want an error naming modules/%s", name, ok, err, path)
+		}
 	}
 }

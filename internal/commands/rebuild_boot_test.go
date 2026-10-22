@@ -73,3 +73,42 @@ func TestBootGuard(t *testing.T) {
 		t.Fatalf("boot not selected, yes: answered=%v err=%v", answered, err)
 	}
 }
+
+func TestModuleDisableBootAsksOnlyForTheMachineBoot(t *testing.T) {
+	skipIfNoNix(t)
+	stdin, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(f *os.File) { os.Stdin = f }(os.Stdin)
+	os.Stdin = stdin
+
+	// The machine boot, selected: asks, and no answer changes nothing.
+	p := twoHostScopeFixture(t)
+	machineSel := config.SelectionPath(filepath.Join(p.Machines, "k1"))
+	before := mustReadFile(t, machineSel)
+	captureBoth(t, func() { err = moduleDisable(p, []string{"boot"}) })
+	if err == nil {
+		t.Fatal("machine boot disabled without confirmation")
+	}
+	if got := mustReadFile(t, machineSel); got != before {
+		t.Errorf("machine selection changed:\n%s", got)
+	}
+
+	// A host unit named boot, selected, with no machine boot: no prompt.
+	p = twoHostScopeFixture(t)
+	hostDir := filepath.Join(p.Hosts, "host1")
+	if err := os.Remove(filepath.Join(p.Machines, "k1", config.ScopeModulesDir, config.BootFile)); err != nil {
+		t.Fatal(err)
+	}
+	write(t, config.SelectionPath(filepath.Join(p.Machines, "k1")), emptyTestSelection)
+	write(t, filepath.Join(hostDir, config.ScopeModulesDir, config.BootFile), "{ }\n")
+	write(t, config.SelectionPath(hostDir), selectionWith("./boot.nix"))
+	captureBoth(t, func() { err = moduleDisable(p, []string{"boot"}) })
+	if err != nil {
+		t.Fatalf("host boot: moduleDisable: %v", err)
+	}
+	if got := hostImports(t, p, "host1"); len(got) != 0 {
+		t.Errorf("host selection = %v, want none", got)
+	}
+}
