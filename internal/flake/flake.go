@@ -28,7 +28,7 @@ const (
 
 // Builtin inputs are declared by luxos when it renders flake.nix, so they are
 // declared even when no module says so, and always sit at the tree root.
-var Builtin = []string{"luxos", "nixpkgs"}
+var Builtin = []string{nix.LuxosInput, nix.BaseChannelInput}
 
 // Note marks a locked node against upstream.
 type Note string

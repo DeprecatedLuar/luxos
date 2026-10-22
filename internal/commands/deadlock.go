@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
@@ -20,7 +21,7 @@ func Deadlock(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := updateInputs(nil, []string{updateDefaultInput}); err != nil {
+	if err := updateInputs(nil, []string{nix.LuxosInput}); err != nil {
 		return err
 	}
 

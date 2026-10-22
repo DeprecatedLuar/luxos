@@ -53,7 +53,6 @@ const (
 	frameworkTemplateDir = "framework/"
 	flakeTemplate        = "flake.nix.tmpl"
 
-	luxosInputName   = "luxos"
 	luxosInputURL    = "github:DeprecatedLuar/luxos/main"
 	luxosInputSource = "luxos built-in"
 )
@@ -429,11 +428,11 @@ func Baseline(stagingDir string) (string, error) {
 func luxosInput() nix.InputDecl {
 	return nix.InputDecl{
 		File: luxosInputSource,
-		Name: luxosInputName,
+		Name: nix.LuxosInput,
 		URL:  luxosInputURL,
 		Value: map[string]any{
 			"url":    luxosInputURL,
-			"inputs": map[string]any{"nixpkgs": map[string]any{"follows": "nixpkgs"}},
+			"inputs": map[string]any{nix.BaseChannelInput: map[string]any{"follows": nix.BaseChannelInput}},
 		},
 	}
 }

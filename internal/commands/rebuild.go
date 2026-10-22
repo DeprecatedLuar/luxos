@@ -42,9 +42,6 @@ const flakeLockName = "flake.lock"
 // What the spinner line becomes once staging succeeds.
 const prebuildLabel = "prebuild"
 
-// By convention, the flake input that provides this binary.
-const luxosInputName = "luxos"
-
 // A binary installed by a generation; anything else is hand-built and must never replace itself.
 const nixStorePrefix = "/nix/store/"
 
@@ -95,13 +92,13 @@ func pinnedRef(hostLock string) (ref string, ok bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	node, ok := lock.Input(luxosInputName)
+	node, ok := lock.Input(nix.LuxosInput)
 	if !ok {
 		return "", false, nil
 	}
 	in := node.Locked
 	if in.Type != githubLockType {
-		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", luxosInputName, in.Type, githubLockType)
+		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", nix.LuxosInput, in.Type, githubLockType)
 	}
 	return fmt.Sprintf("github:%s/%s/%s", in.Owner, in.Repo, in.Rev), true, nil
 }

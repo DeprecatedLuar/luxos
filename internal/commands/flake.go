@@ -30,7 +30,6 @@ const (
 
 const (
 	updateFlagSpec      = flakeFlagSpec + " yes|y:bool"
-	updateDefaultInput  = "luxos"
 	updateDefaultPrompt = "Update luxos? [y/N] "
 )
 
@@ -103,7 +102,7 @@ func Update(args []string) error {
 				return errUpdateAborted
 			}
 		}
-		names = []string{updateDefaultInput}
+		names = []string{nix.LuxosInput}
 	}
 
 	return updateInputs(opts, names)

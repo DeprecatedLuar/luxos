@@ -303,6 +303,9 @@ func nixMessage(err error) string {
 
 const BaseChannelInput = "nixpkgs"
 
+// LuxosInput is the flake input that provides the luxos binary.
+const LuxosInput = "luxos"
+
 var ErrNoBaseChannel = errors.New("missing base channel")
 
 // BaseChannel returns the url and 1-based line of the one nixpkgs declaration
