@@ -34,9 +34,6 @@ const editScratchPattern = "luxos-edit-*.nix"
 // non-user module.
 const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 
-// usersCategory holds user modules, scaffolded from the user starter.
-const usersCategory = config.UsersDir
-
 // moduleListFlagSpec is the flag spec of the list verbs.
 const moduleListFlagSpec = "flat:bool raw:bool json:bool"
 
@@ -632,7 +629,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 		return err
 	}
 
-	if filepath.Dir(target) == usersCategory {
+	if target == modules.UserPath(name) {
 		if err := moduleAddUser(p.Modules, target); err != nil {
 			return err
 		}

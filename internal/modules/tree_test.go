@@ -973,3 +973,34 @@ func TestBootSelected(t *testing.T) {
 		})
 	}
 }
+
+func TestUserPath(t *testing.T) {
+	if got := UserPath("ana"); got != "users/ana" {
+		t.Errorf("UserPath(ana) = %q", got)
+	}
+	if got := UserPath(""); got != "users" {
+		t.Errorf("UserPath(\"\") = %q", got)
+	}
+}
+
+func TestFindUser(t *testing.T) {
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	mustWriteFile(t, filepath.Join(modulesDir, "users", "ana", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "services", "eduardo.nix"), "{ }")
+	units, _, err := Walk(modulesDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if m, ok, err := FindUser(units, "ana"); err != nil || !ok || m.Path != "users/ana" {
+		t.Errorf("FindUser(ana) = %v, %v, %v", m.Path, ok, err)
+	}
+	if _, ok, err := FindUser(units, "nobody"); err != nil || ok {
+		t.Errorf("FindUser(nobody) = %v, %v", ok, err)
+	}
+	_, _, err = FindUser(units, "eduardo")
+	if err == nil || !strings.Contains(err.Error(), "modules/services/eduardo.nix") {
+		t.Errorf("FindUser(eduardo) err = %v, want one naming modules/services/eduardo.nix", err)
+	}
+}

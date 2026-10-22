@@ -47,7 +47,6 @@ var errSetupMismatch = errors.New("passwords do not match")
 const (
 	localPackagesSelection = "host/packages.nix"
 	unstableSelection      = "unstable.nix"
-	usersCategory          = config.UsersDir
 )
 
 var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -205,7 +204,11 @@ func (w *Wizard) enableUser(host string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := h.Find(w.Paths.User); !ok {
+	_, ok, err := modules.FindUser(h.Modules, w.Paths.User)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		pw, err := w.askPassword()
 		if err != nil {
 			return err
@@ -234,7 +237,11 @@ func (w *Wizard) ensureUserUnit() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if m, ok := modules.Find(ms, w.Paths.User); ok {
+	m, ok, err := modules.FindUser(ms, w.Paths.User)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return []string{m.Path}, nil
 	}
 	pw, err := w.askPassword()
@@ -245,7 +252,7 @@ func (w *Wizard) ensureUserUnit() ([]string, error) {
 }
 
 func (w *Wizard) userPath() string {
-	return usersCategory + "/" + w.Paths.User
+	return modules.UserPath(w.Paths.User)
 }
 
 // userLines are the selection lines of a user unit setup creates.
@@ -293,7 +300,7 @@ func (w *Wizard) writeUser(pw string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(w.Paths.Modules, usersCategory, user)
+	dir := filepath.Join(w.Paths.Modules, modules.UserPath(user))
 	if err := config.WriteUser(dir); err != nil {
 		return err
 	}

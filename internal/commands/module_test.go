@@ -45,18 +45,6 @@ func TestUserTarget(t *testing.T) {
 	}
 }
 
-func TestUserCategory(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"", "users"},
-		{"desktop", "users/desktop"},
-	}
-	for _, c := range cases {
-		if got := userCategory(c.in); got != c.want {
-			t.Errorf("userCategory(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 func TestJoinCategory(t *testing.T) {
 	cases := []struct {
 		category, base, want string

@@ -520,6 +520,28 @@ func (m Module) Role() Role {
 	return RolePlain
 }
 
+// UserPath is the modules-relative path of user name, or the users category
+// when name is "".
+func UserPath(name string) string {
+	if name == "" {
+		return usersCategory
+	}
+	return usersCategory + nameSep + name
+}
+
+// FindUser returns the user unit called name; ok is false when no unit has
+// that name. A unit with that name that is not a user is an error naming it.
+func FindUser(ms []Module, name string) (Module, bool, error) {
+	m, ok := Find(ms, name)
+	if !ok {
+		return m, false, nil
+	}
+	if m.Role() != RoleUser {
+		return m, false, fmt.Errorf("'%s' is not a user: modules/%s has that name (a user is a folder in modules/%s/)", name, m.Path, usersCategory)
+	}
+	return m, true, nil
+}
+
 // UserOf returns the name of the user whose unit m is or lies in, "" when none.
 func UserOf(m Module) string {
 	if m.Scope != config.ScopeShared {

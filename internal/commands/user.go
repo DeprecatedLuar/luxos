@@ -8,6 +8,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
 
@@ -61,10 +62,7 @@ func User(args []string) error {
 // userTarget lets `luxos user add foo` and `luxos user add users/foo`
 // build the same module-add target.
 func userTarget(name string) string {
-	if strings.HasPrefix(name, usersCategory+"/") {
-		return name
-	}
-	return usersCategory + "/" + name
+	return modules.UserPath(strings.TrimPrefix(name, modules.UserPath("")+"/"))
 }
 
 func userAdd(p paths.Paths, args []string) error {
@@ -88,13 +86,6 @@ func userAdd(p paths.Paths, args []string) error {
 	return moduleAdd(p, fwd)
 }
 
-func userCategory(sub string) string {
-	if sub == "" {
-		return usersCategory
-	}
-	return usersCategory + "/" + sub
-}
-
 // Flags (--flat, --raw, ...) are forwarded untouched; the first non-flag
 // argument, if any, is the subpath.
 func userList(p paths.Paths, args []string) error {
@@ -109,5 +100,5 @@ func userList(p paths.Paths, args []string) error {
 			sub = a
 		}
 	}
-	return moduleList(p, append([]string{userCategory(sub)}, flags...))
+	return moduleList(p, append([]string{modules.UserPath(sub)}, flags...))
 }

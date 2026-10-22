@@ -370,3 +370,26 @@ func TestHostScreen_MismatchLeavesNoUnit(t *testing.T) {
 		t.Errorf("user unit created: %v", err)
 	}
 }
+
+func TestHostScreen_NonUserUnitNamedLikeUserFails(t *testing.T) {
+	p := testPaths(t)
+	if err := cloneConfig(t, false)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	clash := filepath.Join(p.Modules, "services", "ana.nix")
+	if err := config.MkdirAll(filepath.Dir(clash)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clash, []byte("{ }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// new host, name, write
+	w, out := newWizard(t, p, "n\ncathode\ny\n", noClone)
+	_, err := w.HostScreen()
+	if err == nil || !strings.Contains(err.Error(), "modules/services/ana.nix") {
+		t.Fatalf("HostScreen err = %v, want one naming modules/services/ana.nix\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(p.Modules, "users", "ana")); !os.IsNotExist(err) {
+		t.Errorf("a user unit was written despite the clash: %v", err)
+	}
+}
