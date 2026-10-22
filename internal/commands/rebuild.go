@@ -295,28 +295,11 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	out := ui.NewProgress(os.Stderr)
 	out.Start()
 	defer out.Stop()
-	machineDir, err := config.Ensure(out, p, host)
+	h, err := prepare(out, p, host, prune)
 	if err != nil {
 		return err
 	}
-	h, err := healAndValidate(out, p, host, machineDir, prune)
-	if err != nil {
-		return err
-	}
-	users, err := builtUsers(h)
-	if err != nil {
-		return err
-	}
-	if err := syncUsers(out, users); err != nil {
-		return err
-	}
-	if err := syncSettings(out, p, host, machineDir); err != nil {
-		return err
-	}
-	if err := checkPasswords(out, users, p.Keys, keyOwnerUID); err != nil {
-		return err
-	}
-	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {
+	if err := stage(out, p, h, p.NewStage, realFlakeSteps); err != nil {
 		return err
 	}
 	out.Printf("Sealing %s...\n", p.NewStage)

@@ -25,6 +25,38 @@ type flakeSteps struct {
 
 var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
+// prepare brings CONFIG_DIR, host's selections, its users, its settings and
+// its passwords to the state a stage of host needs, and returns the host to
+// stage. syncUsers may create a user's selection and starter module, so the
+// host is loaded again after it.
+func prepare(out *ui.Progress, p paths.Paths, host string, prune bool) (*modules.Host, error) {
+	machineDir, err := config.Ensure(out, p, host)
+	if err != nil {
+		return nil, err
+	}
+	h, err := healAndValidate(out, p, host, machineDir, prune)
+	if err != nil {
+		return nil, err
+	}
+	users, err := builtUsers(h)
+	if err != nil {
+		return nil, err
+	}
+	if err := syncUsers(out, users); err != nil {
+		return nil, err
+	}
+	if h, err = modules.Load(p.Modules, h.HostDir, machineDir); err != nil {
+		return nil, err
+	}
+	if err := syncSettings(out, h); err != nil {
+		return nil, err
+	}
+	if err := checkPasswords(out, users, p.Keys, keyOwnerUID); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
 // healAndValidate checks both selections and every selected user's hold only
 // imports, moves cross-scope lines, heals broken lines, then checks the active host's
 // module boundaries, returning the host it validated. prune removes
@@ -85,14 +117,10 @@ func displaySelection(p paths.Paths, file string) string {
 	return "modules/host/default.nix"
 }
 
-// syncSettings brings host's settings files in line with its selected
-// units' options.nix, failing on any unit that breaks a settings rule.
-func syncSettings(out *ui.Progress, p paths.Paths, host, machineDir string) error {
+// syncSettings brings h's settings files in line with its selected units'
+// options.nix, failing on any unit that breaks a settings rule.
+func syncSettings(out *ui.Progress, h *modules.Host) error {
 	out.Printf("Syncing module settings...\n")
-	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
-	if err != nil {
-		return err
-	}
 	rep, err := modules.SyncSettings(h)
 	if err != nil {
 		return err
@@ -145,20 +173,10 @@ func formatImportChange(c modules.Change) string {
 	return fmt.Sprintf("%s: %s -> %s", c.File, c.Old, c.New)
 }
 
-// stage writes host's stage into dir from CONFIG_DIR, which it only reads
+// stage writes h's stage into dir from CONFIG_DIR, which it only reads
 // (apart from the host's flake.lock, when staging locked something new).
 // It touches nothing in dir but the entries luxos owns.
-func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) error {
-	hostDir := filepath.Join(p.Hosts, host)
-
-	machineDir, err := config.LinkedMachineDir(p.Modules)
-	if err != nil {
-		return err
-	}
-	h, err := modules.Load(p.Modules, hostDir, machineDir)
-	if err != nil {
-		return err
-	}
+func stage(out *ui.Progress, p paths.Paths, h *modules.Host, dir string, steps flakeSteps) error {
 	files, err := h.InputFiles()
 	if err != nil {
 		return err
@@ -179,7 +197,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	}
 	printFacts(out, facts)
 
-	out.Printf("Materializing %s for %s...\n", dir, host)
+	out.Printf("Materializing %s for %s...\n", dir, h.Name)
 	if err := staging.Materialize(dir, h, filepath.Join(p.Config, config.EnvironmentFile), inputs, facts, h.StagedSettings()); err != nil {
 		return err
 	}
@@ -188,7 +206,7 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	if err := steps.lock(dir); err != nil {
 		return err
 	}
-	hostLock := filepath.Join(hostDir, flakeLockName)
+	hostLock := filepath.Join(h.HostDir, flakeLockName)
 	changed, err := config.CopyLockBack(filepath.Join(dir, flakeLockName), hostLock)
 	if err != nil {
 		return err
@@ -240,7 +258,15 @@ func withTempStage(p paths.Paths, host, pattern string, fn func(dir string) erro
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
 
-	if err := stage(ui.NewProgress(io.Discard), p, host, tmp, realFlakeSteps); err != nil {
+	machineDir, err := config.LinkedMachineDir(p.Modules)
+	if err != nil {
+		return err
+	}
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	if err != nil {
+		return err
+	}
+	if err := stage(ui.NewProgress(io.Discard), p, h, tmp, realFlakeSteps); err != nil {
 		return err
 	}
 	return fn(tmp)

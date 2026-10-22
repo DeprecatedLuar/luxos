@@ -13,6 +13,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
+	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -59,20 +60,14 @@ func fakeNix(t *testing.T) (flakeSteps, *[]string) {
 	}, calls
 }
 
-// runAll is a whole rebuild's preparation: config, heal and validate, stage, seal.
+// runAll is a whole rebuild's preparation: prepare, stage, seal.
 func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeSteps) error {
 	out := ui.NewProgress(w)
-	machineDir, err := config.Ensure(out, p, host)
+	h, err := prepare(out, p, host, prune)
 	if err != nil {
 		return err
 	}
-	if _, err := healAndValidate(out, p, host, machineDir, prune); err != nil {
-		return err
-	}
-	if err := syncSettings(out, p, host, machineDir); err != nil {
-		return err
-	}
-	if err := stage(out, p, host, p.Staging, steps); err != nil {
+	if err := stage(out, p, h, p.Staging, steps); err != nil {
 		return err
 	}
 	return staging.Seal(p.Staging)
@@ -598,13 +593,18 @@ func TestStageDoesNotAdopt(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if _, err := config.Ensure(discard, p, host); err != nil {
+	machineDir, err := config.Ensure(discard, p, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "old-config.nix"), "{ }\n")
 
-	if err := stage(discard, p, host, dir, steps); err != nil {
+	if err := stage(discard, p, h, dir, steps); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "old-config.nix")); err != nil {
@@ -664,13 +664,18 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if _, err := config.Ensure(discard, p, host); err != nil {
+	machineDir, err := config.Ensure(discard, p, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	if err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, p.Config)
 
 	out := t.TempDir()
-	if err := stage(discard, p, host, out, steps); err != nil {
+	if err := stage(discard, p, h, out, steps); err != nil {
 		t.Fatal(err)
 	}
 
@@ -690,12 +695,17 @@ func TestStageLeavesLockWritable(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	if _, err := config.Ensure(discard, p, host); err != nil {
+	machineDir, err := config.Ensure(discard, p, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	dir := t.TempDir()
-	if err := stage(discard, p, host, dir, steps); err != nil {
+	if err := stage(discard, p, h, dir, steps); err != nil {
 		t.Fatal(err)
 	}
 
@@ -809,9 +819,28 @@ func TestRun_SettingsCreatedAndStaged(t *testing.T) {
 func TestStageWithoutMachineLinkFails(t *testing.T) {
 	skipIfNoNix(t)
 	p, host := fixture(t)
-	steps, _ := fakeNix(t)
-	err := stage(ui.NewProgress(io.Discard), p, host, t.TempDir(), steps)
+	err := withTempStage(p, host, "luxos-test-", func(string) error { return nil })
 	if !errors.Is(err, config.ErrNoMachineLink) {
 		t.Fatalf("err = %v, want the missing-link error", err)
+	}
+}
+
+func TestRun_SelectedUserWithoutPasswordFailsBeforeStaging(t *testing.T) {
+	skipIfNoNix(t)
+	p, host := fixture(t)
+	steps, _ := fakeNix(t)
+	if err := config.WriteUser(filepath.Join(p.Modules, "users", "ana")); err != nil {
+		t.Fatal(err)
+	}
+	if err := nix.AddImport(config.SelectionPath(filepath.Join(p.Hosts, host)), "../users/ana"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := runAll(&out, p, host, false, steps)
+	if err == nil || !strings.Contains(err.Error()+out.String(), "luxos user passwd ana") {
+		t.Fatalf("err = %v, output:\n%s\nwant the missing password named", err, out.String())
+	}
+	if _, statErr := os.Stat(filepath.Join(p.Staging, "framework")); !os.IsNotExist(statErr) {
+		t.Errorf("staged despite the missing password: %v", statErr)
 	}
 }
