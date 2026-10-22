@@ -173,7 +173,6 @@ type moduleRow struct {
 	name     string
 	unit     string // qualified unit name; name is its last segment
 	marker   string
-	rank     int
 	pulledBy []string
 	children []moduleRow
 	note     string
@@ -237,7 +236,6 @@ func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 			name:       baseName(m.Name),
 			unit:       m.Name,
 			marker:     marker,
-			rank:       moduleMarkerRank(marker),
 			pulledBy:   st.PulledBy,
 			shadow:     m.Shadows != "",
 			modified:   st.State == modules.Modified,
@@ -385,7 +383,7 @@ func uiRows(rows []moduleRow) []ui.Row {
 			Count:     count,
 			Marker:    marker,
 			Color:     colorOf(r),
-			Rank:      r.rank,
+			Rank:      moduleMarkerRank(r.marker),
 			Underline: r.shadow,
 			Strike:    r.removed,
 			Note:      r.note,

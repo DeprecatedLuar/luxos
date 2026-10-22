@@ -750,7 +750,7 @@ func TestModuleRowsStateMapping(t *testing.T) {
 			t.Fatalf("%s: rows = %+v", c.state, rows)
 		}
 		r := rows[0]
-		if r.marker != c.marker || r.rank != c.rank || r.modified != c.modified || r.removed != c.removed {
+		if r.marker != c.marker || moduleMarkerRank(r.marker) != c.rank || r.modified != c.modified || r.removed != c.removed {
 			t.Errorf("%s: row = %+v", c.state, r)
 		}
 	}
