@@ -474,6 +474,9 @@ func selectionHas(file, scope, p string) (bool, error) {
 // shared unit only). A user's submodule goes to its user's selection, created
 // when the user has none. Returns the names whose line it added, in order.
 func Enable(h *Host, name string, toMachine bool) ([]string, error) {
+	if _, err := h.Lookup(name); err != nil {
+		return nil, err
+	}
 	var chain []string
 	for b := Parent(name); b != ""; b = Parent(b) {
 		chain = append([]string{b}, chain...)

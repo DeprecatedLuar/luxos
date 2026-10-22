@@ -841,3 +841,29 @@ func TestEnableCascadesBundlesAndDisableCascadesSubmodules(t *testing.T) {
 		t.Errorf("still selected: %v", h.Selection())
 	}
 }
+
+func TestEnable_UnknownSubmoduleWritesNothing(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "kit", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "kit", "modules", "real.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(hostDir, "modules", "default.nix")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Enable(h, "kit/ghost", false); err == nil {
+		t.Fatal("Enable of an unknown submodule succeeded")
+	}
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("selection changed:\n%s\nwant:\n%s", after, before)
+	}
+}

@@ -184,6 +184,7 @@ func (p Plan) Apply() (kept []string, err error) {
 	if err := retargetRefs(p.Dependents, p.Unit.Name, p.NewName); err != nil {
 		return nil, err
 	}
+	// Planning already failed on any unrecognizable selection in reach, so retarget yields no warnings.
 	if _, _, err := retarget(p.reach.Selections, p.Unit.Name, p.NewPath); err != nil {
 		return nil, err
 	}

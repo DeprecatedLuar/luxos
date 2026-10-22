@@ -873,7 +873,7 @@ func TestUserOf(t *testing.T) {
 		}
 	}
 	if unitByName(t, us, "luar").Role() != RoleUser || unitByName(t, us, "luar/a").Role() == RoleUser || unitByName(t, us, "bob").Role() == RoleUser {
-		t.Error("IsUser")
+		t.Error("Role: want RoleUser only for the user unit")
 	}
 }
 
