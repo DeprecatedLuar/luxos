@@ -27,14 +27,15 @@ var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
 // healAndValidate checks both selections and every selected user's hold only
 // imports, moves cross-scope lines, heals broken lines, then checks the active host's
-// module boundaries. prune removes unresolvable lines from the active host's
-// and this computer's selections instead of failing.
-func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, prune bool) error {
+// module boundaries, returning the host it validated. prune removes
+// unresolvable lines from the active host's and this computer's selections
+// instead of failing.
+func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, prune bool) (*modules.Host, error) {
 	hostDir := filepath.Join(p.Hosts, host)
 	out.Printf("Checking selections...\n")
 	for _, dir := range []string{hostDir, machineDir} {
 		if err := modules.CheckSelection(config.SelectionPath(dir)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -50,30 +51,30 @@ func healAndValidate(out *ui.Progress, p paths.Paths, host, machineDir string, p
 		out.Warnf("%s", wm)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	out.Printf("Validating module boundaries...\n")
 	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, sel := range h.SelectedUsers() {
 		if err := modules.CheckSelection(sel.File); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	violations, err := h.Validate()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(violations) > 0 {
 		for _, v := range violations {
 			out.Errf("%s: %s", v.File, v.Message)
 		}
-		return fmt.Errorf("module boundary violations: %d", len(violations))
+		return nil, fmt.Errorf("module boundary violations: %d", len(violations))
 	}
-	return out.Err()
+	return h, out.Err()
 }
 
 // displaySelection names a selection file by its path under modules/.

@@ -50,7 +50,7 @@ func TestSyncUser_RestoresAndLocks(t *testing.T) {
 	if err := os.Chmod(acct, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(acct, []byte(luxosPropertyHeader+"\n{ }\n"), 0o644); err != nil {
+	if err := os.WriteFile(acct, []byte(PropertyHeader+"\n{ }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	changes, err = SyncUser(dir)

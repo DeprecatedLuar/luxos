@@ -22,9 +22,8 @@ var owned = []string{frameworkDir, configDir, flakeNix, lockFileName}
 
 const (
 	// adoptionMarker is the file whose presence means luxos already owns the
-	// staging root, and luxosHeader the header its first line must carry.
+	// staging root once its first line is config.PropertyHeader.
 	adoptionMarker = "framework/system.nix"
-	luxosHeader    = "# LUXOS property - keep walking buddy"
 
 	backupTimeFormat = "20060102T150405Z"
 
@@ -44,7 +43,7 @@ type Change struct {
 // from a symlink to a real directory, creates it when missing, and moves
 // every entry luxos does not own into a fresh timestamped subdirectory of
 // backupDir. On first adoption (adoptionMarker absent or not carrying
-// luxosHeader) every entry is a stranger, because the files at owned paths are the
+// config.PropertyHeader) every entry is a stranger, because the files at owned paths are the
 // user's real configuration.
 // backupDir may be empty; it is only required when something must move,
 // and Adopt returns ErrNoBackupDir in that case.
@@ -137,7 +136,7 @@ func hasLuxosHeader(path string) (has bool, err error) {
 	if err != nil && err != io.EOF {
 		return false, err
 	}
-	return strings.TrimRight(line, "\r\n") == luxosHeader, nil
+	return strings.TrimRight(line, "\r\n") == config.PropertyHeader, nil
 }
 
 // move renames src to dst, falling back to copy-then-remove across filesystems.

@@ -47,7 +47,7 @@ var errSetupMismatch = errors.New("passwords do not match")
 const (
 	localPackagesSelection = "host/packages.nix"
 	unstableSelection      = "unstable.nix"
-	usersCategory          = "users"
+	usersCategory          = config.UsersDir
 )
 
 var hostNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -310,11 +310,11 @@ func (w *Wizard) writeUser(pw string) error {
 // writeGroups gives the user its groups on host unless the host already has
 // a settings file for the user.
 func (w *Wizard) writeGroups(host string) error {
-	dir := filepath.Join(w.Paths.Hosts, host, config.SettingsDir)
-	if err := config.MkdirAll(dir); err != nil {
+	file := config.SettingsPath(filepath.Join(w.Paths.Hosts, host), w.Paths.User)
+	if err := config.MkdirAll(filepath.Dir(file)); err != nil {
 		return err
 	}
-	_, err := config.CreateFile(filepath.Join(dir, w.Paths.User+".nix"), config.UserGroups(w.Paths.User))
+	_, err := config.CreateFile(file, config.UserGroups(w.Paths.User))
 	return err
 }
 

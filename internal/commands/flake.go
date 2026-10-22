@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,8 +44,6 @@ const gitLockType = "git"
 
 const (
 	flakeInputsLabel = "inputs/"
-
-	flakeViewCommitsCurrent = "0"
 
 	flakeViewListSep = " "
 )
@@ -349,7 +348,7 @@ type flakeViewData struct {
 	declared []string
 	current  string
 	latest   string
-	commits  string
+	commits  *int // nil when unknown
 	pulls    []string
 }
 
@@ -493,7 +492,7 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 	view.note = note
 	view.lines = append(view.lines, versionLine)
 
-	names := flakeSortedKeys(node.Inputs)
+	names := slices.Sorted(maps.Keys(node.Inputs))
 	if len(names) > 0 {
 		view.lines = append(view.lines, ui.Line{Label: "pulls in", Children: []ui.Line{
 			{Value: strings.Join(names, flakePullsInSep)},
@@ -573,7 +572,7 @@ func flakeDeclaredLine(parent string, decls []flake.Decl, builtin bool, marker s
 type flakeVersion struct {
 	current string
 	latest  string
-	commits string
+	commits *int
 	checked bool
 }
 
@@ -604,7 +603,7 @@ func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (ui.Li
 	case "":
 		cur.Value += flakeUpToDate
 		line.Children = []ui.Line{cur}
-		version.commits = flakeViewCommitsCurrent
+		version.commits = new(int)
 		return line, "", version
 	}
 
@@ -618,16 +617,20 @@ func flakeVersionLine(node nix.LockNode, hasNode bool, up flake.Upstream) (ui.Li
 		version.latest = string(flake.StatusUnknown)
 	}
 	if info.HasAhead {
-		version.commits = strconv.Itoa(info.Ahead)
+		version.commits = &info.Ahead
 	}
 	return line, string(flake.NoteBehind), version
 }
 
 func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
+	commits := ""
+	if d.commits != nil {
+		commits = strconv.Itoa(*d.commits)
+	}
 	for _, kv := range [][2]string{
 		{"name", d.name}, {"state", d.state}, {"status", d.status}, {"source", d.source},
 		{"declared", strings.Join(d.declared, flakeViewListSep)}, {"current", d.current}, {"latest", d.latest},
-		{"commits", d.commits}, {"pulls", strings.Join(d.pulls, flakeViewListSep)},
+		{"commits", commits}, {"pulls", strings.Join(d.pulls, flakeViewListSep)},
 	} {
 		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
 	}
@@ -646,10 +649,11 @@ type flakeViewJSON struct {
 	Commits  *int     `json:"commits"`
 }
 
-func flakeViewToJSON(d flakeViewData) (flakeViewJSON, error) {
+func flakeViewToJSON(d flakeViewData) flakeViewJSON {
 	out := flakeViewJSON{
 		Name: d.name, State: d.state, Status: d.status, Source: d.source,
 		Declared: append([]string{}, d.declared...), Pulls: append([]string{}, d.pulls...),
+		Commits: d.commits,
 	}
 	if d.current != "" {
 		out.Current = &d.current
@@ -657,36 +661,16 @@ func flakeViewToJSON(d flakeViewData) (flakeViewJSON, error) {
 	if d.latest != "" {
 		out.Latest = &d.latest
 	}
-	if d.commits != "" {
-		n, err := strconv.Atoi(d.commits)
-		if err != nil {
-			return out, fmt.Errorf("commit count %q of input %s: %w", d.commits, d.name, err)
-		}
-		out.Commits = &n
-	}
-	return out, nil
+	return out
 }
 
 func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
 	objs := make([]flakeViewJSON, 0, len(views))
 	for _, v := range views {
-		obj, err := flakeViewToJSON(v.data)
-		if err != nil {
-			return err
-		}
-		objs = append(objs, obj)
+		objs = append(objs, flakeViewToJSON(v.data))
 	}
 	if len(objs) == 1 {
 		return ui.JSON(w, objs[0])
 	}
 	return ui.JSON(w, objs)
-}
-
-func flakeSortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

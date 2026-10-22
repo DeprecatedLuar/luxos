@@ -22,9 +22,10 @@ const (
 
 	userPackagesLine = "./packages.nix"
 
-	userModulesDir  = "modules"
-	userDefaultFile = "default.nix"
-	userOldSuffix   = ".old"
+	userOldSuffix = ".old"
+
+	// AccountFile is the vendored file that declares a user's account.
+	AccountFile = "account.nix"
 
 	// UserPackagesFile is the starter's path inside a user unit.
 	UserPackagesFile = "modules/packages.nix"
@@ -34,15 +35,15 @@ const (
 
 	userGroupsTemplate = "{\n  %s.groups = [ \"wheel\" \"networkmanager\" ];\n}\n"
 
-	// luxosPropertyHeader is the first line of every vendored file.
-	luxosPropertyHeader = "# LUXOS property - keep walking buddy"
+	// PropertyHeader is the first line of every file luxos owns.
+	PropertyHeader = "# LUXOS property - keep walking buddy"
 )
 
 // userVendored are the files luxos owns inside every user unit, by name, with
 // their embedded source.
 var userVendored = []struct{ name, src string }{
-	{"default.nix", "user/default.nix"},
-	{"account.nix", "user/account.nix"},
+	{DefaultFile, "user/default.nix"},
+	{AccountFile, "user/account.nix"},
 	{"options.nix", "user/options.nix"},
 }
 
@@ -86,9 +87,9 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
-		handWritten := err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(luxosPropertyHeader+"\n"))
-		if handWritten && f.name != userDefaultFile {
-			return nil, fmt.Errorf("%s is not a luxos file: move your values into %s, then delete %s and rebuild", path, filepath.Join(dir, userModulesDir), path)
+		handWritten := err == nil && !bytes.Equal(have, want) && !bytes.HasPrefix(have, []byte(PropertyHeader+"\n"))
+		if handWritten && f.name != DefaultFile {
+			return nil, fmt.Errorf("%s is not a luxos file: move your values into %s, then delete %s and rebuild", path, filepath.Join(dir, ScopeModulesDir), path)
 		}
 		files = append(files, pending{name: f.name, path: path, want: want, have: have, missing: err != nil, replace: handWritten})
 	}
@@ -137,7 +138,7 @@ func SyncUser(dir string) ([]SyncChange, error) {
 		return nil, err
 	}
 
-	modulesDir := filepath.Join(dir, userModulesDir)
+	modulesDir := filepath.Join(dir, ScopeModulesDir)
 	var lines []string
 	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
 		if err := Mkdir(modulesDir); err != nil {
@@ -180,7 +181,7 @@ func CreateUserSelection(dir string, lines []string) error {
 
 // UserScope is the modules-relative folder a user's selection lines are relative to.
 func UserScope(name string) string {
-	return path.Join(UsersDir, name, userModulesDir)
+	return path.Join(UsersDir, name, ScopeModulesDir)
 }
 
 // UserSelectionPath is the selection of the user unit dir.

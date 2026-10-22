@@ -44,7 +44,7 @@ func ReadSelection(file, scope string) ([]string, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, shapeError(file)
+		return nil, nix.ShapeError(file)
 	}
 	return pathsOf(scope, lines), nil
 }
@@ -482,18 +482,14 @@ func selectionHas(file, scope, p string) (bool, error) {
 	return false, nil
 }
 
-func shapeError(file string) error {
-	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
-}
-
 // Enable adds name's line to the selection it belongs in: a machine unit's
 // to the machine selection, any other to the host's, or to the machine's
 // when toMachine (a shared unit only). A user's submodule goes to its user's
 // selection, created when the user has none. Reports false when already there.
 func Enable(h *Host, name string, toMachine bool) (bool, error) {
-	m, ok := h.Find(name)
-	if !ok {
-		return false, fmt.Errorf("unknown module '%s'", name)
+	m, err := h.Lookup(name)
+	if err != nil {
+		return false, err
 	}
 	if user := UserOf(m); user != "" && !IsUser(m) {
 		if toMachine {

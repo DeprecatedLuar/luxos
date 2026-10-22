@@ -18,7 +18,7 @@ import (
 
 func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
 	h := userHost(t, "users/ana")
-	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
+	if err := syncUsers(ui.NewProgress(io.Discard), mustBuiltUsers(t, h)); err != nil {
 		t.Fatal(err)
 	}
 	ana, _ := h.Find("ana")
@@ -37,7 +37,7 @@ func TestSyncUsers_OnlyBuiltUsers(t *testing.T) {
 
 func TestSyncUsers_SeedsUserSelection(t *testing.T) {
 	h := userHost(t, "users/ana")
-	if err := syncUsers(ui.NewProgress(io.Discard), h); err != nil {
+	if err := syncUsers(ui.NewProgress(io.Discard), mustBuiltUsers(t, h)); err != nil {
 		t.Fatal(err)
 	}
 	host, err := os.ReadFile(filepath.Join(h.HostDir, "modules", "default.nix"))
@@ -102,12 +102,12 @@ func userHost(t *testing.T, selected ...string) *modules.Host {
 
 func TestCheckPasswords_OnlyBuiltUsers(t *testing.T) {
 	h := userHost(t, "users/ana")
-	err := checkPasswords(ui.NewProgress(io.Discard), h, t.TempDir(), os.Getuid())
+	err := checkPasswords(ui.NewProgress(io.Discard), mustBuiltUsers(t, h), t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "1 user") {
 		t.Fatalf("err = %v, want one failing user", err)
 	}
 	var buf strings.Builder
-	err = checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
+	err = checkPasswords(ui.NewProgress(&buf), mustBuiltUsers(t, h), t.TempDir(), os.Getuid())
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -134,7 +134,7 @@ func TestCheckPasswords_PulledUser(t *testing.T) {
 	h := userHost(t, "desktop/x")
 	pullAna(t, h)
 	var buf strings.Builder
-	err := checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
+	err := checkPasswords(ui.NewProgress(&buf), mustBuiltUsers(t, h), t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "1 user") {
 		t.Fatalf("err = %v, want one failing user", err)
 	}
@@ -167,7 +167,7 @@ func TestBuiltUsers(t *testing.T) {
 func TestCheckPasswords_ReportsEveryFailure(t *testing.T) {
 	h := userHost(t, "users/ana", "users/bob")
 	var buf strings.Builder
-	err := checkPasswords(ui.NewProgress(&buf), h, t.TempDir(), os.Getuid())
+	err := checkPasswords(ui.NewProgress(&buf), mustBuiltUsers(t, h), t.TempDir(), os.Getuid())
 	if err == nil || !strings.Contains(err.Error(), "2 user") {
 		t.Fatalf("err = %v, want 2 failing users", err)
 	}
@@ -211,7 +211,7 @@ func TestCheckPasswords_AllPass(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := checkPasswords(ui.NewProgress(io.Discard), h, keys, os.Getuid()); err != nil {
+	if err := checkPasswords(ui.NewProgress(io.Discard), mustBuiltUsers(t, h), keys, os.Getuid()); err != nil {
 		t.Errorf("all users pass: %v", err)
 	}
 }
@@ -252,4 +252,13 @@ func TestUserKeyRoutesToKey(t *testing.T) {
 
 func TestUserPasswordAliasRemoved(t *testing.T) {
 	assertMisuse(t, func() error { return User([]string{"password", "ana"}) }, "password")
+}
+
+func mustBuiltUsers(t *testing.T, h *modules.Host) []modules.Module {
+	t.Helper()
+	users, err := builtUsers(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return users
 }

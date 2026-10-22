@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -67,11 +68,7 @@ func buildFlakeRef(ref string, offline bool) (string, error) {
 // FlakeLock runs `nix flake lock` in stagingDir: missing inputs are locked,
 // existing pins stay where they are.
 func FlakeLock(stagingDir string) error {
-	return runIn(stagingDir, flakeLockArgs)
-}
-
-func runIn(dir string, args []string) error {
-	_, err := shell.Output(shell.Cmd{Bin: flakeBin, Args: args, Dir: dir, Env: flakeEnv(os.Environ())})
+	_, err := shell.Output(shell.Cmd{Bin: flakeBin, Args: flakeLockArgs, Dir: stagingDir, Env: flakeEnv(os.Environ())})
 	return err
 }
 
@@ -268,12 +265,7 @@ func evalInputDecls(abs []string) ([]InputDecl, error) {
 
 	var decls []InputDecl
 	for _, file := range abs {
-		names := make([]string, 0, len(raw[file]))
-		for name := range raw[file] {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range slices.Sorted(maps.Keys(raw[file])) {
 			d := raw[file][name]
 			line := 0
 			if d.Pos != nil {
@@ -397,11 +389,7 @@ func renderNixValue(v any, depth int) string {
 		if len(val) == 0 {
 			return "{ }"
 		}
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(val))
 		pad := strings.Repeat("  ", depth)
 		inner := strings.Repeat("  ", depth+1)
 		var b strings.Builder
@@ -494,7 +482,7 @@ func mergeFields(dst, src map[string]any, prefix string, from InputDecl, origins
 		}
 		if !reflect.DeepEqual(existing, v) {
 			first := origins[path]
-			return fmt.Errorf("'%s' is %s in %s:%d and %s in %s:%d", path, nixValue(existing), first.File, first.Line, nixValue(v), from.File, from.Line)
+			return fmt.Errorf("'%s' is %s in %s:%d and %s in %s:%d", path, renderNixValue(existing, 0), first.File, first.Line, renderNixValue(v, 0), from.File, from.Line)
 		}
 	}
 	return nil
@@ -512,8 +500,4 @@ func cloneValue(v any, path string, from InputDecl, origins map[string]InputDecl
 		out[k] = cloneValue(child, path+"."+k, from, origins)
 	}
 	return out
-}
-
-func nixValue(v any) string {
-	return renderNixValue(v, 0)
 }

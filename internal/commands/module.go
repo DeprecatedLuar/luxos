@@ -22,11 +22,11 @@ import (
 )
 
 // entrypointName is the file that turns a folder into a unit.
-const entrypointName = "default.nix"
+const entrypointName = config.DefaultFile
 
 // accountFileName is where a user module's account definition lives;
 // `edit` prefers it over entrypointName for a directory unit that has one.
-const accountFileName = "account.nix"
+const accountFileName = config.AccountFile
 
 const editScratchPattern = "luxos-edit-*.nix"
 
@@ -39,7 +39,7 @@ const moduleSimpleTemplate = "{ ... }:\n\n{\n}\n"
 const moduleFrameworkCategory = "system"
 
 // usersCategory holds user modules, scaffolded from the user starter.
-const usersCategory = "users"
+const usersCategory = config.UsersDir
 
 // moduleListFlagSpec is the flag spec of the list verbs.
 const moduleListFlagSpec = "flat:bool raw:bool json:bool"
@@ -312,6 +312,14 @@ func colorOf(r moduleRow) ui.Color {
 	return markerColor(r.marker)
 }
 
+// stateColor is the tint a module state is drawn in, as colorOf draws its row.
+func stateColor(state modules.State) ui.Color {
+	if state == modules.Modified {
+		return ui.ColorBlue
+	}
+	return markerColor(markerOf(state))
+}
+
 // markerColor is the tint of a state marker.
 func markerColor(marker string) ui.Color {
 	switch marker {
@@ -484,28 +492,19 @@ func moduleList(p paths.Paths, args []string) error {
 		if err != nil || !info.IsDir() {
 			return fmt.Errorf("unknown category '%s'", categoryPath)
 		}
-		if fi, err := os.Stat(filepath.Join(catDir, entrypointName)); err == nil && !fi.IsDir() {
+		if fileExists(filepath.Join(catDir, entrypointName)) {
 			return fmt.Errorf("'%s' is a module, not a category", categoryPath)
 		}
 	}
 
 	tty := ui.IsTerminal(os.Stdout)
 
-	runningPaths, found, err := modules.ReadRunning(p.RunningSelections)
+	sts, found, err := moduleStatuses(p, h)
 	if err != nil {
 		return err
 	}
 	if !found {
 		ui.Warn(os.Stderr, fmt.Sprintf("no running generation found at %s — state unknown until the next switch; every enabled module shows as staged.", p.RunningSelections))
-	}
-
-	baseline, err := staging.Baseline(p.Staging)
-	if err != nil {
-		return err
-	}
-	sts, err := modules.StatusOf(h, runningPaths, baseline)
-	if err != nil {
-		return err
 	}
 	rows := moduleRows(sts, categoryPath)
 
@@ -687,9 +686,9 @@ func moduleEdit(p paths.Paths, args []string) error {
 // itself for a single-file unit; account.nix for a directory unit that has
 // one; entrypointName otherwise.
 func moduleEditTarget(h *modules.Host, name string) (string, error) {
-	m, found := h.Find(name)
-	if !found {
-		return "", fmt.Errorf("unknown module '%s'", name)
+	m, err := h.Lookup(name)
+	if err != nil {
+		return "", err
 	}
 
 	target := m.Abs
@@ -726,9 +725,9 @@ func moduleConfigure(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, found := h.Find(name)
-	if !found {
-		return fmt.Errorf("unknown module '%s'", name)
+	m, err := h.Lookup(name)
+	if err != nil {
+		return err
 	}
 	file, rep, err := modules.SyncUnitSettings(h, m, opts["machine"] != "")
 	if err != nil {
@@ -784,9 +783,9 @@ func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
 	if err != nil {
 		return err
 	}
-	m, found := h.Find(name)
-	if !found {
-		return fmt.Errorf("unknown module '%s'", name)
+	m, err := h.Lookup(name)
+	if err != nil {
+		return err
 	}
 
 	if enable {
@@ -820,15 +819,7 @@ func printStates(p paths.Paths, names []string) error {
 	if err != nil {
 		return err
 	}
-	running, _, err := modules.ReadRunning(p.RunningSelections)
-	if err != nil {
-		return err
-	}
-	baseline, err := staging.Baseline(p.Staging)
-	if err != nil {
-		return err
-	}
-	sts, err := modules.StatusOf(h, running, baseline)
+	sts, _, err := moduleStatuses(p, h)
 	if err != nil {
 		return err
 	}
@@ -837,15 +828,25 @@ func printStates(p paths.Paths, names []string) error {
 		byName[st.Module.Name] = st
 	}
 	for _, name := range names {
-		st := byName[name]
-		marker := markerOf(st.State)
-		color := markerColor(marker)
-		if st.State == modules.Modified {
-			color = ui.ColorBlue
-		}
-		ui.Marked(os.Stdout, color, marker, name)
+		state := byName[name].State
+		ui.Marked(os.Stdout, stateColor(state), markerOf(state), name)
 	}
 	return nil
+}
+
+// moduleStatuses is the state of every module of h against the running
+// generation and the baseline tree; found is false without a running generation.
+func moduleStatuses(p paths.Paths, h *modules.Host) ([]modules.Status, bool, error) {
+	running, found, err := modules.ReadRunning(p.RunningSelections)
+	if err != nil {
+		return nil, false, err
+	}
+	baseline, err := staging.Baseline(p.Staging)
+	if err != nil {
+		return nil, false, err
+	}
+	sts, err := modules.StatusOf(h, running, baseline)
+	return sts, found, err
 }
 
 // enableBundles enables every not-yet-enabled bundle that name is inside,
@@ -1250,9 +1251,9 @@ func underCategory(path, category string) bool {
 // ownedUnit finds name for remove and rename, refusing framework modules and
 // the machine's boot unit.
 func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
-	m, found := h.Find(name)
-	if !found {
-		return m, fmt.Errorf("unknown module '%s'", name)
+	m, err := h.Lookup(name)
+	if err != nil {
+		return m, err
 	}
 	if underCategory(m.Path, moduleFrameworkCategory) {
 		return m, fmt.Errorf("'%s' is a framework module (modules/%s) — not owned by this config", name, m.Path)

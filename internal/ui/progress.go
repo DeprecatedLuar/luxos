@@ -37,9 +37,8 @@ type Progress struct {
 // NewProgress returns a Progress writing to w, colored and able to spin when
 // w is a terminal.
 func NewProgress(w io.Writer) *Progress {
-	p := &Progress{w: w}
+	p := &Progress{w: w, pal: PaletteOf(w)}
 	if f, ok := w.(*os.File); ok {
-		p.pal = PaletteFor(f)
 		p.term = IsTerminal(f)
 	}
 	return p

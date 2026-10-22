@@ -3,8 +3,10 @@ package modules
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,8 +15,8 @@ import (
 )
 
 const (
-	accountFile       = "account.nix"
-	vendoredHeader    = "# LUXOS property - keep walking buddy\n"
+	// referenceMarker appears in every file that can call luxos.modules.
+	referenceMarker   = "luxos"
 	userShadowFormat  = "shadows user '%s': users cannot be shadowed; rename or delete it"
 	userShapeMessage  = "holds luxos' account.nix, so it is a user: users live in modules/users/"
 	userLineFormat    = "selects %s inside user %s: luxos module disable %s, then luxos user enable %s"
@@ -253,8 +255,8 @@ func (h *Host) userViolations() []Violation {
 
 // hasVendoredAccount reports whether dir holds luxos' account.nix.
 func hasVendoredAccount(dir string) bool {
-	data, err := os.ReadFile(filepath.Join(dir, accountFile))
-	return err == nil && strings.HasPrefix(string(data), vendoredHeader)
+	data, err := os.ReadFile(filepath.Join(dir, config.AccountFile))
+	return err == nil && strings.HasPrefix(string(data), config.PropertyHeader+"\n")
 }
 
 // Closure returns, for every module name reached from the selection via a
@@ -270,7 +272,7 @@ func (h *Host) Closure() (map[string][]string, error) {
 	pullers := make(map[string]map[string]bool)
 	err := h.walk(func(m Module, file string) []string {
 		raw, err := os.ReadFile(file)
-		if err != nil || !strings.Contains(string(raw), "luxos") {
+		if err != nil || !strings.Contains(string(raw), referenceMarker) {
 			return nil
 		}
 		names, violations, err := nix.ModuleNames(file)
@@ -296,12 +298,7 @@ func (h *Host) Closure() (map[string][]string, error) {
 
 	out := make(map[string][]string, len(pullers))
 	for name, set := range pullers {
-		list := make([]string, 0, len(set))
-		for p := range set {
-			list = append(list, p)
-		}
-		sort.Strings(list)
-		out[name] = list
+		out[name] = slices.Sorted(maps.Keys(set))
 	}
 	return out, nil
 }
@@ -362,6 +359,13 @@ func Dependents(modulesDir string, unitDirs []string, name string) ([]string, er
 
 	var out []string
 	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.Contains(string(raw), referenceMarker) || !strings.Contains(string(raw), name) {
+			continue
+		}
 		names, _, err := nix.ModuleNames(file)
 		if err != nil {
 			continue

@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
@@ -183,13 +184,12 @@ func keyList(p paths.Paths) error {
 			status[m.Name] = keyStatusNone
 		}
 	}
-	var lines []string
-	for u, s := range status {
-		lines = append(lines, u+"\t"+s)
+	var lines [][]string
+	for _, u := range slices.Sorted(maps.Keys(status)) {
+		lines = append(lines, []string{u, status[u]})
 	}
-	sort.Strings(lines)
-	if len(lines) > 0 {
-		ui.Text(os.Stdout, strings.Join(lines, "\n"))
-	}
+	var b strings.Builder
+	ui.Plain(&b, lines)
+	ui.Print(os.Stdout, b.String())
 	return nil
 }

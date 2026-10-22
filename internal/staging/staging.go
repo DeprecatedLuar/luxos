@@ -45,7 +45,7 @@ const (
 	selectionTemplate    = "modules.nix.tmpl"
 	entryTemplate        = "entry/default.nix"
 	stagedHardwareConfig = config.HardwareConfigFile
-	stagedHostNix        = "host.nix"
+	stagedHostNix        = config.HostFile
 	stagedPlsdonttouch   = ".plsdonttouch.nix"
 
 	lockFileName = "flake.lock"
@@ -150,7 +150,7 @@ func Materialize(stagingDir string, h *modules.Host, environmentFile string, inp
 	}
 
 	for _, st := range settings {
-		dst := filepath.Join(cfgDir, config.SettingsDir, filepath.FromSlash(st.Name)+".nix")
+		dst := config.SettingsPath(cfgDir, st.Name)
 		if err := copyFile(st.File, dst); err != nil {
 			return err
 		}
@@ -198,7 +198,7 @@ func stageModules(h *modules.Host, dst string) error {
 		skip[config.ScopeShared][filepath.Join(u.Scope, config.DefaultFile)] = true
 	}
 
-	if err := copyDerefSkip(h.ModulesDir, dst, skip[config.ScopeShared]); err != nil {
+	if err := copyDerefSkip(h.ModulesDir, dst, "", skip[config.ScopeShared]); err != nil {
 		return err
 	}
 	for _, s := range []struct{ scope, dir string }{{config.ScopeHost, h.HostDir}, {config.ScopeMachine, h.MachineDir}} {
@@ -209,7 +209,7 @@ func stageModules(h *modules.Host, dst string) error {
 			}
 			continue
 		}
-		if err := copyDerefSkip(src, filepath.Join(dst, s.scope), skip[s.scope]); err != nil {
+		if err := copyDerefSkip(src, filepath.Join(dst, s.scope), "", skip[s.scope]); err != nil {
 			return err
 		}
 	}
@@ -322,16 +322,13 @@ func writeFrameworkFile(dst, name string) error {
 
 // copyDeref copies src into dst, dereferencing every symlink. No symlink survives under dst.
 func copyDeref(src, dst string) error {
-	return copyDerefSkip(src, dst, nil)
+	return copyDerefSkip(src, dst, "", nil)
 }
 
-// copyDerefSkip is copyDeref that leaves out every entry whose path relative
-// to src is a key of skip. Path is through any followed symlink.
-func copyDerefSkip(src, dst string, skip map[string]bool) error {
-	return copyDerefSkipAt(src, dst, "", skip)
-}
-
-func copyDerefSkipAt(src, dst, prefix string, skip map[string]bool) error {
+// copyDerefSkip is copyDeref that leaves out every entry whose path, prefix
+// joined with its path relative to src, is a key of skip. Path is through any
+// followed symlink.
+func copyDerefSkip(src, dst, prefix string, skip map[string]bool) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -360,7 +357,7 @@ func copyDerefSkipAt(src, dst, prefix string, skip map[string]bool) error {
 				return err
 			}
 			if info.IsDir() {
-				return copyDerefSkipAt(resolved, target, filepath.Join(prefix, rel), skip)
+				return copyDerefSkip(resolved, target, filepath.Join(prefix, rel), skip)
 			}
 			return copyFile(resolved, target)
 		}

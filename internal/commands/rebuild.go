@@ -310,20 +310,21 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	if err != nil {
 		return err
 	}
-	if err := healAndValidate(out, p, host, machineDir, prune); err != nil {
-		return err
-	}
-	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	h, err := healAndValidate(out, p, host, machineDir, prune)
 	if err != nil {
 		return err
 	}
-	if err := syncUsers(out, h); err != nil {
+	users, err := builtUsers(h)
+	if err != nil {
+		return err
+	}
+	if err := syncUsers(out, users); err != nil {
 		return err
 	}
 	if err := syncSettings(out, p, host, machineDir); err != nil {
 		return err
 	}
-	if err := checkPasswords(out, h, p.Keys, keyOwnerUID); err != nil {
+	if err := checkPasswords(out, users, p.Keys, keyOwnerUID); err != nil {
 		return err
 	}
 	if err := stage(out, p, host, p.NewStage, realFlakeSteps); err != nil {

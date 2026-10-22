@@ -6,6 +6,7 @@ package modules
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,6 +37,8 @@ var scopeOrder = []string{config.ScopeMachine, config.ScopeHost, config.ScopeSha
 // bundleModulesDir is the subdirectory of a folder unit that holds its
 // submodules; the unit is then a bundle.
 const bundleModulesDir = "modules"
+
+const unknownModuleFormat = "unknown module '%s'"
 
 const nameSep = "/"
 
@@ -128,6 +131,15 @@ func Load(modulesDir, hostDir, machineDir string) (*Host, error) {
 // Find returns the module called name.
 func (h *Host) Find(name string) (Module, bool) {
 	return Find(h.Modules, name)
+}
+
+// Lookup is Find, failing on a name that names no module.
+func (h *Host) Lookup(name string) (Module, error) {
+	m, ok := h.Find(name)
+	if !ok {
+		return m, fmt.Errorf(unknownModuleFormat, name)
+	}
+	return m, nil
 }
 
 // Selection is every selected path, each once: the host's lines, then the
@@ -387,15 +399,15 @@ func walkDir(root, dir, prefix string, skip map[string]bool, shared bool, out *[
 			continue
 		}
 
-		if rel, err := filepath.Rel(root, entryPath); err == nil && skip[rel] {
+		relPath, err := filepath.Rel(root, entryPath)
+		if err != nil {
+			return err
+		}
+		if skip[relPath] {
 			continue
 		}
 
 		if info.IsDir() {
-			relPath, err := filepath.Rel(root, entryPath)
-			if err != nil {
-				return err
-			}
 			if isFile(filepath.Join(entryPath, entrypointName)) {
 				name := prefix + entry.Name()
 				*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
@@ -416,10 +428,6 @@ func walkDir(root, dir, prefix string, skip map[string]bool, shared bool, out *[
 		}
 
 		if strings.HasSuffix(entry.Name(), nixExt) {
-			relPath, err := filepath.Rel(root, entryPath)
-			if err != nil {
-				return err
-			}
 			name := prefix + strings.TrimSuffix(entry.Name(), nixExt)
 			*out = append(*out, Module{Name: name, Path: relPath, Abs: entryPath})
 		}
@@ -438,9 +446,7 @@ func walkBundle(root, bundleDir, rel, name string, skip map[string]bool, shared 
 			return fmt.Errorf("%s/%s has its own default.nix: a bundle's modules/ folder is not a module", rel, bundleModulesDir)
 		}
 		withSelection := map[string]bool{filepath.Join(rel, bundleModulesDir, entrypointName): true}
-		for k := range skip {
-			withSelection[k] = true
-		}
+		maps.Copy(withSelection, skip)
 		skip = withSelection
 	}
 	return walkDir(root, modulesDir, name+nameSep, skip, shared, out)

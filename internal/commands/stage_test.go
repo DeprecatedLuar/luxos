@@ -71,7 +71,7 @@ func runAll(w io.Writer, p paths.Paths, host string, prune bool, steps flakeStep
 	if err != nil {
 		return err
 	}
-	if err := healAndValidate(out, p, host, machineDir, prune); err != nil {
+	if _, err := healAndValidate(out, p, host, machineDir, prune); err != nil {
 		return err
 	}
 	if err := syncSettings(out, p, host, machineDir); err != nil {

@@ -71,7 +71,7 @@ func AddImport(file, line string) error {
 
 	s, e, inline, ok := findBlock(lines)
 	if !ok {
-		return shapeError(file)
+		return ShapeError(file)
 	}
 
 	for _, it := range blockItems(lines, s, e, inline) {
@@ -121,7 +121,7 @@ func RemoveImport(file, line string) error {
 
 	s, e, inline, ok := findBlock(lines)
 	if !ok {
-		return shapeError(file)
+		return ShapeError(file)
 	}
 	if inline {
 		return nil
@@ -284,7 +284,7 @@ func blockItems(lines []string, s, e int, inline bool) []item {
 // itemLines finds file's single block and returns its recognized import
 // lines. ok is false when the file isn't recognizable (more/less than one
 // block, or an unrecognized shape) — the tolerant counterpart to the
-// writers' shapeError, for callers that loop every host and must not abort
+// writers' ShapeError, for callers that loop every host and must not abort
 // on one bad file.
 func itemLines(file string) ([]item, bool, error) {
 	lines, err := readLines(file)
@@ -298,7 +298,8 @@ func itemLines(file string) ([]item, bool, error) {
 	return blockItems(lines, s, e, inline), true, nil
 }
 
-func shapeError(file string) error {
+// ShapeError is the error of a selection without exactly one imports block.
+func ShapeError(file string) error {
 	return fmt.Errorf("%s does not have exactly one recognizable 'imports = [ ... ];' block", file)
 }
 

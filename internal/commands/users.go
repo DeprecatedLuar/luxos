@@ -14,13 +14,9 @@ import (
 // keyOwnerUID is the uid that must own the stored user keys.
 const keyOwnerUID = 0
 
-// syncUsers restores the vendored files of every user unit in the build.
-func syncUsers(out *ui.Progress, h *modules.Host) error {
+// syncUsers restores the vendored files of users, the user units in the build.
+func syncUsers(out *ui.Progress, users []modules.Module) error {
 	out.Printf("Syncing user units...\n")
-	users, err := builtUsers(h)
-	if err != nil {
-		return err
-	}
 	for _, m := range users {
 		changes, err := config.SyncUser(m.Abs)
 		if err != nil {
@@ -38,14 +34,10 @@ func syncUsers(out *ui.Progress, h *modules.Host) error {
 	return out.Err()
 }
 
-// checkPasswords runs the password preflight on every user unit in the
-// build and reports every failing user before failing.
-func checkPasswords(out *ui.Progress, h *modules.Host, keysDir string, uid int) error {
+// checkPasswords runs the password preflight on users, the user units in the
+// build, and reports every failing user before failing.
+func checkPasswords(out *ui.Progress, users []modules.Module, keysDir string, uid int) error {
 	out.Printf("Checking user passwords...\n")
-	users, err := builtUsers(h)
-	if err != nil {
-		return err
-	}
 	failed := 0
 	for _, m := range users {
 		if err := password.Check(m.Abs, keysDir, m.Name, uid); err != nil {

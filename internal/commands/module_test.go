@@ -1072,7 +1072,7 @@ func TestUserMigration_HostLinesInsideUser(t *testing.T) {
 	machineDir := filepath.Join(p.Machines, "k1")
 
 	var out strings.Builder
-	if err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err == nil {
+	if _, err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err == nil {
 		t.Fatal("healAndValidate passed with host lines inside a user")
 	}
 	want := "selects luar/packages inside user luar: luxos module disable luar/packages, then luxos user enable luar/packages"
@@ -1099,7 +1099,7 @@ func TestUserMigration_HostLinesInsideUser(t *testing.T) {
 		t.Errorf("host1 = %v", got)
 	}
 	out.Reset()
-	if err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err != nil {
+	if _, err := healAndValidate(ui.NewProgress(&out), p, "host1", machineDir, false); err != nil {
 		t.Errorf("healAndValidate: %v\n%s", err, out.String())
 	}
 }

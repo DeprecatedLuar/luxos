@@ -5,7 +5,9 @@ package flake
 
 import (
 	"errors"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 
@@ -75,8 +77,30 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 		return nil, err
 	}
 
-	out := map[string][]Decl{}
+	owner := map[string]modules.Module{}
+	var files []string
 	for _, m := range built {
+		mf, err := m.Files()
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range mf {
+			abs, err := filepath.Abs(f)
+			if err != nil {
+				return nil, err
+			}
+			owner[abs] = m
+		}
+		files = append(files, mf...)
+	}
+	decls, err := nix.InputDecls(files...)
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string][]Decl{}
+	for _, d := range decls {
+		m := owner[d.File]
 		display := sharedDisplayDir
 		switch m.Scope {
 		case config.ScopeHost:
@@ -84,26 +108,16 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 		case config.ScopeMachine:
 			display = machineDisplayDir
 		}
-		files, err := m.Files()
+		rel, err := filepath.Rel(m.Root(), d.File)
 		if err != nil {
 			return nil, err
 		}
-		decls, err := nix.InputDecls(files...)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range decls {
-			rel, err := filepath.Rel(m.Root(), d.File)
-			if err != nil {
-				return nil, err
-			}
-			out[d.Name] = append(out[d.Name], Decl{
-				Unit: m.Path,
-				File: filepath.ToSlash(filepath.Join(display, rel)),
-				Line: d.Line,
-				URL:  d.URL,
-			})
-		}
+		out[d.Name] = append(out[d.Name], Decl{
+			Unit: m.Path,
+			File: filepath.ToSlash(filepath.Join(display, rel)),
+			Line: d.Line,
+			URL:  d.URL,
+		})
 	}
 
 	base, err := baseChannelDecl(h.HostDir)
@@ -274,7 +288,7 @@ func NestedPaths(lock nix.Lock, name string) []string {
 	var walk func(key, prefix string, ancestors map[string]bool)
 	walk = func(key, prefix string, ancestors map[string]bool) {
 		inputs := lock.Nodes[key].Inputs
-		for _, child := range sortedKeys(inputs) {
+		for _, child := range slices.Sorted(maps.Keys(inputs)) {
 			target := inputs[child]
 			if ancestors[target] {
 				continue
@@ -293,15 +307,6 @@ func NestedPaths(lock nix.Lock, name string) []string {
 	}
 	walk(nix.LockRootNode, "", map[string]bool{})
 	return found
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func shortRev(rev string) string {
