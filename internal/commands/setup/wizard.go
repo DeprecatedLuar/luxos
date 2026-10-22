@@ -292,11 +292,7 @@ func (w *Wizard) writeUser(pw string) error {
 	if err != nil {
 		return err
 	}
-	pub, err := password.PublicKey(secret)
-	if err != nil {
-		return err
-	}
-	enc, err := password.Encrypt(hash, pub)
+	enc, err := password.Seal(hash, secret)
 	if err != nil {
 		return err
 	}

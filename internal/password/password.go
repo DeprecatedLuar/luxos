@@ -89,6 +89,16 @@ func Encrypt(hash, recipient string) ([]byte, error) {
 	})
 }
 
+// Seal returns hash encrypted, armored, to the public key of the age
+// identity secret.
+func Seal(hash, secret string) ([]byte, error) {
+	recipient, err := PublicKey(secret)
+	if err != nil {
+		return nil, err
+	}
+	return Encrypt(hash, recipient)
+}
+
 // Decrypt reports whether keyFile decrypts file. The plaintext is discarded.
 func Decrypt(file, keyFile string) error {
 	_, err := shell.Output(shell.Cmd{Bin: ageBin, Args: []string{"-d", "-i", keyFile, file}})

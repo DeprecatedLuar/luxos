@@ -108,3 +108,37 @@ func TestSecretLine(t *testing.T) {
 		}
 	}
 }
+
+func TestSealDecryptsOnlyWithItsKey(t *testing.T) {
+	skipIfNoTools(t)
+	dir := t.TempDir()
+	secret, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := Seal("$y$hash", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, File)
+	keyFile := filepath.Join(dir, "key")
+	otherFile := filepath.Join(dir, "other")
+	for path, data := range map[string]string{file: string(enc), keyFile: secret + "\n", otherFile: other + "\n"} {
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Decrypt(file, keyFile); err != nil {
+		t.Errorf("Decrypt with its key: %v", err)
+	}
+	if err := Decrypt(file, otherFile); err == nil {
+		t.Error("Decrypt with another key succeeded")
+	}
+	if _, err := Seal("$y$hash", "garbage"); err == nil {
+		t.Error("Seal to a non-key succeeded")
+	}
+}
