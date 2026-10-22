@@ -42,6 +42,16 @@ func TestBootGuard(t *testing.T) {
 	if answered, err := bootGuard(p, hostDir, false); answered || err != nil {
 		t.Fatalf("boot file missing: answered=%v err=%v", answered, err)
 	}
+
+	// Same, with a host unit named boot on disk: still no prompt.
+	hostBoot := filepath.Join(hostDir, config.ScopeModulesDir, config.BootFile)
+	write(t, hostBoot, "{ }\n")
+	if answered, err := bootGuard(p, hostDir, false); answered || err != nil {
+		t.Fatalf("boot file missing, host boot present: answered=%v err=%v", answered, err)
+	}
+	if err := os.Remove(hostBoot); err != nil {
+		t.Fatal(err)
+	}
 	write(t, bootFile, bootSrc)
 
 	// Machine selection empty, host selection holds the pre-heal line: no prompt.

@@ -934,16 +934,22 @@ func TestCanShadow(t *testing.T) {
 func TestBootSelected(t *testing.T) {
 	cases := []struct {
 		name             string
+		sharedUnit       bool // apps/boot.nix exists
 		hostUnit         bool // host/boot.nix exists
 		machAbsent       bool // machine/boot.nix is missing
 		hostSel, machSel []string
 		want             bool
 	}{
-		{"machine selects it", false, false, nil, []string{"./boot.nix"}, true},
-		{"nothing selects it", false, false, nil, nil, false},
-		{"pre-heal cross-scope host line", false, false, []string{"../machine/boot.nix"}, nil, true},
-		{"host line names a host boot the machine shadows", true, false, []string{"./boot.nix"}, nil, true},
-		{"machine selects it, file missing", false, true, nil, []string{"./boot.nix"}, true},
+		{"machine selects it", false, false, false, nil, []string{"./boot.nix"}, true},
+		{"nothing selects it", false, false, false, nil, nil, false},
+		{"pre-heal cross-scope host line", false, false, false, []string{"../machine/boot.nix"}, nil, true},
+		{"host line names a host boot the machine shadows", false, true, false, []string{"./boot.nix"}, nil, true},
+		{"machine selects it, file missing", false, false, true, nil, []string{"./boot.nix"}, true},
+		{"pre-heal cross-scope host line, file missing", false, false, true, []string{"../machine/boot.nix"}, nil, true},
+		{"machine selects it, file missing, host boot exists", false, true, true, nil, []string{"./boot.nix"}, true},
+		{"machine selects it, file missing, shared boot exists", true, false, true, nil, []string{"./boot.nix"}, true},
+		{"host boot selected by the host only, file missing", false, true, true, []string{"./boot.nix"}, nil, false},
+		{"shared boot selected by the host only, file missing", true, false, true, []string{"../apps/boot.nix"}, nil, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -956,6 +962,9 @@ func TestBootSelected(t *testing.T) {
 				mustMkdirAll(t, filepath.Join(machineDir, "modules"))
 			} else {
 				mustWriteFile(t, filepath.Join(machineDir, "modules", "boot.nix"), "{ }")
+			}
+			if c.sharedUnit {
+				mustWriteFile(t, filepath.Join(modulesDir, "apps", "boot.nix"), "{ }")
 			}
 			if c.hostUnit {
 				mustWriteFile(t, filepath.Join(hostDir, "modules", "boot.nix"), "{ }")

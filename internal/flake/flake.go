@@ -79,16 +79,14 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 		return nil, err
 	}
 	owner := map[string]modules.Module{}
-	declFiles := make([]string, len(files))
-	for i, f := range files {
+	for _, f := range files {
 		abs, err := filepath.Abs(f.File)
 		if err != nil {
 			return nil, err
 		}
 		owner[abs] = f.Unit
-		declFiles[i] = f.File
 	}
-	decls, err := nix.InputDecls(declFiles...)
+	decls, err := nix.InputDecls(files.Files()...)
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +300,8 @@ func PinnedLuxos(lockFile string) (ref string, ok bool, err error) {
 		return "", false, nil
 	}
 	in := node.Locked
-	if in.Type != typeGitHub {
-		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", nix.LuxosInput, in.Type, typeGitHub)
+	if in.Type != TypeGitHub {
+		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", nix.LuxosInput, in.Type, TypeGitHub)
 	}
-	return fmt.Sprintf("%s:%s/%s/%s", typeGitHub, in.Owner, in.Repo, in.Rev), true, nil
+	return fmt.Sprintf("%s:%s/%s/%s", TypeGitHub, in.Owner, in.Repo, in.Rev), true, nil
 }

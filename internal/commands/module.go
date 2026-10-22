@@ -647,7 +647,11 @@ func moduleAdd(p paths.Paths, args []string) error {
 	}
 
 	if opts["enable"] != "" {
-		return toggleModules(p, []string{name}, true, false)
+		h, err := loadActive(p)
+		if err != nil {
+			return err
+		}
+		return toggleModules(p, h, []string{name}, true, false)
 	}
 	return nil
 }
@@ -767,17 +771,14 @@ func loadHost(p paths.Paths, hostDir string) (*modules.Host, error) {
 	return modules.Load(p.Modules, hostDir, machineDir)
 }
 
-// toggleModules enables or disables names on the active host's and this
-// computer's selections, then prints the state of every name it touched.
-// toMachine sends a shared unit to the machine selection on enable.
-func toggleModules(p paths.Paths, names []string, enable, toMachine bool) error {
-	h, err := loadActive(p)
-	if err != nil {
-		return err
-	}
+// toggleModules enables or disables names on the selections of h, the loaded
+// active host, then prints the state of every name it touched. toMachine
+// sends a shared unit to the machine selection on enable.
+func toggleModules(p paths.Paths, h *modules.Host, names []string, enable, toMachine bool) error {
 	var touched []string
 	for _, name := range names {
 		var changed []string
+		var err error
 		if enable {
 			m, err := h.Lookup(name)
 			if err != nil {
@@ -846,11 +847,14 @@ func moduleEnable(p paths.Paths, args []string) error {
 	if len(names) == 0 {
 		return fmt.Errorf("module enable requires at least one name")
 	}
-	if err := toggleModules(p, names, true, opts["machine"] != ""); err != nil {
-		return err
-	}
 	h, err := loadActive(p)
 	if err != nil {
+		return err
+	}
+	if err := toggleModules(p, h, names, true, opts["machine"] != ""); err != nil {
+		return err
+	}
+	if h, err = loadActive(p); err != nil {
 		return err
 	}
 	rep, err := modules.SyncSettings(h)
@@ -900,7 +904,7 @@ func moduleDisable(p paths.Paths, args []string) error {
 			return errBootDisableAborted
 		}
 	}
-	return toggleModules(p, names, false, false)
+	return toggleModules(p, h, names, false, false)
 }
 
 //──[scoping]──────────────────────────────────────────────────────────────

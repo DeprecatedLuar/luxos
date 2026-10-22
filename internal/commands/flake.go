@@ -39,10 +39,7 @@ var errUpdateAborted = errors.New("aborted: nothing updated\n  confirm with: lux
 
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
-const (
-	githubLockType = "github"
-	gitLockType    = "git"
-)
+const gitLockType = "git"
 
 const (
 	flakeInputsLabel = "inputs/"
@@ -530,8 +527,8 @@ func flakeSourceText(orig nix.LockRef, decls []flake.Decl, hasNode bool) string 
 	}
 	var text string
 	switch orig.Type {
-	case githubLockType:
-		text = githubLockType + ":" + orig.Owner + "/" + orig.Repo
+	case flake.TypeGitHub:
+		text = flake.TypeGitHub + ":" + orig.Owner + "/" + orig.Repo
 		if orig.Ref != "" {
 			text += "/" + orig.Ref
 		}

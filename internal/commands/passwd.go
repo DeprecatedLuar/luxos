@@ -22,6 +22,7 @@ const (
 	againPrompt    = "Retype new password: "
 	badKeyNotice   = "key of %s is unusable, creating a new one"
 	passwdDone     = "password of %s set"
+	noUserFormat   = "'%s' is not a user: a user is a folder in modules/users/ (luxos user add %s)"
 	passwdStale    = "%w\n  the key of %s on this computer may have been replaced, so an existing %s may no longer decrypt: rerun `luxos user passwd %s`"
 )
 
@@ -48,9 +49,12 @@ func Passwd(args []string) error {
 	if err != nil {
 		return err
 	}
-	m, ok := h.Find(name)
-	if !ok || m.Role() != modules.RoleUser {
-		return fmt.Errorf("'%s' is not a user: a user is a folder in modules/users/ (luxos user add %s)", name, name)
+	m, ok, err := modules.FindUser(h.Modules, name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf(noUserFormat, name, name)
 	}
 
 	pw, err := shared.AskNewPassword(func(prompt string) (string, error) {

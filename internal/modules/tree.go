@@ -263,20 +263,26 @@ func (h *Host) Selected(name string) (string, bool) {
 	return "", false
 }
 
-// BootSelected reports whether the machine's boot unit is selected: the unit
-// winning the boot name is the machine's, and some selection names it. With
-// no boot unit on disk, a selection line naming boot counts as selected.
+// BootSelected reports whether the machine's boot unit is selected. When it
+// exists, some selection must name it. When it is missing on disk, a line
+// naming boot in the machine selection, or naming a machine-scope boot in any
+// selection, counts as selected.
 func (h *Host) BootSelected() bool {
-	m, ok := h.Find(bootName)
-	if !ok {
-		_, sel := h.Selected(bootName)
-		return sel
+	if m, ok := h.Find(bootName); ok && m.Role() == RoleBoot {
+		_, selected := h.Selected(bootName)
+		return selected
 	}
-	if m.Role() != RoleBoot {
-		return false
+	for _, s := range h.Selections {
+		for _, p := range s.Paths {
+			if NameFromPath(p) != bootName {
+				continue
+			}
+			if s.Scope == config.ScopeMachine || strings.HasPrefix(p, config.ScopeMachine+nameSep) {
+				return true
+			}
+		}
 	}
-	_, selected := h.Selected(m.Name)
-	return selected
+	return false
 }
 
 // walkScope walks one scope's units: the shared tree when scope is
@@ -513,7 +519,7 @@ func (m Module) Role() Role {
 		return RoleFramework
 	case m.Scope == config.ScopeMachine && m.Name == bootName:
 		return RoleBoot
-	case m.Scope == config.ScopeShared && m.Path == usersCategory+nameSep+m.Name:
+	case m.Scope == config.ScopeShared && m.Path == UserPath(m.Name):
 		fi, err := os.Stat(m.Abs)
 		if err == nil && fi.IsDir() {
 			return RoleUser
@@ -550,7 +556,7 @@ func UserOf(m Module) string {
 		return ""
 	}
 	top := Top(m.Name)
-	unit := usersCategory + nameSep + top
+	unit := UserPath(top)
 	if m.Path != unit && !strings.HasPrefix(m.Path, unit+nameSep) {
 		return ""
 	}

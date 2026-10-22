@@ -70,7 +70,7 @@ func scopeOf(hostsDir, machinesDir string, h *Host, m Module) (reach, error) {
 		}
 	}
 	if user := UserOf(m); user != "" && m.Role() != RoleUser {
-		file := config.UserSelectionPath(filepath.Join(h.ModulesDir, usersCategory, user))
+		file := config.UserSelectionPath(filepath.Join(h.ModulesDir, UserPath(user)))
 		if isFile(file) {
 			s.Selections = append(s.Selections, SelectionFile{Scope: config.UserScope(user), File: file})
 		}

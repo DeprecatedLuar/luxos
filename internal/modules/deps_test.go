@@ -21,7 +21,7 @@ func write(t *testing.T, path, content string) string {
 }
 
 //============================================================================
-// Suite: tests/boundary.sh — Host.Validate against a fixture tree shaped
+// Suite: Host.Validate against a fixture tree shaped
 // like the real CONFIG_DIR (config dir itself a symlink, modules/system a
 // symlink into the framework).
 //============================================================================
@@ -206,7 +206,7 @@ func TestValidate_OnlyImportedClosure(t *testing.T) {
 }
 
 //============================================================================
-// Suite: refs.Closure — the display-only, best-effort walk `module`/`user
+// Suite: Host.Closure — the display-only, best-effort walk `module`/`user
 // list` uses to mark a module as pulled in without directly selecting it.
 //============================================================================
 
@@ -281,7 +281,8 @@ func equalStrings(got, want []string) bool {
 }
 
 //============================================================================
-// Suite: tests/retarget.sh — refs.Retarget, the one writer of module files.
+// Suite: retargetRefs — rewriting and removing a name in the luxos.modules
+// lists of its dependents.
 //============================================================================
 
 // retargetDependents rewrites name to newName in every dependent of name.

@@ -337,14 +337,26 @@ type UnitFile struct {
 	File string
 }
 
+// UnitFiles is a list of UnitFile.
+type UnitFiles []UnitFile
+
+// Files returns the File of each entry, in order.
+func (fs UnitFiles) Files() []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.File
+	}
+	return out
+}
+
 // InputFiles returns the files whose luxos.inputs declarations make the
 // host's flake inputs: host.nix first, then every file of every unit h builds.
-func (h *Host) InputFiles() ([]UnitFile, error) {
+func (h *Host) InputFiles() (UnitFiles, error) {
 	built, err := h.Built()
 	if err != nil {
 		return nil, err
 	}
-	out := []UnitFile{{File: filepath.Join(h.HostDir, config.HostFile)}}
+	out := UnitFiles{{File: filepath.Join(h.HostDir, config.HostFile)}}
 	for _, m := range built {
 		files, err := m.Files()
 		if err != nil {

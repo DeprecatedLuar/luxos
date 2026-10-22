@@ -14,10 +14,12 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
 
+// TypeGitHub is the flake.lock type of a GitHub input.
+const TypeGitHub = "github"
+
 const (
-	gitBin     = "git"
-	typeGitHub = "github"
-	typeGit    = "git"
+	gitBin  = "git"
+	typeGit = "git"
 
 	defaultRef = "HEAD"
 
@@ -68,7 +70,7 @@ func (GitHub) Compare(ref nix.LockRef, base, head string) (int, []string, error)
 
 func tip(ref nix.LockRef) (string, error) {
 	switch ref.Type {
-	case typeGitHub:
+	case TypeGitHub:
 		return githubTip(ref)
 	case typeGit:
 		return gitTip(ref)
@@ -143,7 +145,7 @@ func apiGet(url string, out any) (err error) {
 // tags maps each commit to its tag. When several tags share a rev, the first the source lists wins.
 func tags(ref nix.LockRef) (map[string]string, error) {
 	switch ref.Type {
-	case typeGitHub:
+	case TypeGitHub:
 		return githubTags(ref)
 	case typeGit:
 		return gitTags(ref)
@@ -208,7 +210,7 @@ func gitTags(ref nix.LockRef) (map[string]string, error) {
 
 // Oldest first. GitHub only; the API lists at most 250 commits, ahead is the full count.
 func compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err error) {
-	if ref.Type != typeGitHub {
+	if ref.Type != TypeGitHub {
 		return 0, nil, ErrUnsupported
 	}
 	url := fmt.Sprintf(compareURLFormat, githubAPIBase, ref.Owner, ref.Repo, base, head)

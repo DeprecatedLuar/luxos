@@ -186,11 +186,7 @@ func stage(out *ui.Progress, p paths.Paths, h *modules.Host, dir string, steps f
 	if err != nil {
 		return err
 	}
-	declFiles := make([]string, len(files))
-	for i, f := range files {
-		declFiles[i] = f.File
-	}
-	inputs, err := nix.InputDecls(declFiles...)
+	inputs, err := nix.InputDecls(files.Files()...)
 	if err != nil {
 		return err
 	}

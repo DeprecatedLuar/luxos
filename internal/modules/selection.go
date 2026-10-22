@@ -536,7 +536,7 @@ func (h *Host) ensureUserSelection(user string) (*Selection, error) {
 	if sel := h.UserSelection(user); sel != nil {
 		return sel, nil
 	}
-	dir := filepath.Join(h.ModulesDir, usersCategory, user)
+	dir := filepath.Join(h.ModulesDir, UserPath(user))
 	file := config.UserSelectionPath(dir)
 	scope := config.UserScope(user)
 	var paths []string

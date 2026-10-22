@@ -464,11 +464,20 @@ func hostImports(t *testing.T, p paths.Paths, host string) []string {
 	return got
 }
 
-func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
+// toggleActive runs toggleModules on the freshly loaded active host.
+func toggleActive(p paths.Paths, names []string, enable, toMachine bool) error {
+	h, err := loadActive(p)
+	if err != nil {
+		return err
+	}
+	return toggleModules(p, h, names, enable, toMachine)
+}
+
+func TestToggleModules_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
 
-	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+	if err := toggleActive(p, []string{subName}, true, false); err != nil {
 		t.Fatalf("toggleModules: %v", err)
 	}
 	got := hostImports(t, p, "host1")
@@ -477,14 +486,14 @@ func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 	}
 }
 
-func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
+func TestToggleModules_DisableBundleRemovesSubmodules(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+	if err := toggleActive(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := toggleModules(p, []string{bundleName}, false, false); err != nil {
+	if err := toggleActive(p, []string{bundleName}, false, false); err != nil {
 		t.Fatalf("toggleModules: %v", err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -492,13 +501,13 @@ func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
 	}
 }
 
-func TestToggleModule_DisableSubmoduleKeepsBundle(t *testing.T) {
+func TestToggleModules_DisableSubmoduleKeepsBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+	if err := toggleActive(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := toggleModules(p, []string{subName}, false, false); err != nil {
+	if err := toggleActive(p, []string{subName}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath {
@@ -548,7 +557,7 @@ func TestModuleRemove_BundleShadowedHostKeepsSubmoduleLines(t *testing.T) {
 func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+	if err := toggleActive(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -588,7 +597,7 @@ func TestModuleRename_SubmoduleCollisionIsQualified(t *testing.T) {
 func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+	if err := toggleActive(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -967,10 +976,10 @@ func userBundleFixture(t *testing.T) paths.Paths {
 	return p
 }
 
-func TestToggleModule_NestedUserSubmodule(t *testing.T) {
+func TestToggleModules_NestedUserSubmodule(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
-	if err := toggleModules(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
+	if err := toggleActive(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	user := mustReadFile(t, filepath.Join(p.Modules, "users", "luar", "modules", "default.nix"))
@@ -984,10 +993,10 @@ func TestToggleModule_NestedUserSubmodule(t *testing.T) {
 	}
 }
 
-func TestToggleModule_DisableUserKeepsItsSelection(t *testing.T) {
+func TestToggleModules_DisableUserKeepsItsSelection(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
-	if err := toggleModules(p, []string{"luar"}, false, false); err != nil {
+	if err := toggleActive(p, []string{"luar"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -998,11 +1007,11 @@ func TestToggleModule_DisableUserKeepsItsSelection(t *testing.T) {
 	}
 }
 
-func TestToggleModule_UserSubmoduleNeverSelectsUserOnHost(t *testing.T) {
+func TestToggleModules_UserSubmoduleNeverSelectsUserOnHost(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
 	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith())
-	if err := toggleModules(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
+	if err := toggleActive(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -1037,10 +1046,10 @@ func TestUserMigration_HostLinesInsideUser(t *testing.T) {
 	}
 
 	for _, name := range []string{"luar/packages", "luar/appearance"} {
-		if err := toggleModules(p, []string{name}, false, false); err != nil {
+		if err := toggleActive(p, []string{name}, false, false); err != nil {
 			t.Fatalf("disable %s: %v", name, err)
 		}
-		if err := toggleModules(p, []string{name}, true, false); err != nil {
+		if err := toggleActive(p, []string{name}, true, false); err != nil {
 			t.Fatalf("enable %s: %v", name, err)
 		}
 	}
