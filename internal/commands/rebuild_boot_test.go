@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,8 +89,8 @@ func TestModuleDisableBootAsksOnlyForTheMachineBoot(t *testing.T) {
 	machineSel := config.SelectionPath(filepath.Join(p.Machines, "k1"))
 	before := mustReadFile(t, machineSel)
 	captureBoth(t, func() { err = moduleDisable(p, []string{"boot"}) })
-	if err == nil {
-		t.Fatal("machine boot disabled without confirmation")
+	if !errors.Is(err, errBootDisableAborted) {
+		t.Fatalf("machine boot disable: err = %v, want errBootDisableAborted", err)
 	}
 	if got := mustReadFile(t, machineSel); got != before {
 		t.Errorf("machine selection changed:\n%s", got)

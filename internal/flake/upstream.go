@@ -17,9 +17,11 @@ import (
 // TypeGitHub is the flake.lock type of a GitHub input.
 const TypeGitHub = "github"
 
+// TypeGit is the flake.lock type of a plain git input.
+const TypeGit = "git"
+
 const (
-	gitBin  = "git"
-	typeGit = "git"
+	gitBin = "git"
 
 	defaultRef = "HEAD"
 
@@ -72,7 +74,7 @@ func tip(ref nix.LockRef) (string, error) {
 	switch ref.Type {
 	case TypeGitHub:
 		return githubTip(ref)
-	case typeGit:
+	case TypeGit:
 		return gitTip(ref)
 	default:
 		return "", ErrUnsupported
@@ -147,7 +149,7 @@ func tags(ref nix.LockRef) (map[string]string, error) {
 	switch ref.Type {
 	case TypeGitHub:
 		return githubTags(ref)
-	case typeGit:
+	case TypeGit:
 		return gitTags(ref)
 	default:
 		return nil, ErrUnsupported

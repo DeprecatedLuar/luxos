@@ -39,8 +39,6 @@ var errUpdateAborted = errors.New("aborted: nothing updated\n  confirm with: lux
 
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
-const gitLockType = "git"
-
 const (
 	flakeInputsLabel = "inputs/"
 
@@ -532,7 +530,7 @@ func flakeSourceText(orig nix.LockRef, decls []flake.Decl, hasNode bool) string 
 		if orig.Ref != "" {
 			text += "/" + orig.Ref
 		}
-	case gitLockType:
+	case flake.TypeGit:
 		text = orig.URL
 	default:
 		if orig.URL != "" {

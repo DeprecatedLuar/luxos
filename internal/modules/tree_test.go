@@ -950,6 +950,7 @@ func TestBootSelected(t *testing.T) {
 		{"machine selects it, file missing, shared boot exists", true, false, true, nil, []string{"./boot.nix"}, true},
 		{"host boot selected by the host only, file missing", false, true, true, []string{"./boot.nix"}, nil, false},
 		{"shared boot selected by the host only, file missing", true, false, true, []string{"../apps/boot.nix"}, nil, false},
+		{"machine selects a shared boot, file missing", true, false, true, nil, []string{"../apps/boot.nix"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
