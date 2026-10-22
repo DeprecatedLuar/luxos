@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -648,7 +649,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 	}
 
 	if opts["enable"] != "" {
-		return toggleModule(p, name, true, false)
+		return toggleModules(p, []string{name}, true, false)
 	}
 	return nil
 }
@@ -768,41 +769,38 @@ func loadHost(p paths.Paths, hostDir string) (*modules.Host, error) {
 	return modules.Load(p.Modules, hostDir, machineDir)
 }
 
-// toggleModule is the shared body for enable/disable: acts only on the
-// active host's and this computer's selections. toMachine sends a shared
-// unit to the machine selection on enable.
-func toggleModule(p paths.Paths, name string, enable, toMachine bool) error {
+// toggleModules enables or disables names on the active host's and this
+// computer's selections, then prints the state of every name it touched.
+// toMachine sends a shared unit to the machine selection on enable.
+func toggleModules(p paths.Paths, names []string, enable, toMachine bool) error {
 	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
-	m, err := h.Lookup(name)
-	if err != nil {
-		return err
-	}
-
-	if enable {
-		if err := requirePassword(m); err != nil {
+	var touched []string
+	for _, name := range names {
+		var changed []string
+		if enable {
+			m, err := h.Lookup(name)
+			if err != nil {
+				return err
+			}
+			if err := requirePassword(m); err != nil {
+				return err
+			}
+			changed, err = modules.Enable(h, name, toMachine)
+			if err != nil {
+				return err
+			}
+		} else if changed, err = modules.Disable(h, name); err != nil {
 			return err
 		}
-		touched, err := enableBundles(h, name, toMachine)
-		if err != nil {
-			return err
+		touched = append(touched, changed...)
+		if !slices.Contains(changed, name) {
+			touched = append(touched, name)
 		}
-		if _, err := modules.Enable(h, name, toMachine); err != nil {
-			return err
-		}
-		return printStates(p, append(touched, name))
 	}
-
-	touched, err := disableSubmodules(h, m)
-	if err != nil {
-		return err
-	}
-	if _, err := modules.Disable(h, name); err != nil {
-		return err
-	}
-	return printStates(p, append(touched, name))
+	return printStates(p, touched)
 }
 
 // printStates prints each named module's state as `list` draws it, read from
@@ -842,53 +840,6 @@ func moduleStatuses(p paths.Paths, h *modules.Host) ([]modules.Status, bool, err
 	return sts, found, err
 }
 
-// enableBundles enables every not-yet-enabled bundle that name is inside,
-// outermost first, and returns the ones it enabled. A user is selected by the
-// host, never by its own modules.
-func enableBundles(h *modules.Host, name string, toMachine bool) ([]string, error) {
-	var chain []string
-	for b := modules.Parent(name); b != ""; b = modules.Parent(b) {
-		chain = append([]string{b}, chain...)
-	}
-	var enabled []string
-	for _, bundle := range chain {
-		if b, ok := h.Find(bundle); ok && b.Role() == modules.RoleUser {
-			continue
-		}
-		changed, err := modules.Enable(h, bundle, toMachine)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			enabled = append(enabled, bundle)
-		}
-	}
-	return enabled, nil
-}
-
-// disableSubmodules removes every enabled line for a submodule of m when m is
-// a bundle that is not a user, and returns the submodules it removed.
-func disableSubmodules(h *modules.Host, m modules.Module) ([]string, error) {
-	if !modules.IsBundle(m.Abs) || m.Role() == modules.RoleUser {
-		return nil, nil
-	}
-	var removed []string
-	for _, sel := range h.Selection() {
-		sub := modules.NameFromPath(sel)
-		if !strings.HasPrefix(sub, m.Name+nameSep) {
-			continue
-		}
-		files, err := modules.Disable(h, sub)
-		if err != nil {
-			return removed, err
-		}
-		if len(files) > 0 {
-			removed = append(removed, sub)
-		}
-	}
-	return removed, nil
-}
-
 func moduleEnable(p paths.Paths, args []string) error {
 	opts, names, err := shared.Parse("machine:bool", args)
 	if err != nil {
@@ -897,10 +848,8 @@ func moduleEnable(p paths.Paths, args []string) error {
 	if len(names) == 0 {
 		return fmt.Errorf("module enable requires at least one name")
 	}
-	for _, name := range names {
-		if err := toggleModule(p, name, true, opts["machine"] != ""); err != nil {
-			return err
-		}
+	if err := toggleModules(p, names, true, opts["machine"] != ""); err != nil {
+		return err
 	}
 	h, err := loadActive(p)
 	if err != nil {
@@ -919,20 +868,16 @@ var errBootDisableAborted = errors.New("aborted: nothing changed\n  confirm with
 
 // disablesBoot reports whether any name in names is the machine's boot unit
 // and it is currently selected.
-func disablesBoot(p paths.Paths, names []string) (bool, error) {
-	h, err := loadActive(p)
-	if err != nil {
-		return false, err
-	}
+func disablesBoot(h *modules.Host, names []string) bool {
 	if !h.BootSelected() {
-		return false, nil
+		return false
 	}
 	for _, name := range names {
 		if m, found := h.Find(name); found && m.Role() == modules.RoleBoot {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 func moduleDisable(p paths.Paths, args []string) error {
@@ -944,11 +889,11 @@ func moduleDisable(p paths.Paths, args []string) error {
 		return help.Misuse(os.Stderr, moduleCommand, errMissingNames)
 	}
 
-	boot, err := disablesBoot(p, names)
+	h, err := loadActive(p)
 	if err != nil {
 		return err
 	}
-	if boot && opts["yes"] == "" {
+	if opts["yes"] == "" && disablesBoot(h, names) {
 		ok, err := shared.ConfirmBootOff()
 		if err != nil {
 			return err
@@ -957,13 +902,7 @@ func moduleDisable(p paths.Paths, args []string) error {
 			return errBootDisableAborted
 		}
 	}
-
-	for _, name := range names {
-		if err := toggleModule(p, name, false, false); err != nil {
-			return err
-		}
-	}
-	return nil
+	return toggleModules(p, names, false, false)
 }
 
 //──[scoping]──────────────────────────────────────────────────────────────

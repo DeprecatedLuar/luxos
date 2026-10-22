@@ -472,14 +472,14 @@ func TestEnableDisable(t *testing.T) {
 	if _, err := Enable(h, "missing", false); err == nil {
 		t.Error("Enable of an unknown module did not fail")
 	}
-	if changed, err := Enable(h, "a", false); err != nil || !changed {
-		t.Fatalf("Enable(a) = %v, %v; want true", changed, err)
+	if added, err := Enable(h, "a", false); err != nil || len(added) == 0 {
+		t.Fatalf("Enable(a) = %v, %v; want added", added, err)
 	}
-	if changed, err := Enable(h, "a", false); err != nil || changed {
-		t.Errorf("second Enable(a) = %v, %v; want false (already selected)", changed, err)
+	if added, err := Enable(h, "a", false); err != nil || len(added) > 0 {
+		t.Errorf("second Enable(a) = %v, %v; want none (already selected)", added, err)
 	}
-	if changed, err := Enable(h, "b", false); err != nil || !changed {
-		t.Fatalf("Enable(b) = %v, %v; want true", changed, err)
+	if added, err := Enable(h, "b", false); err != nil || len(added) == 0 {
+		t.Fatalf("Enable(b) = %v, %v; want added", added, err)
 	}
 	got, err := ReadSelection(sel, config.ScopeHost)
 	if err != nil || !reflect.DeepEqual(got, []string{"a.nix", "b.nix"}) {
@@ -489,11 +489,11 @@ func TestEnableDisable(t *testing.T) {
 		t.Errorf("h.Selection() = %v, want %v", h.Selection(), got)
 	}
 
-	if files, err := Disable(h, "a"); err != nil || len(files) != 1 {
-		t.Fatalf("Disable(a) = %v, %v; want one file", files, err)
+	if removed, err := Disable(h, "a"); err != nil || len(removed) != 1 {
+		t.Fatalf("Disable(a) = %v, %v; want one", removed, err)
 	}
-	if files, err := Disable(h, "a"); err != nil || len(files) != 0 {
-		t.Errorf("second Disable(a) = %v, %v; want none", files, err)
+	if removed, err := Disable(h, "a"); err != nil || len(removed) != 0 {
+		t.Errorf("second Disable(a) = %v, %v; want none", removed, err)
 	}
 	got, err = ReadSelection(sel, config.ScopeHost)
 	if err != nil || !reflect.DeepEqual(got, []string{"b.nix"}) || !reflect.DeepEqual(h.Selection(), got) {
@@ -580,12 +580,12 @@ func TestDisableBothSelections(t *testing.T) {
 	if _, err := Enable(h, "laptop", true); err != nil {
 		t.Fatal(err)
 	}
-	files, err := Disable(h, "laptop")
+	removed, err := Disable(h, "laptop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{config.SelectionPath(hostDir), config.SelectionPath(machineDir)}; !reflect.DeepEqual(files, want) {
-		t.Fatalf("files %v, want %v", files, want)
+	if !reflect.DeepEqual(removed, []string{"laptop"}) {
+		t.Fatalf("removed %v", removed)
 	}
 	if len(h.Selection()) != 0 {
 		t.Fatalf("still selected: %v", h.Selection())
@@ -688,8 +688,8 @@ func TestEnable_UserWithoutSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := Enable(h, "luar/a", false); err != nil || !changed {
-		t.Fatalf("Enable = %v, %v", changed, err)
+	if added, err := Enable(h, "luar/a", false); err != nil || len(added) == 0 {
+		t.Fatalf("Enable = %v, %v", added, err)
 	}
 	file := filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")
 	got, err := ReadSelection(file, config.UserScope("luar"))
@@ -727,9 +727,9 @@ func TestEnable_UserUnreadableSelection(t *testing.T) {
 func TestDisable_UserSubmodule(t *testing.T) {
 	skipIfNoNix(t)
 	modulesDir, _, _, _, h := userHostFixture(t)
-	files, err := Disable(h, "luar/a")
-	if err != nil || len(files) != 1 {
-		t.Fatalf("Disable = %v, %v", files, err)
+	removed, err := Disable(h, "luar/a")
+	if err != nil || len(removed) != 1 {
+		t.Fatalf("Disable = %v, %v", removed, err)
 	}
 	if user := mustReadFile(t, filepath.Join(modulesDir, "users", "luar", "modules", "default.nix")); strings.Contains(user, "a.nix") {
 		t.Errorf("line kept:\n%s", user)
@@ -808,5 +808,36 @@ func TestHeal_SelectedUserBrokenSelection(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(warnings, "\n"), file) {
 		t.Errorf("warnings = %v, want %s named", warnings, file)
+	}
+}
+
+func TestEnableCascadesBundlesAndDisableCascadesSubmodules(t *testing.T) {
+	skipIfNoNix(t)
+	modulesDir, hostDir, machineDir := scopes(t)
+	mustWriteFile(t, filepath.Join(modulesDir, "kit", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "kit", "modules", "inner", "default.nix"), "{ }")
+	mustWriteFile(t, filepath.Join(modulesDir, "kit", "modules", "inner", "modules", "leaf.nix"), "{ }")
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	added, err := Enable(h, "kit/inner/leaf", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"kit", "kit/inner", "kit/inner/leaf"}; !reflect.DeepEqual(added, want) {
+		t.Errorf("Enable added %v, want %v", added, want)
+	}
+
+	removed, err := Disable(h, "kit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"kit/inner", "kit/inner/leaf", "kit"}; !reflect.DeepEqual(removed, want) {
+		t.Errorf("Disable removed %v, want %v", removed, want)
+	}
+	if len(h.Selection()) != 0 {
+		t.Errorf("still selected: %v", h.Selection())
 	}
 }

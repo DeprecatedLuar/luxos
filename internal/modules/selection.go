@@ -468,11 +468,34 @@ func selectionHas(file, scope, p string) (bool, error) {
 	return false, nil
 }
 
-// Enable adds name's line to the selection it belongs in: a machine unit's
-// to the machine selection, any other to the host's, or to the machine's
-// when toMachine (a shared unit only). A user's submodule goes to its user's
-// selection, created when the user has none. Reports false when already there.
-func Enable(h *Host, name string, toMachine bool) (bool, error) {
+// Enable adds the line of every bundle name lies in that is not a user,
+// outermost first, then name's own: a machine unit's to the machine
+// selection, any other to the host's, or to the machine's when toMachine (a
+// shared unit only). A user's submodule goes to its user's selection, created
+// when the user has none. Returns the names whose line it added, in order.
+func Enable(h *Host, name string, toMachine bool) ([]string, error) {
+	var chain []string
+	for b := Parent(name); b != ""; b = Parent(b) {
+		chain = append([]string{b}, chain...)
+	}
+	var added []string
+	for _, n := range append(chain, name) {
+		if m, ok := h.Find(n); ok && n != name && m.Role() == RoleUser {
+			continue
+		}
+		changed, err := enableOne(h, n, toMachine)
+		if err != nil {
+			return added, err
+		}
+		if changed {
+			added = append(added, n)
+		}
+	}
+	return added, nil
+}
+
+// enableOne adds name's line to the selection it belongs in; false when already there.
+func enableOne(h *Host, name string, toMachine bool) (bool, error) {
 	m, err := h.Lookup(name)
 	if err != nil {
 		return false, err
@@ -541,9 +564,38 @@ func addLine(sel *Selection, m Module) (bool, error) {
 	return true, nil
 }
 
-// Disable removes name's line from every selection holding it and returns
-// those files.
+// Disable removes name's line from every selection holding it. When name is
+// a bundle that is not a user, the lines of its submodules go first. Returns
+// the names whose line it removed, submodules first.
 func Disable(h *Host, name string) ([]string, error) {
+	m, err := h.Lookup(name)
+	if err != nil {
+		return nil, err
+	}
+	var targets []string
+	if IsBundle(m.Abs) && m.Role() != RoleUser {
+		for _, p := range h.Selection() {
+			if sub := NameFromPath(p); strings.HasPrefix(sub, name+nameSep) {
+				targets = append(targets, sub)
+			}
+		}
+	}
+	var removed []string
+	for _, n := range append(targets, name) {
+		files, err := disableOne(h, n)
+		if err != nil {
+			return removed, err
+		}
+		if len(files) > 0 {
+			removed = append(removed, n)
+		}
+	}
+	return removed, nil
+}
+
+// disableOne removes name's line from every selection holding it and returns
+// those files.
+func disableOne(h *Host, name string) ([]string, error) {
 	var files []string
 	for _, group := range [][]Selection{h.Selections, h.Users} {
 		for i := range group {

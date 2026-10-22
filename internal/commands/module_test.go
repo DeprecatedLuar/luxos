@@ -468,8 +468,8 @@ func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
 
-	if err := toggleModule(p, subName, true, false); err != nil {
-		t.Fatalf("toggleModule: %v", err)
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
+		t.Fatalf("toggleModules: %v", err)
 	}
 	got := hostImports(t, p, "host1")
 	if want := []string{bundlePath, subPath}; strings.Join(got, ",") != strings.Join(want, ",") {
@@ -480,12 +480,12 @@ func TestToggleModule_EnableSubmoduleAddsBundleFirst(t *testing.T) {
 func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true, false); err != nil {
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := toggleModule(p, bundleName, false, false); err != nil {
-		t.Fatalf("toggleModule: %v", err)
+	if err := toggleModules(p, []string{bundleName}, false, false); err != nil {
+		t.Fatalf("toggleModules: %v", err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
 		t.Errorf("imports = %v, want none", got)
@@ -495,10 +495,10 @@ func TestToggleModule_DisableBundleRemovesSubmodules(t *testing.T) {
 func TestToggleModule_DisableSubmoduleKeepsBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true, false); err != nil {
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := toggleModule(p, subName, false, false); err != nil {
+	if err := toggleModules(p, []string{subName}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); strings.Join(got, ",") != bundlePath {
@@ -548,7 +548,7 @@ func TestModuleRemove_BundleShadowedHostKeepsSubmoduleLines(t *testing.T) {
 func TestModuleRename_SubmoduleStaysInBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true, false); err != nil {
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -588,7 +588,7 @@ func TestModuleRename_SubmoduleCollisionIsQualified(t *testing.T) {
 func TestModuleRename_BundleRewritesSubmoduleLines(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true, false); err != nil {
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -970,7 +970,7 @@ func userBundleFixture(t *testing.T) paths.Paths {
 func TestToggleModule_NestedUserSubmodule(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
-	if err := toggleModule(p, "luar/nvim/lsp", true, false); err != nil {
+	if err := toggleModules(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	user := mustReadFile(t, filepath.Join(p.Modules, "users", "luar", "modules", "default.nix"))
@@ -987,7 +987,7 @@ func TestToggleModule_NestedUserSubmodule(t *testing.T) {
 func TestToggleModule_DisableUserKeepsItsSelection(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
-	if err := toggleModule(p, "luar", false, false); err != nil {
+	if err := toggleModules(p, []string{"luar"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -1002,7 +1002,7 @@ func TestToggleModule_UserSubmoduleNeverSelectsUserOnHost(t *testing.T) {
 	skipIfNoNix(t)
 	p := userBundleFixture(t)
 	write(t, config.SelectionPath(filepath.Join(p.Hosts, "host1")), selectionWith())
-	if err := toggleModule(p, "luar/nvim/lsp", true, false); err != nil {
+	if err := toggleModules(p, []string{"luar/nvim/lsp"}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := hostImports(t, p, "host1"); len(got) != 0 {
@@ -1037,10 +1037,10 @@ func TestUserMigration_HostLinesInsideUser(t *testing.T) {
 	}
 
 	for _, name := range []string{"luar/packages", "luar/appearance"} {
-		if err := toggleModule(p, name, false, false); err != nil {
+		if err := toggleModules(p, []string{name}, false, false); err != nil {
 			t.Fatalf("disable %s: %v", name, err)
 		}
-		if err := toggleModule(p, name, true, false); err != nil {
+		if err := toggleModules(p, []string{name}, true, false); err != nil {
 			t.Fatalf("enable %s: %v", name, err)
 		}
 	}

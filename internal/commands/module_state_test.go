@@ -88,7 +88,7 @@ func TestEnableSubmoduleShowsBundleThenItself(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
 	out := captureStdout(t, func() {
-		if err := toggleModule(p, subName, true, false); err != nil {
+		if err := toggleModules(p, []string{subName}, true, false); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -98,11 +98,11 @@ func TestEnableSubmoduleShowsBundleThenItself(t *testing.T) {
 func TestDisableBundleShowsSubmodulesThenBundle(t *testing.T) {
 	skipIfNoNix(t)
 	p := bundleFixture(t)
-	if err := toggleModule(p, subName, true, false); err != nil {
+	if err := toggleModules(p, []string{subName}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	out := captureStdout(t, func() {
-		if err := toggleModule(p, bundleName, false, false); err != nil {
+		if err := toggleModules(p, []string{bundleName}, false, false); err != nil {
 			t.Fatal(err)
 		}
 	})

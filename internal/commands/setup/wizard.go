@@ -220,11 +220,11 @@ func (w *Wizard) enableUser(host string) error {
 			return err
 		}
 	}
-	changed, err := modules.Enable(h, w.Paths.User, false)
+	added, err := modules.Enable(h, w.Paths.User, false)
 	if err != nil {
 		return err
 	}
-	if changed {
+	if len(added) > 0 {
 		ui.Done(w.Out, fmt.Sprintf(userEnabled, w.Paths.User, host))
 	}
 	return w.writeGroups(host)
