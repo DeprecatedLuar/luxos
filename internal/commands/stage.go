@@ -25,12 +25,17 @@ type flakeSteps struct {
 
 var realFlakeSteps = flakeSteps{lock: nix.FlakeLock}
 
+// configDirs are the folders of p that config.Ensure works on.
+func configDirs(p paths.Paths) config.Dirs {
+	return config.Dirs{Config: p.Config, Modules: p.Modules, Hosts: p.Hosts, Machines: p.Machines, Sys: p.Sys, Dev: p.Dev, Mounts: p.Mounts}
+}
+
 // prepare brings CONFIG_DIR, host's selections, its users, its settings and
 // its passwords to the state a stage of host needs, and returns the host to
 // stage. syncUsers may create a user's selection and starter module, so the
 // host is loaded again after it.
 func prepare(out *ui.Progress, p paths.Paths, host string, prune bool) (*modules.Host, error) {
-	machineDir, err := config.Ensure(out, p, host)
+	machineDir, err := config.Ensure(out, configDirs(p), host)
 	if err != nil {
 		return nil, err
 	}

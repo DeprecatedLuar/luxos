@@ -9,9 +9,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
-	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // Exported so callers name them without repeating the strings.
@@ -68,8 +66,8 @@ func Machines(machinesRoot string) ([]string, error) {
 // EnsureMachine creates this computer's folder and whichever of
 // hardware-configuration.nix, modules/boot.nix and modules/default.nix are
 // missing, then validates it. Existing files are never rewritten.
-func EnsureMachine(out *ui.Progress, p paths.Paths) (string, error) {
-	dir, err := MachineDir(p.Sys, p.Machines)
+func EnsureMachine(out Reporter, d Dirs) (string, error) {
+	dir, err := MachineDir(d.Sys, d.Machines)
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +86,7 @@ func EnsureMachine(out *ui.Progress, p paths.Paths) (string, error) {
 	}
 
 	bootPath := filepath.Join(dir, ScopeModulesDir, BootFile)
-	if created, err = ensureBoot(bootPath, p.Sys, p.Dev, p.Mounts); err != nil {
+	if created, err = ensureBoot(bootPath, d.Sys, d.Dev, d.Mounts); err != nil {
 		return "", err
 	}
 	if created {

@@ -6,9 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 const (
@@ -22,15 +20,30 @@ const (
 
 var gitignoreLines = []string{"/modules/system", "/modules/default.nix", "/modules/host", "/modules/machine", "/host", "/machine"}
 
+// Dirs are the folders Ensure works on.
+type Dirs struct {
+	Config, Modules, Hosts, Machines string
+	Sys, Dev, Mounts                 string // read for this computer's facts
+}
+
+// Reporter receives what Ensure does: progress, changes to the user's files
+// and warnings. Err reports a failure to write any of them.
+type Reporter interface {
+	Printf(format string, a ...any)
+	Changef(format string, a ...any)
+	Warnf(format string, a ...any)
+	Err() error
+}
+
 // Ensure brings CONFIG_DIR to the state a rebuild of host expects: .gitignore,
 // the environment file, the synced framework modules, modules/default.nix,
 // host.nix, the host folder (validated and protected), this computer's
 // machine folder, the scope links and the host.nix checks. It returns this computer's machine folder.
-func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
-	hostDir := filepath.Join(p.Hosts, host)
+func Ensure(out Reporter, d Dirs, host string) (string, error) {
+	hostDir := filepath.Join(d.Hosts, host)
 
 	out.Printf("Ensuring .gitignore...\n")
-	added, err := ensureGitignore(filepath.Join(p.Config, gitignoreFile), gitignoreLines)
+	added, err := ensureGitignore(filepath.Join(d.Config, gitignoreFile), gitignoreLines)
 	if err != nil {
 		return "", err
 	}
@@ -43,7 +56,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	envPath := filepath.Join(p.Config, EnvironmentFile)
+	envPath := filepath.Join(d.Config, EnvironmentFile)
 	created, err := CreateFile(envPath, tmpl)
 	if err != nil {
 		return "", err
@@ -53,7 +66,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
 	}
 
 	out.Printf("Syncing framework modules...\n")
-	changes, err := Sync(filepath.Join(p.Modules, SystemDir))
+	changes, err := Sync(filepath.Join(d.Modules, SystemDir))
 	if err != nil {
 		return "", err
 	}
@@ -66,7 +79,7 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
 		}
 	}
 
-	action, err := SyncEntry(p.Modules)
+	action, err := SyncEntry(d.Modules)
 	if err != nil {
 		return "", err
 	}
@@ -93,12 +106,12 @@ func Ensure(out *ui.Progress, p paths.Paths, host string) (string, error) {
 		out.Changef("  protected: %s", filepath.Join(hostDir, plsDontTouchFile))
 	}
 
-	machineDir, err := EnsureMachine(out, p)
+	machineDir, err := EnsureMachine(out, d)
 	if err != nil {
 		return "", err
 	}
 	out.Printf("Ensuring host and machine links...\n")
-	if err := EnsureScopeLinks(p.Config, p.Modules, hostDir, machineDir); err != nil {
+	if err := EnsureScopeLinks(d.Config, d.Modules, hostDir, machineDir); err != nil {
 		return "", err
 	}
 

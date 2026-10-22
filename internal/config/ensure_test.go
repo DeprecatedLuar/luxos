@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
-	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -24,7 +23,7 @@ func skipIfNoNix(t *testing.T) {
 
 // machineFixture builds a fake sysfs and a machines root whose folder already
 // holds a hardware-configuration.nix and a modules/boot.nix.
-func machineFixture(t *testing.T) paths.Paths {
+func machineFixture(t *testing.T) Dirs {
 	t.Helper()
 	root := t.TempDir()
 	sysDir := filepath.Join(root, "sys")
@@ -37,7 +36,7 @@ func machineFixture(t *testing.T) paths.Paths {
 	writeFile(t, filepath.Join(dir, ScopeModulesDir, BootFile), "{ ... }: { }\n")
 	mounts := filepath.Join(root, "mounts")
 	writeFile(t, mounts, "")
-	return paths.Paths{Sys: sysDir, Machines: filepath.Join(root, "machines"), Mounts: mounts}
+	return Dirs{Sys: sysDir, Machines: filepath.Join(root, "machines"), Mounts: mounts}
 }
 
 func TestMachineDirUsesKey(t *testing.T) {

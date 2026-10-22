@@ -10,7 +10,6 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
-	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 // plsDontTouchFile and HostFile are required regular files (symlinks
@@ -149,7 +148,7 @@ func ProtectHost(hostDir string) (bool, error) {
 }
 
 // ensureHostFile writes the host's host.nix from the starter when it is missing.
-func ensureHostFile(out *ui.Progress, hostDir string) error {
+func ensureHostFile(out Reporter, hostDir string) error {
 	tmpl, err := RenderHost(HostDefaults)
 	if err != nil {
 		return err

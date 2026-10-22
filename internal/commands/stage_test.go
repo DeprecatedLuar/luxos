@@ -593,7 +593,7 @@ func TestStageDoesNotAdopt(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	machineDir, err := config.Ensure(discard, p, host)
+	machineDir, err := config.Ensure(discard, configDirs(p), host)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestStageLeavesConfigUntouched(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	machineDir, err := config.Ensure(discard, p, host)
+	machineDir, err := config.Ensure(discard, configDirs(p), host)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +695,7 @@ func TestStageLeavesLockWritable(t *testing.T) {
 	p, host := fixture(t)
 	steps, _ := fakeNix(t)
 	discard := ui.NewProgress(io.Discard)
-	machineDir, err := config.Ensure(discard, p, host)
+	machineDir, err := config.Ensure(discard, configDirs(p), host)
 	if err != nil {
 		t.Fatal(err)
 	}
