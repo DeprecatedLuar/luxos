@@ -233,7 +233,7 @@ func moduleRows(sts []modules.Status, categoryPath string) []moduleRow {
 	var rows []moduleRow
 	for _, st := range sts {
 		m := st.Module
-		segs, ok := categorySegments(shownPath(m), categoryPath)
+		segs, ok := categorySegments(m.StagedPath(), categoryPath)
 		if !ok {
 			continue
 		}
@@ -485,7 +485,7 @@ func moduleList(p paths.Paths, args []string) error {
 	var bundleView string
 	if u, ok := h.Find(categoryPath); ok && categoryPath != "" && modules.IsBundle(u.Abs) {
 		bundleView = u.Name
-		categoryPath = shownPath(u) + "/" + bundleModulesDir
+		categoryPath = u.StagedPath() + "/" + bundleModulesDir
 	} else if categoryPath != "" {
 		catDir := filepath.Join(p.Modules, categoryPath)
 		info, err := os.Stat(catDir)
@@ -1262,12 +1262,4 @@ func ownedUnit(h *modules.Host, name string) (modules.Module, error) {
 		return m, errBootUnit
 	}
 	return m, nil
-}
-
-// shownPath is where a unit is listed: a shadow sits where the unit it hides sits, not under host/ or machine/.
-func shownPath(m modules.Module) string {
-	if m.Shadows != "" {
-		return m.Shadows
-	}
-	return m.Path
 }

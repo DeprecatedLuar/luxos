@@ -1141,3 +1141,21 @@ func TestModuleRenameFailsOnUnparsableDependent(t *testing.T) {
 		t.Errorf("foo.nix was moved despite the failure: %v", err)
 	}
 }
+
+func TestModuleListBundleViewFolderShadowsFile(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	write(t, filepath.Join(p.Modules, "apps", "foo.nix"), "{ }\n")
+	hm := filepath.Join(p.Hosts, "host1", "modules")
+	write(t, filepath.Join(hm, "foo", "default.nix"), "{ }\n")
+	write(t, filepath.Join(hm, "foo", "modules", "x.nix"), "{ }\n")
+
+	out := captureStdout(t, func() {
+		if err := moduleList(p, []string{"foo", "--raw"}); err != nil {
+			t.Fatalf("moduleList: %v", err)
+		}
+	})
+	if !strings.Contains(out, "x") {
+		t.Errorf("bundle view is missing submodule x:\n%q", out)
+	}
+}
