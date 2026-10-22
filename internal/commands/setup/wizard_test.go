@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
@@ -347,7 +348,7 @@ func TestFresh_PasswordMismatchWritesNoPassword(t *testing.T) {
 	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
 	w.Secret = answers("a", "b")
 	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
-	if _, err := w.Fresh(); !errors.Is(err, errSetupMismatch) {
+	if _, err := w.Fresh(); !errors.Is(err, shared.ErrPasswordMismatch) {
 		t.Fatalf("err = %v, want mismatch\n%s", err, out)
 	}
 	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
@@ -363,7 +364,7 @@ func TestHostScreen_MismatchLeavesNoUnit(t *testing.T) {
 	}
 	w, _ := newWizard(t, p, "1\n", noClone)
 	w.Secret = answers("a", "b")
-	if _, err := w.HostScreen(); !errors.Is(err, errSetupMismatch) {
+	if _, err := w.HostScreen(); !errors.Is(err, shared.ErrPasswordMismatch) {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "users/ana")); !os.IsNotExist(err) {

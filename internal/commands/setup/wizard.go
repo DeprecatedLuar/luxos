@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -40,8 +39,6 @@ const (
 	setupAgainPrompt    = "Retype password for %s: "
 	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos user key add %s"
 )
-
-var errSetupMismatch = errors.New("passwords do not match")
 
 // Selection lines of a new host, without "./".
 const (
@@ -260,24 +257,10 @@ func (w *Wizard) userLines() []string {
 	return []string{w.userPath()}
 }
 
-// askPassword asks the user's password twice; both must match and not be empty.
+// askPassword asks the user's password twice through the shared prompt.
 func (w *Wizard) askPassword() (string, error) {
 	user := w.Paths.User
-	pw, err := w.Secret(fmt.Sprintf(setupPasswordPrompt, user))
-	if err != nil {
-		return "", err
-	}
-	if pw == "" {
-		return "", password.ErrEmpty
-	}
-	again, err := w.Secret(fmt.Sprintf(setupAgainPrompt, user))
-	if err != nil {
-		return "", err
-	}
-	if pw != again {
-		return "", errSetupMismatch
-	}
-	return pw, nil
+	return shared.AskNewPassword(w.Secret, fmt.Sprintf(setupPasswordPrompt, user), fmt.Sprintf(setupAgainPrompt, user))
 }
 
 // writeUser creates the user unit with pw as its password: the encrypted

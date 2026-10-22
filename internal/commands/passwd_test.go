@@ -2,8 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,32 +16,6 @@ const (
 	corruptKeyBody  = "garbage\n"
 	testKeyUser     = "luar"
 )
-
-func answers(lines ...string) func(string) (string, error) {
-	return func(string) (string, error) {
-		if len(lines) == 0 {
-			return "", io.EOF
-		}
-		l := lines[0]
-		lines = lines[1:]
-		return l, nil
-	}
-}
-
-func TestReadNewPassword(t *testing.T) {
-	if pw, err := readNewPassword(answers("s3cret", "s3cret")); err != nil || pw != "s3cret" {
-		t.Errorf("match = %q, %v", pw, err)
-	}
-	if _, err := readNewPassword(answers("a", "b")); err == nil || !strings.Contains(err.Error(), "do not match") {
-		t.Errorf("mismatch: %v", err)
-	}
-	if _, err := readNewPassword(answers("", "")); !errors.Is(err, password.ErrEmpty) {
-		t.Errorf("empty: %v", err)
-	}
-	if _, err := readNewPassword(answers("a")); !errors.Is(err, io.EOF) {
-		t.Errorf("end of input: %v", err)
-	}
-}
 
 func skipIfNoAge(t *testing.T) {
 	t.Helper()

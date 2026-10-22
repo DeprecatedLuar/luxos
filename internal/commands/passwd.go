@@ -25,8 +25,6 @@ const (
 	passwdStale    = "%w\n  the key of %s on this computer may have been replaced, so an existing %s may no longer decrypt: rerun `luxos user passwd %s`"
 )
 
-var errPasswordMismatch = errors.New("passwords do not match; nothing changed")
-
 // Passwd runs `luxos passwd <user>`: escalates, asks the password twice,
 // reuses (repairing its mode and owner) or creates the user's key and writes
 // the encrypted hash into the user's unit in modules/users/. Nothing is
@@ -55,9 +53,9 @@ func Passwd(args []string) error {
 		return fmt.Errorf("'%s' is not a user: a user is a folder in modules/users/ (luxos user add %s)", name, name)
 	}
 
-	pw, err := readNewPassword(func(prompt string) (string, error) {
+	pw, err := shared.AskNewPassword(func(prompt string) (string, error) {
 		return ui.AskSecret(os.Stdin, os.Stderr, prompt)
-	})
+	}, passwordPrompt, againPrompt)
 	if err != nil {
 		return err
 	}
@@ -74,25 +72,6 @@ func Passwd(args []string) error {
 		shared.KeyNotice(os.Stdout, name, secret)
 	}
 	return err
-}
-
-// readNewPassword asks twice; both answers must match and not be empty.
-func readNewPassword(ask func(prompt string) (string, error)) (string, error) {
-	first, err := ask(passwordPrompt)
-	if err != nil {
-		return "", err
-	}
-	if first == "" {
-		return "", fmt.Errorf("%w; nothing changed", password.ErrEmpty)
-	}
-	second, err := ask(againPrompt)
-	if err != nil {
-		return "", err
-	}
-	if first != second {
-		return "", errPasswordMismatch
-	}
-	return first, nil
 }
 
 // userKey resolves user's key in memory: the stored one (its mode and owner
