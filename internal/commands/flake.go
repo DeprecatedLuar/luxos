@@ -629,13 +629,11 @@ func flakeRenderViewPlain(w *strings.Builder, d flakeViewData) {
 	if d.commits != nil {
 		commits = strconv.Itoa(*d.commits)
 	}
-	for _, kv := range [][2]string{
+	ui.KV(w, [][2]string{
 		{"name", d.name}, {"state", d.state}, {"status", d.status}, {"source", d.source},
 		{"declared", strings.Join(d.declared, flakeViewListSep)}, {"current", d.current}, {"latest", d.latest},
 		{"commits", commits}, {"pulls", strings.Join(d.pulls, flakeViewListSep)},
-	} {
-		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
-	}
+	})
 }
 
 // current, latest and commits are null when empty (not checked, or not known).
@@ -652,18 +650,11 @@ type flakeViewJSON struct {
 }
 
 func flakeViewToJSON(d flakeViewData) flakeViewJSON {
-	out := flakeViewJSON{
+	return flakeViewJSON{
 		Name: d.name, State: d.state, Status: d.status, Source: d.source,
 		Declared: append([]string{}, d.declared...), Pulls: append([]string{}, d.pulls...),
-		Commits: d.commits,
+		Current: nullIfEmpty(d.current), Latest: nullIfEmpty(d.latest), Commits: d.commits,
 	}
-	if d.current != "" {
-		out.Current = &d.current
-	}
-	if d.latest != "" {
-		out.Latest = &d.latest
-	}
-	return out
 }
 
 func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
@@ -671,8 +662,5 @@ func flakeRenderViewsJSON(w *strings.Builder, views []flakeView) error {
 	for _, v := range views {
 		objs = append(objs, flakeViewToJSON(v.data))
 	}
-	if len(objs) == 1 {
-		return ui.JSON(w, objs[0])
-	}
-	return ui.JSON(w, objs)
+	return ui.JSONOneOrMany(w, objs)
 }

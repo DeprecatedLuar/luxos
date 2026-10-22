@@ -257,8 +257,8 @@ func packageUnknownOr(s string) string {
 	return s
 }
 
-// packageNullable is s, or nil (JSON null) when Nix gave no value.
-func packageNullable(s string) *string {
+// nullIfEmpty is s, or nil (JSON null) when s is empty.
+func nullIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}
@@ -291,7 +291,7 @@ func packageRenderListJSON(w *strings.Builder, pkgs []packages.Package) error {
 	for _, d := range decls {
 		rows = append(rows, packageListJSONRow{
 			File: d.file, Name: d.pkg.Label(), State: markerWord(packageMarker(d.pkg.State)),
-			Source: packageNullable(d.pkg.Source), Version: packageNullable(d.pkg.Version),
+			Source: nullIfEmpty(d.pkg.Source), Version: nullIfEmpty(d.pkg.Version),
 		})
 	}
 	return ui.JSON(w, rows)
@@ -379,13 +379,11 @@ func packageRenderView(w *strings.Builder, pkg packages.Package, pal ui.Palette)
 }
 
 func packageRenderViewPlain(w *strings.Builder, pkg packages.Package) {
-	for _, kv := range [][2]string{
+	ui.KV(w, [][2]string{
 		{"name", pkg.Label()}, {"state", markerWord(packageMarker(pkg.State))},
 		{"source", packageUnknownOr(pkg.Source)}, {"declared", strings.Join(pkg.Files, packageViewListSep)},
 		{"version", packageUnknownOr(pkg.Version)},
-	} {
-		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
-	}
+	})
 }
 
 type packageViewJSON struct {
@@ -402,12 +400,9 @@ func packageRenderViewsJSON(w *strings.Builder, views []packages.Package) error 
 	for _, pkg := range views {
 		objs = append(objs, packageViewJSON{
 			Name: pkg.Label(), State: markerWord(packageMarker(pkg.State)),
-			Source: packageNullable(pkg.Source), Declared: append([]string{}, pkg.Files...),
-			Version: packageNullable(pkg.Version),
+			Source: nullIfEmpty(pkg.Source), Declared: append([]string{}, pkg.Files...),
+			Version: nullIfEmpty(pkg.Version),
 		})
 	}
-	if len(objs) == 1 {
-		return ui.JSON(w, objs[0])
-	}
-	return ui.JSON(w, objs)
+	return ui.JSONOneOrMany(w, objs)
 }

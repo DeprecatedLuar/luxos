@@ -33,3 +33,19 @@ func JSON(w *strings.Builder, v any) error {
 func ErrJSONConflict(other string) error {
 	return fmt.Errorf("--json cannot be combined with %s", other)
 }
+
+// KV writes one key=value line per pair, in order.
+func KV(w *strings.Builder, pairs [][2]string) {
+	for _, kv := range pairs {
+		fmt.Fprintf(w, "%s=%s\n", kv[0], kv[1])
+	}
+}
+
+// JSONOneOrMany writes the one element of objs as an object, or objs as an
+// array when it holds any other number.
+func JSONOneOrMany[T any](w *strings.Builder, objs []T) error {
+	if len(objs) == 1 {
+		return JSON(w, objs[0])
+	}
+	return JSON(w, objs)
+}
