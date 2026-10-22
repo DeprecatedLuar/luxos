@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -33,6 +34,19 @@ var reservedRoot = map[string]bool{entrypointName: true, config.HostLinkName: tr
 
 // scopeOrder is shadow precedence, highest first.
 var scopeOrder = []string{config.ScopeMachine, config.ScopeHost, config.ScopeShared}
+
+// CanShadow reports whether a new unit at the modules-relative path p may
+// shadow existing: p lies in a higher scope.
+func CanShadow(p string, existing Module) bool {
+	scope := config.ScopeShared
+	switch {
+	case strings.HasPrefix(p, HostPrefix):
+		scope = config.ScopeHost
+	case strings.HasPrefix(p, MachinePrefix):
+		scope = config.ScopeMachine
+	}
+	return slices.Index(scopeOrder, scope) < slices.Index(scopeOrder, existing.Scope)
+}
 
 // bundleModulesDir is the subdirectory of a folder unit that holds its
 // submodules; the unit is then a bundle.

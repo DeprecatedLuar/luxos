@@ -904,3 +904,29 @@ func TestLoad_UnselectedUserBrokenSelection(t *testing.T) {
 		t.Errorf("Load with bob selected by the machine only: err = %v", err)
 	}
 }
+
+func TestCanShadow(t *testing.T) {
+	shared := Module{Scope: config.ScopeShared}
+	host := Module{Scope: config.ScopeHost}
+	machine := Module{Scope: config.ScopeMachine}
+	cases := []struct {
+		path     string
+		existing Module
+		want     bool
+	}{
+		{"apps/x", shared, false},
+		{"apps/x", host, false},
+		{"apps/x", machine, false},
+		{"host/x", shared, true},
+		{"host/x", host, false},
+		{"host/x", machine, false},
+		{"machine/x", shared, true},
+		{"machine/x", host, true},
+		{"machine/x", machine, false},
+	}
+	for _, c := range cases {
+		if got := CanShadow(c.path, c.existing); got != c.want {
+			t.Errorf("CanShadow(%q, %s) = %v, want %v", c.path, c.existing.Scope, got, c.want)
+		}
+	}
+}

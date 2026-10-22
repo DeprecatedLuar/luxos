@@ -615,7 +615,7 @@ func moduleAdd(p paths.Paths, args []string) error {
 	}
 	shadowedPath := ""
 	if existing, found := h.Find(name); found {
-		if !shadowsLower(target, existing) {
+		if !modules.CanShadow(target, existing) {
 			return fmt.Errorf("module name '%s' already exists at modules/%s", name, existing.Path)
 		}
 		shadowedPath = existing.Path
@@ -972,25 +972,6 @@ func moduleDisable(p paths.Paths, args []string) error {
 
 //──[scoping]──────────────────────────────────────────────────────────────
 
-// scopeRank orders scopes by shadow precedence.
-var scopeRank = map[string]int{config.ScopeShared: 0, config.ScopeHost: 1, config.ScopeMachine: 2}
-
-// shadowsLower reports whether a unit at newPath colliding with existing is a
-// shadow: newPath lies in a higher scope than existing.
-func shadowsLower(newPath string, existing modules.Module) bool {
-	return scopeRank[pathScope(newPath)] > scopeRank[existing.Scope]
-}
-
-func pathScope(p string) string {
-	switch {
-	case strings.HasPrefix(p, modules.HostPrefix):
-		return config.ScopeHost
-	case strings.HasPrefix(p, modules.MachinePrefix):
-		return config.ScopeMachine
-	}
-	return config.ScopeShared
-}
-
 // printShadowed tells which folders keep meaning their own module.
 func printShadowed(name string, folders []string) {
 	if len(folders) > 0 {
@@ -1156,7 +1137,7 @@ func moduleRename(p paths.Paths, args []string) error {
 
 	shadowedPath := ""
 	if existing, found := h.Find(newQualified); found {
-		if !shadowsLower(oldPath, existing) {
+		if !modules.CanShadow(oldPath, existing) {
 			return fmt.Errorf("module name '%s' already exists at modules/%s", newQualified, existing.Path)
 		}
 		shadowedPath = existing.Path
