@@ -72,60 +72,45 @@ type Decl struct {
 // Declarations returns every luxos.inputs declaration of the modules h
 // builds and of its host.nix, by input name, sorted by file then line.
 func Declarations(h *modules.Host) (map[string][]Decl, error) {
-	built, err := h.Built()
+	files, err := h.InputFiles()
 	if err != nil {
 		return nil, err
 	}
-
 	owner := map[string]modules.Module{}
-	var files []string
-	for _, m := range built {
-		mf, err := m.Files()
+	declFiles := make([]string, len(files))
+	for i, f := range files {
+		abs, err := filepath.Abs(f.File)
 		if err != nil {
 			return nil, err
 		}
-		for _, f := range mf {
-			abs, err := filepath.Abs(f)
-			if err != nil {
-				return nil, err
-			}
-			owner[abs] = m
-		}
-		files = append(files, mf...)
+		owner[abs] = f.Unit
+		declFiles[i] = f.File
 	}
-	decls, err := nix.InputDecls(files...)
+	decls, err := nix.InputDecls(declFiles...)
 	if err != nil {
 		return nil, err
 	}
 
+	hostFile := filepath.ToSlash(filepath.Join(hostsDisplayDir, filepath.Base(h.HostDir), config.HostFile))
 	out := map[string][]Decl{}
 	for _, d := range decls {
 		m := owner[d.File]
-		display := sharedDisplayDir
-		switch m.Scope {
-		case config.ScopeHost:
-			display = hostDisplayDir
-		case config.ScopeMachine:
-			display = machineDisplayDir
+		file := hostFile
+		if m.Name != "" {
+			display := sharedDisplayDir
+			switch m.Scope {
+			case config.ScopeHost:
+				display = hostDisplayDir
+			case config.ScopeMachine:
+				display = machineDisplayDir
+			}
+			rel, err := filepath.Rel(m.Root(), d.File)
+			if err != nil {
+				return nil, err
+			}
+			file = filepath.ToSlash(filepath.Join(display, rel))
 		}
-		rel, err := filepath.Rel(m.Root(), d.File)
-		if err != nil {
-			return nil, err
-		}
-		out[d.Name] = append(out[d.Name], Decl{
-			Unit: m.Path,
-			File: filepath.ToSlash(filepath.Join(display, rel)),
-			Line: d.Line,
-			URL:  d.URL,
-		})
-	}
-
-	base, err := baseChannelDecl(h.HostDir)
-	if err != nil {
-		return nil, err
-	}
-	if base != nil {
-		out[nix.BaseChannelInput] = append(out[nix.BaseChannelInput], *base)
+		out[d.Name] = append(out[d.Name], Decl{Unit: m.Path, File: file, Line: d.Line, URL: d.URL})
 	}
 	for _, decls := range out {
 		sort.Slice(decls, func(i, j int) bool {
@@ -136,20 +121,6 @@ func Declarations(h *modules.Host) (map[string][]Decl, error) {
 		})
 	}
 	return out, nil
-}
-
-// baseChannelDecl is nil when the host's host.nix has no base channel (the
-// rebuild preflight reports that). It belongs to no unit.
-func baseChannelDecl(hostDir string) (*Decl, error) {
-	url, line, err := nix.BaseChannel(filepath.Join(hostDir, config.HostFile))
-	if errors.Is(err, nix.ErrNoBaseChannel) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	rel := filepath.Join(hostsDisplayDir, filepath.Base(hostDir), config.HostFile)
-	return &Decl{File: filepath.ToSlash(rel), Line: line, URL: url}, nil
 }
 
 // Units returns, by input name, the sorted units that declare it.

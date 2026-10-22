@@ -159,7 +159,15 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 	if err != nil {
 		return err
 	}
-	inputs, err := selectedInputs(h)
+	files, err := h.InputFiles()
+	if err != nil {
+		return err
+	}
+	declFiles := make([]string, len(files))
+	for i, f := range files {
+		declFiles[i] = f.File
+	}
+	inputs, err := nix.InputDecls(declFiles...)
 	if err != nil {
 		return err
 	}
@@ -189,26 +197,6 @@ func stage(out *ui.Progress, p paths.Paths, host, dir string, steps flakeSteps) 
 		out.Changef("  locked new inputs: %s", hostLock)
 	}
 	return out.Err()
-}
-
-// selectedInputs returns the luxos.inputs declarations of the host's
-// host.nix and of every module it builds. They become the bootstrap flake's
-// inputs, so a module that imports from its own input (a nixos-hardware
-// module, say) already has that input on its first build.
-func selectedInputs(h *modules.Host) ([]nix.InputDecl, error) {
-	built, err := h.Built()
-	if err != nil {
-		return nil, err
-	}
-	files := []string{filepath.Join(h.HostDir, config.HostFile)}
-	for _, m := range built {
-		mf, err := m.Files()
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, mf...)
-	}
-	return nix.InputDecls(files...)
 }
 
 // detectFacts reads every hardware fact the build gets.

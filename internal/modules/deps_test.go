@@ -1058,3 +1058,34 @@ func TestValidate_UserShapeOutsideUsers(t *testing.T) {
 		t.Errorf("violations:\n%s", got)
 	}
 }
+
+func TestInputFilesHostFileFirstThenBuiltUnits(t *testing.T) {
+	skipIfNoNix(t)
+	root := t.TempDir()
+	modulesDir := filepath.Join(root, "modules")
+	hostDir := filepath.Join(root, "hosts", "other")
+	machineDir := filepath.Join(root, "machines", "k1")
+	write(t, filepath.Join(modulesDir, "a.nix"), "{ ... }: { }\n")
+	write(t, filepath.Join(hostDir, "host.nix"), "{ }\n")
+	write(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
+	write(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ./board.nix\n  ];\n}\n")
+	write(t, filepath.Join(machineDir, "modules", "board.nix"), "{ ... }: { }\n")
+
+	h, err := Load(modulesDir, hostDir, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := h.InputFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("InputFiles = %+v, want host.nix and board.nix", files)
+	}
+	if files[0].File != filepath.Join(hostDir, config.HostFile) || files[0].Unit.Name != "" {
+		t.Errorf("first = %+v, want host.nix with no unit", files[0])
+	}
+	if files[1].Unit.Name != "board" || filepath.Base(files[1].File) != "board.nix" {
+		t.Errorf("second = %+v, want board.nix of unit board", files[1])
+	}
+}

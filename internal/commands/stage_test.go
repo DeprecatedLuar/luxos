@@ -7,14 +7,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
-	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
@@ -766,35 +764,6 @@ func diffKeys(a, b map[string]string) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, "\n")
-}
-
-func TestSelectedInputsIncludeMachineUnits(t *testing.T) {
-	skipIfNoNix(t)
-	root := t.TempDir()
-	modulesDir := filepath.Join(root, "modules")
-	hostDir := filepath.Join(root, "hosts", "other")
-	machineDir := filepath.Join(root, "machines", "k1")
-	write(t, filepath.Join(modulesDir, "a.nix"), "{ ... }: { }\n")
-	write(t, filepath.Join(hostDir, "host.nix"), "{\n  luxos.inputs.nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";\n}\n")
-	write(t, config.SelectionPath(hostDir), "{ ... }:\n{\n  imports = [\n  ];\n}\n")
-	write(t, config.SelectionPath(machineDir), "{ ... }:\n{\n  imports = [\n    ./board.nix\n  ];\n}\n")
-	write(t, filepath.Join(machineDir, "modules", "board.nix"), "{ ... }: {\n  luxos.inputs.nixos-hardware.url = \"github:NixOS/nixos-hardware\";\n}\n")
-
-	h, err := modules.Load(modulesDir, hostDir, machineDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inputs, err := selectedInputs(h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, d := range inputs {
-		names = append(names, d.Name)
-	}
-	if !slices.Contains(names, "nixos-hardware") {
-		t.Errorf("inputs = %v, want nixos-hardware from the machine unit", names)
-	}
 }
 
 func TestRun_BrokenSettingsFailBeforeStaging(t *testing.T) {

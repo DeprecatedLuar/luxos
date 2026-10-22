@@ -330,6 +330,33 @@ func (h *Host) Built() ([]Module, error) {
 	return out, nil
 }
 
+// UnitFile is one file that may declare flake inputs; Unit is the zero
+// Module for the host's host.nix.
+type UnitFile struct {
+	Unit Module
+	File string
+}
+
+// InputFiles returns the files whose luxos.inputs declarations make the
+// host's flake inputs: host.nix first, then every file of every unit h builds.
+func (h *Host) InputFiles() ([]UnitFile, error) {
+	built, err := h.Built()
+	if err != nil {
+		return nil, err
+	}
+	out := []UnitFile{{File: filepath.Join(h.HostDir, config.HostFile)}}
+	for _, m := range built {
+		files, err := m.Files()
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			out = append(out, UnitFile{Unit: m, File: f})
+		}
+	}
+	return out, nil
+}
+
 // dependents returns every module file under modulesDir (its reserved root
 // entries skipped) plus every unitDirs entry (its selection skipped), whose
 // luxos.modules list contains name. Read-only. A file mentioning luxos and
