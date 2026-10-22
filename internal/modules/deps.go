@@ -332,10 +332,10 @@ func (h *Host) Built() ([]Module, error) {
 
 // Dependents returns every module file under modulesDir (its reserved root
 // entries skipped) plus every unitDirs entry (its selection skipped), whose
-// luxos.modules list contains name. Read-only; a file whose luxos.modules
-// use isn't the recognized shape (or that fails to parse) is silently
-// skipped — it just can't be a hit. A missing unitDirs entry is silently
-// skipped too.
+// luxos.modules list contains name. Read-only. A file mentioning luxos and
+// name that fails to parse is an error naming it; a file whose luxos.modules
+// use isn't the recognized shape is skipped, since it can't be a hit. A
+// missing unitDirs entry is skipped.
 func Dependents(modulesDir string, unitDirs []string, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 	files, err := findAllNix(root, reservedRoot)
@@ -368,7 +368,7 @@ func Dependents(modulesDir string, unitDirs []string, name string) ([]string, er
 		}
 		names, _, err := nix.ModuleNames(file)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("%s: failed to parse: %w", file, err)
 		}
 		for _, n := range names {
 			if n == name {

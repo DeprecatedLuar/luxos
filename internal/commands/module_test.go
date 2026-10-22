@@ -1103,3 +1103,41 @@ func TestUserMigration_HostLinesInsideUser(t *testing.T) {
 		t.Errorf("healAndValidate: %v\n%s", err, out.String())
 	}
 }
+
+func TestModuleRemoveFailsOnUnparsableDependent(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	foo := filepath.Join(p.Modules, "apps", "foo.nix")
+	write(t, foo, "{ }\n")
+	bar := filepath.Join(p.Modules, "apps", "bar", "default.nix")
+	src := "{ luxos, ... }:\n{ imports = luxos.modules [ \"foo\" ]; x = ; }\n"
+	write(t, bar, src)
+
+	err := moduleRemove(p, []string{"foo", "-y"})
+	if err == nil || !strings.Contains(err.Error(), bar) {
+		t.Fatalf("moduleRemove err = %v, want a parse error naming %s", err, bar)
+	}
+	if _, err := os.Stat(foo); err != nil {
+		t.Errorf("foo.nix was removed despite the failure: %v", err)
+	}
+	if got := mustReadFile(t, bar); got != src {
+		t.Errorf("bar changed:\n%s", got)
+	}
+}
+
+func TestModuleRenameFailsOnUnparsableDependent(t *testing.T) {
+	skipIfNoNix(t)
+	p := twoHostScopeFixture(t)
+	foo := filepath.Join(p.Modules, "apps", "foo.nix")
+	write(t, foo, "{ }\n")
+	bar := filepath.Join(p.Modules, "apps", "bar", "default.nix")
+	write(t, bar, "{ luxos, ... }:\n{ imports = luxos.modules [ \"foo\" ]; x = ; }\n")
+
+	err := moduleRename(p, []string{"foo", "baz", "-y"})
+	if err == nil || !strings.Contains(err.Error(), bar) {
+		t.Fatalf("moduleRename err = %v, want a parse error naming %s", err, bar)
+	}
+	if _, err := os.Stat(foo); err != nil {
+		t.Errorf("foo.nix was moved despite the failure: %v", err)
+	}
+}

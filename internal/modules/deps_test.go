@@ -654,6 +654,20 @@ func TestDependents_MissingLocalModulesDirSkipped(t *testing.T) {
 	}
 }
 
+func TestDependents_UnparsableCandidateFails(t *testing.T) {
+	skipIfNoNix(t)
+	F := t.TempDir()
+	mods := filepath.Join(F, "modules")
+	write(t, filepath.Join(mods, "shared.nix"), `{ }`)
+	bad := filepath.Join(mods, "bar", "default.nix")
+	write(t, bad, `{ luxos, ... }: { imports = luxos.modules [ "shared" ]; x = ; }`)
+
+	_, err := Dependents(mods, nil, "shared")
+	if err == nil || !strings.Contains(err.Error(), bad) {
+		t.Fatalf("Dependents err = %v, want a parse error naming %s", err, bad)
+	}
+}
+
 func TestRetarget_ScopedToOneHostsLocalModulesDir(t *testing.T) {
 	skipIfNoNix(t)
 	F := t.TempDir()
