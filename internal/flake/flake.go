@@ -5,6 +5,7 @@ package flake
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -285,4 +286,23 @@ func shortRev(rev string) string {
 		return rev[:shortRevLen]
 	}
 	return rev
+}
+
+// PinnedLuxos returns the flake ref of the luxos revision pinned in lockFile;
+// ok is false when the lock has no luxos input. Only a github-locked input is
+// understood.
+func PinnedLuxos(lockFile string) (ref string, ok bool, err error) {
+	lock, err := nix.ReadLock(lockFile)
+	if err != nil {
+		return "", false, err
+	}
+	node, ok := lock.Input(nix.LuxosInput)
+	if !ok {
+		return "", false, nil
+	}
+	in := node.Locked
+	if in.Type != typeGitHub {
+		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", nix.LuxosInput, in.Type, typeGitHub)
+	}
+	return fmt.Sprintf("%s:%s/%s/%s", typeGitHub, in.Owner, in.Repo, in.Rev), true, nil
 }

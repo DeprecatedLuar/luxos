@@ -13,6 +13,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/setup"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
@@ -47,9 +48,6 @@ const nixStorePrefix = "/nix/store/"
 
 const luxosBinRelpath = "bin/luxos"
 
-// The only flake.lock node type the self-update understands.
-const githubLockType = "github"
-
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
 
 func printLogo() {
@@ -60,7 +58,7 @@ func printLogo() {
 // running binary is not already that revision. Returns nil when no swap is needed
 // and does not return when one happens.
 func selfUpdate(hostLock string, args []string) error {
-	ref, ok, err := pinnedRef(hostLock)
+	ref, ok, err := flake.PinnedLuxos(hostLock)
 	if err != nil || !ok {
 		return err
 	}
@@ -83,24 +81,6 @@ func selfUpdate(hostLock string, args []string) error {
 
 	ui.Done(os.Stdout, selfUpdateNotice)
 	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
-}
-
-// The flake ref of the luxos revision pinned in hostLock; ok is false when
-// the host has no luxos input.
-func pinnedRef(hostLock string) (ref string, ok bool, err error) {
-	lock, err := nix.ReadLock(hostLock)
-	if err != nil {
-		return "", false, err
-	}
-	node, ok := lock.Input(nix.LuxosInput)
-	if !ok {
-		return "", false, nil
-	}
-	in := node.Locked
-	if in.Type != githubLockType {
-		return "", false, fmt.Errorf("flake input %q has lock type %q; the self-update only understands %s inputs", nix.LuxosInput, in.Type, githubLockType)
-	}
-	return fmt.Sprintf("github:%s/%s/%s", in.Owner, in.Repo, in.Rev), true, nil
 }
 
 // Builds the luxos at ref and returns its binary.

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
@@ -25,7 +26,7 @@ func Deadlock(args []string) error {
 		return err
 	}
 
-	ref, ok, err := pinnedRef(filepath.Join(hostDir, flakeLockName))
+	ref, ok, err := flake.PinnedLuxos(filepath.Join(hostDir, flakeLockName))
 	if err != nil {
 		return err
 	}

@@ -39,7 +39,10 @@ var errUpdateAborted = errors.New("aborted: nothing updated\n  confirm with: lux
 
 const flakeListFlagSpec = flakeFlagSpec + " offline:bool raw:bool json:bool"
 
-const gitLockType = "git"
+const (
+	githubLockType = "github"
+	gitLockType    = "git"
+)
 
 const (
 	flakeInputsLabel = "inputs/"

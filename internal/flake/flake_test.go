@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/modules"
@@ -226,5 +227,32 @@ func TestDeclarations(t *testing.T) {
 	units := Units(got)
 	if !reflect.DeepEqual(units["ambxst"], []string{"apps/shell.nix"}) || len(units["nixpkgs"]) != 0 {
 		t.Errorf("Units = %v", units)
+	}
+}
+
+func TestPinnedLuxos(t *testing.T) {
+	dir := t.TempDir()
+	lock := func(name, body string) string {
+		f := filepath.Join(dir, name)
+		writeFile(t, f, body)
+		return f
+	}
+	github := lock("github.lock", `{"nodes":{"root":{"inputs":{"luxos":"luxos"}},"luxos":{"locked":{"type":"github","owner":"o","repo":"r","rev":"abc"}}},"root":"root","version":7}`)
+	if ref, ok, err := PinnedLuxos(github); err != nil || !ok || ref != "github:o/r/abc" {
+		t.Errorf("github = %q, %v, %v", ref, ok, err)
+	}
+
+	none := lock("none.lock", `{"nodes":{"root":{"inputs":{}}},"root":"root","version":7}`)
+	if _, ok, err := PinnedLuxos(none); err != nil || ok {
+		t.Errorf("no luxos input = %v, %v", ok, err)
+	}
+
+	if _, ok, err := PinnedLuxos(filepath.Join(dir, "missing.lock")); err != nil || ok {
+		t.Errorf("missing lock = %v, %v", ok, err)
+	}
+
+	path := lock("path.lock", `{"nodes":{"root":{"inputs":{"luxos":"luxos"}},"luxos":{"locked":{"type":"path"}}},"root":"root","version":7}`)
+	if _, _, err := PinnedLuxos(path); err == nil || !strings.Contains(err.Error(), "github") {
+		t.Errorf("path lock err = %v, want one naming github", err)
 	}
 }
