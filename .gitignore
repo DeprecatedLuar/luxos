@@ -7,6 +7,7 @@ build/
 !*.*
 !internal/templates/starters/environment
 !internal/templates/starters/user/authorized_keys
+.l2sync
 
 # Secrets
 .env
