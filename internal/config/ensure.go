@@ -103,7 +103,7 @@ func Ensure(out Reporter, d Dirs, host string) (string, error) {
 		return "", err
 	}
 	if protected {
-		out.Changef("  protected: %s", filepath.Join(hostDir, plsDontTouchFile))
+		out.Changef("  protected: %s", filepath.Join(hostDir, PlsDontTouchFile))
 	}
 
 	machineDir, err := EnsureMachine(out, d)

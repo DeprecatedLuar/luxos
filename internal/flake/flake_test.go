@@ -148,19 +148,18 @@ func TestVersionOffline(t *testing.T) {
 
 func TestStatusOf(t *testing.T) {
 	cases := []struct {
-		locked, online bool
-		note           Note
-		want           Status
+		checked bool
+		note    Note
+		want    Status
 	}{
-		{false, true, "", StatusUnknown},
-		{true, false, "", StatusUnknown},
-		{true, true, NoteUnknown, StatusUnknown},
-		{true, true, NoteBehind, StatusBehind},
-		{true, true, "", StatusCurrent},
+		{false, "", StatusUnknown},
+		{true, NoteUnknown, StatusUnknown},
+		{true, NoteBehind, StatusBehind},
+		{true, "", StatusCurrent},
 	}
 	for _, c := range cases {
-		if got := StatusOf(c.locked, c.online, c.note); got != c.want {
-			t.Errorf("StatusOf(%v, %v, %q) = %q, want %q", c.locked, c.online, c.note, got, c.want)
+		if got := StatusOf(c.checked, c.note); got != c.want {
+			t.Errorf("StatusOf(%v, %q) = %q, want %q", c.checked, c.note, got, c.want)
 		}
 	}
 }

@@ -172,7 +172,7 @@ func SyncUser(dir string) ([]SyncChange, error) {
 // CreateUserSelection writes the selection of the user unit dir, holding
 // lines. The caller makes sure none exists.
 func CreateUserSelection(dir string, lines []string) error {
-	data, err := templates.Render(selectionTemplate, lines)
+	data, err := templates.Render(SelectionTemplate, lines)
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func UserScope(name string) string {
 
 // UserSelectionPath is the selection of the user unit dir.
 func UserSelectionPath(dir string) string {
-	return filepath.Join(dir, UserSelectionFile)
+	return SelectionPath(dir)
 }
 
 // UserGroups is the host settings file setup writes for its first user.

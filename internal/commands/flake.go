@@ -124,8 +124,8 @@ func updateInputs(opts map[string]string, names []string) error {
 		if err := nix.FlakeUpdate(tmp, names...); err != nil {
 			return err
 		}
-		hostLock := filepath.Join(hostDir, flakeLockName)
-		changed, err := config.CopyLockBack(filepath.Join(tmp, flakeLockName), hostLock)
+		hostLock := filepath.Join(hostDir, config.LockFile)
+		changed, err := config.CopyLockBack(filepath.Join(tmp, config.LockFile), hostLock)
 		if err != nil {
 			return err
 		}
@@ -162,7 +162,7 @@ func flakeList(args []string) error {
 		return err
 	}
 	decls := flake.Units(sites)
-	graph, err := nix.ReadLock(filepath.Join(hostDir, flakeLockName))
+	graph, err := nix.ReadLock(filepath.Join(hostDir, config.LockFile))
 	if err != nil {
 		return err
 	}
@@ -247,24 +247,17 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 		declared[name] = true
 	}
 
-	locked := map[string]bool{}
-	for _, name := range graph.Root {
-		locked[name] = true
-	}
-
-	names := map[string]bool{}
-	for name := range declared {
-		names[name] = true
-	}
-	for name := range locked {
-		names[name] = true
-	}
-
 	rootInputs := graph.Nodes[nix.LockRootNode].Inputs
+
+	names := maps.Clone(declared)
+	for name := range rootInputs {
+		names[name] = true
+	}
 
 	var rows []moduleRow
 	for name := range names {
-		marker := inputMarker(declared[name], locked[name])
+		_, locked := rootInputs[name]
+		marker := inputMarker(declared[name], locked)
 
 		var category []string
 		if !builtin[name] && len(decls[name]) == 1 {
@@ -275,7 +268,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 
 		var children []moduleRow
 		var note flake.Note
-		if locked[name] {
+		if locked {
 			children = flakeTransitiveRows(graph, rootInputs[name], map[string]bool{rootInputs[name]: true}, notes)
 			note = notes[rootInputs[name]]
 		}
@@ -285,7 +278,7 @@ func flakeBuildRows(decls map[string][]string, graph nix.Lock, notes map[string]
 			marker:   marker,
 			children: children,
 			note:     string(note),
-			status:   string(flake.StatusOf(locked[name], notes != nil, note)),
+			status:   string(flake.StatusOf(locked && notes != nil, note)),
 		})
 	}
 	return rows
@@ -317,7 +310,7 @@ func flakeTransitiveRows(graph nix.Lock, key string, ancestors map[string]bool, 
 			marker:   markerPulled,
 			children: flakeTransitiveRows(graph, target, ancestors, notes),
 			note:     string(notes[target]),
-			status:   string(flake.StatusOf(true, notes != nil, notes[target])),
+			status:   string(flake.StatusOf(notes != nil, notes[target])),
 		})
 		delete(ancestors, target)
 	}
@@ -379,7 +372,7 @@ func flakeShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	graph, err := nix.ReadLock(filepath.Join(hostDir, flakeLockName))
+	graph, err := nix.ReadLock(filepath.Join(hostDir, config.LockFile))
 	if err != nil {
 		return err
 	}
@@ -503,7 +496,7 @@ func flakeBuildView(name, host string, sites map[string][]flake.Decl, graph nix.
 	view.data = flakeViewData{
 		name:     name,
 		state:    markerWord(view.marker),
-		status:   string(flake.StatusOf(hasNode && version.checked, true, flake.Note(note))),
+		status:   string(flake.StatusOf(hasNode && version.checked, flake.Note(note))),
 		source:   strings.TrimSuffix(source, flakeSourceDefaultBranch),
 		declared: declaredSites,
 		current:  version.current,

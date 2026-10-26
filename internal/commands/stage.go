@@ -207,8 +207,8 @@ func stage(out *ui.Progress, p paths.Paths, h *modules.Host, dir string, steps f
 	if err := steps.lock(dir); err != nil {
 		return err
 	}
-	hostLock := filepath.Join(h.HostDir, flakeLockName)
-	changed, err := config.CopyLockBack(filepath.Join(dir, flakeLockName), hostLock)
+	hostLock := filepath.Join(h.HostDir, config.LockFile)
+	changed, err := config.CopyLockBack(filepath.Join(dir, config.LockFile), hostLock)
 	if err != nil {
 		return err
 	}
@@ -259,11 +259,7 @@ func withTempStage(p paths.Paths, host, pattern string, fn func(dir string) erro
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
 
-	machineDir, err := config.LinkedMachineDir(p.Modules)
-	if err != nil {
-		return err
-	}
-	h, err := modules.Load(p.Modules, filepath.Join(p.Hosts, host), machineDir)
+	h, err := loadHost(p, filepath.Join(p.Hosts, host))
 	if err != nil {
 		return err
 	}

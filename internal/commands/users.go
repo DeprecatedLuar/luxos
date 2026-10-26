@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -72,10 +71,5 @@ func requirePassword(m modules.Module) error {
 	if m.Role() != modules.RoleUser {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(m.Abs, password.File)); os.IsNotExist(err) {
-		return fmt.Errorf("user %s has no password: luxos user passwd %s", m.Name, m.Name)
-	} else if err != nil {
-		return err
-	}
-	return nil
+	return password.RequireFile(m.Abs, m.Name)
 }

@@ -1,15 +1,17 @@
 package staging
 
 import (
+	"path/filepath"
+
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
 const (
 	configurationTemplate = "configuration.nix.tmpl"
+	// frameworkUp is framework/configuration.nix's way back to the stage root.
+	frameworkUp = "../"
 )
-
-const stagedSettingsImport = "../" + configDir + "/" + config.SettingsDir + "/"
 
 type configurationData struct {
 	Host     string
@@ -21,7 +23,7 @@ type configurationData struct {
 func configuration(host string, settings []string) ([]byte, error) {
 	imports := make([]string, len(settings))
 	for i, name := range settings {
-		imports[i] = stagedSettingsImport + name + ".nix"
+		imports[i] = frameworkUp + filepath.ToSlash(config.SettingsPath(configDir, name))
 	}
 	return templates.Render(configurationTemplate, configurationData{Host: host, Settings: imports})
 }

@@ -18,7 +18,7 @@ import (
 
 // owned lists every entry in the staging root luxos generates and may
 // delete. Everything not listed here is a stranger.
-var owned = []string{frameworkDir, configDir, flakeNix, lockFileName}
+var owned = []string{frameworkDir, configDir, flakeNix, config.LockFile}
 
 const (
 	// adoptionMarker is the file whose presence means luxos already owns the

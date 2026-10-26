@@ -14,7 +14,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/flake"
-	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
@@ -37,8 +36,6 @@ const hostFlag = "--host"
 const goodbyeNixExt = ".nix"
 
 const goodbyeFarewell = "SEE YOU NIX COWBOY..."
-
-const flakeLockName = "flake.lock"
 
 // What the spinner line becomes once staging succeeds.
 const prebuildLabel = "prebuild"
@@ -80,7 +77,7 @@ func selfUpdate(hostLock string, args []string) error {
 	}
 
 	ui.Done(os.Stdout, selfUpdateNotice)
-	return shell.Exec(pinned, append([]string{"rebuild"}, args...))
+	return shell.Exec(pinned, append([]string{rebuildCommand}, args...))
 }
 
 // Builds the luxos at ref and returns its binary.
@@ -97,14 +94,10 @@ func buildPinned(ref string) (string, error) {
 // machine link and the seeded selection selects it, so nothing is asked.
 // Reports whether a prompt was answered yes.
 func bootGuard(p paths.Paths, hostDir string, yes bool) (bool, error) {
-	machineDir, err := config.LinkedMachineDir(p.Modules)
+	h, err := loadHost(p, hostDir)
 	if errors.Is(err, config.ErrNoMachineLink) {
 		return false, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	h, err := modules.Load(p.Modules, hostDir, machineDir)
 	if err != nil {
 		return false, err
 	}
@@ -187,7 +180,7 @@ func Rebuild(args []string) error {
 		return err
 	}
 
-	if err := selfUpdate(filepath.Join(hostDir, flakeLockName), args); err != nil {
+	if err := selfUpdate(filepath.Join(hostDir, config.LockFile), args); err != nil {
 		return err
 	}
 
@@ -318,16 +311,16 @@ func interrupted(sigs <-chan os.Signal) error {
 	}
 }
 
-// The rebuild command line handed to the root process, with --yes appended
-// when a prompt was already answered yes.
 // withHost makes the rest of the run, and its sudo re-exec, build name.
 func withHost(opts map[string]string, args []string, name string) []string {
 	opts["host"] = name
 	return append(args, hostFlag, name)
 }
 
+// The rebuild command line handed to the root process, with --yes appended
+// when a prompt was already answered yes.
 func escalationArgs(args []string, answered bool) []string {
-	out := append([]string{"rebuild"}, args...)
+	out := append([]string{rebuildCommand}, args...)
 	if answered {
 		out = append(out, yesFlag)
 	}
@@ -373,7 +366,7 @@ func goodbyeConfirm(dir string, yes bool) (proceed, answered bool, err error) {
 	if yes {
 		return true, false, nil
 	}
-	ok, err := ui.Confirm("Proceed? [y/N] ", false)
+	ok, err := ui.Confirm(shared.ProceedPrompt, false)
 	if err != nil {
 		return false, false, err
 	}

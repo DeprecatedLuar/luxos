@@ -107,11 +107,7 @@ func (h *Host) settings(ms []Module, fileOf func(Module) string) ([]UnitSettings
 		} else {
 			u.Declared, u.Problems = checkOptions(u.Options, Namespace(u.Module.Name), read[abs])
 		}
-		problem, err := importsOptions(u.Module)
-		if err != nil {
-			return nil, err
-		}
-		if problem != "" {
+		if problem := importsOptions(u.Module); problem != "" {
 			u.Problems = append(u.Problems, problem)
 		}
 		if _, err := os.Stat(u.File); err == nil {
@@ -156,19 +152,19 @@ func checkOptions(file string, ns []string, f nix.OptionsFile) ([]nix.Setting, [
 }
 
 // importsOptions reports a problem when m's default.nix does not import ./options.nix.
-func importsOptions(m Module) (string, error) {
+func importsOptions(m Module) string {
 	entry := filepath.Join(m.Abs, entrypointName)
 	paths, err := nix.Paths(entry)
 	if err != nil {
-		return fmt.Sprintf("%s does not parse: %v", entry, err), nil
+		return fmt.Sprintf("%s does not parse: %v", entry, err)
 	}
 	want := filepath.Join(filepath.Dir(entry), OptionsFile)
 	for _, p := range paths {
 		if p == want {
-			return "", nil
+			return ""
 		}
 	}
-	return fmt.Sprintf("%s does not import ./%s", entry, OptionsFile), nil
+	return fmt.Sprintf("%s does not import ./%s", entry, OptionsFile)
 }
 
 // selected returns the units h's selection names, in selection order; a line
@@ -263,35 +259,35 @@ func syncSettings(h *Host, ms []Module, fileOf func(Module) string) (SettingsRep
 	if err != nil {
 		return rep, err
 	}
-	for i, u := range existing {
+	fail := func(u UnitSettings, problem string) {
+		u.Problems = append(u.Problems, problem)
+		rep.Broken = append(rep.Broken, u)
+	}
+	for _, u := range existing {
 		abs, err := filepath.Abs(u.File)
 		if err != nil {
 			return rep, err
 		}
 		if msg, bad := broken[abs]; bad {
-			u.Problems = append(u.Problems, fmt.Sprintf("%s: %s", u.File, msg))
-			rep.Broken = append(rep.Broken, u)
+			fail(u, fmt.Sprintf("%s: %s", u.File, msg))
 			continue
 		}
 		missing, drop := diffSettings(u.Declared, read[abs])
 		comments := settingComments(u.Declared)
 		if err := nix.CommentSettingLines(u.File, declaredLeaves(comments, read[abs]), comments); err != nil {
-			u.Problems = append(u.Problems, err.Error())
-			rep.Broken = append(rep.Broken, u)
+			fail(u, err.Error())
 			continue
 		}
 		if len(drop) > 0 {
-			if err := nix.CommentSettings(u.File, reqs[i].Depth, drop); err != nil {
-				u.Problems = append(u.Problems, err.Error())
-				rep.Broken = append(rep.Broken, u)
+			if err := nix.CommentSettings(u.File, read[abs], drop); err != nil {
+				fail(u, err.Error())
 				continue
 			}
 			rep.Commented = append(rep.Commented, SettingsChange{File: u.File, Keys: joinPaths(drop)})
 		}
 		if len(missing) > 0 {
 			if err := nix.AppendSettings(u.File, missing); err != nil {
-				u.Problems = append(u.Problems, err.Error())
-				rep.Broken = append(rep.Broken, u)
+				fail(u, err.Error())
 				continue
 			}
 			paths := make([][]string, len(missing))

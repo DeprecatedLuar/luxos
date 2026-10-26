@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 )
 
 // LockRootNode is the key of a flake.lock's root node.
@@ -29,9 +28,8 @@ type LockNode struct {
 	Locked   LockRef
 }
 
-// Lock is a flake.lock: its nodes by key and the names of the root's inputs.
+// Lock is a flake.lock: its nodes by key.
 type Lock struct {
-	Root  []string
 	Nodes map[string]LockNode
 }
 
@@ -70,11 +68,6 @@ func ReadLock(file string) (Lock, error) {
 		}
 		lock.Nodes[key] = node
 	}
-
-	for name := range lock.Nodes[LockRootNode].Inputs {
-		lock.Root = append(lock.Root, name)
-	}
-	sort.Strings(lock.Root)
 	return lock, nil
 }
 

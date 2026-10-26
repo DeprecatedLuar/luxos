@@ -709,7 +709,7 @@ func TestStageLeavesLockWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	info, err := os.Stat(filepath.Join(dir, flakeLockName))
+	info, err := os.Stat(filepath.Join(dir, config.LockFile))
 	if err != nil {
 		t.Fatal(err)
 	}

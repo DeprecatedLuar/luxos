@@ -12,16 +12,14 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/templates"
 )
 
-// plsDontTouchFile and HostFile are required regular files (symlinks
-// followed), as is the selection modules/default.nix; lockFile is an optional
+// PlsDontTouchFile and HostFile are required regular files (symlinks
+// followed), as is the selection modules/default.nix; LockFile is an optional
 // regular file; SettingsDir is an optional directory. Nothing else may live
 // there.
-// HostFile is exported so the caller that creates it from a template names
-// it without repeating the string.
 const (
-	plsDontTouchFile = ".plsdonttouch.nix"
+	PlsDontTouchFile = ".plsdonttouch.nix"
 	HostFile         = "host.nix"
-	lockFile         = "flake.lock"
+	LockFile         = "flake.lock"
 	// SettingsDir holds the host's values for its configurable units.
 	SettingsDir = "settings"
 	settingsExt = ".nix"
@@ -73,7 +71,7 @@ func ValidateHost(hostDir string) error {
 		return err
 	}
 
-	requiredFiles := []string{plsDontTouchFile, HostFile}
+	requiredFiles := []string{PlsDontTouchFile, HostFile}
 
 	seen := make(map[string]bool, len(entries))
 	var problems []string
@@ -83,7 +81,7 @@ func ValidateHost(hostDir string) error {
 		path := filepath.Join(hostDir, name)
 
 		switch name {
-		case plsDontTouchFile, HostFile, lockFile:
+		case PlsDontTouchFile, HostFile, LockFile:
 			seen[name] = true
 			info, statErr := os.Stat(path)
 			if statErr != nil || info.IsDir() {
@@ -132,7 +130,7 @@ func problemsError(title string, problems []string) error {
 }
 
 func ProtectHost(hostDir string) (bool, error) {
-	path := filepath.Join(hostDir, plsDontTouchFile)
+	path := filepath.Join(hostDir, PlsDontTouchFile)
 
 	info, err := os.Stat(path)
 	if err != nil {

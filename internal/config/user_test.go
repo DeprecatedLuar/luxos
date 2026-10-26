@@ -225,7 +225,7 @@ func TestCreateUserSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := templates.Render(selectionTemplate, []string{"./a.nix"})
+	want, err := templates.Render(SelectionTemplate, []string{"./a.nix"})
 	if err != nil {
 		t.Fatal(err)
 	}

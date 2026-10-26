@@ -150,14 +150,11 @@ func scopeFolders(scope, dir string) ([]string, error) {
 func importers(files []SelectionFile, name string) ([]string, error) {
 	var out []string
 	for _, f := range files {
-		lines, ok, err := nix.ListImports(f.File)
+		paths, err := ReadSelection(f.File, f.Scope)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return nil, fmt.Errorf("%s does not have exactly one recognizable imports block", f.File)
-		}
-		for _, p := range pathsOf(f.Scope, lines) {
+		for _, p := range paths {
 			if NameFromPath(p) == name {
 				out = append(out, f.File)
 				break
@@ -279,7 +276,7 @@ func Heal(modulesDir, hostsDir, machinesDir, activeHost, machineDir string, prun
 	for _, f := range files {
 		user := userOfScope(f.Scope)
 		active := f.File == activeHostSel || f.File == activeMachineSel || activeUsers[user]
-		folderModules := filepath.Join(filepath.Dir(filepath.Dir(f.File)), config.ScopeModulesDir)
+		folderModules := filepath.Dir(f.File)
 
 		var us []Module
 		switch {
@@ -585,41 +582,37 @@ func Disable(h *Host, name string) ([]string, error) {
 	}
 	var removed []string
 	for _, n := range append(targets, name) {
-		files, err := disableOne(h, n)
+		ok, err := disableOne(h, n)
 		if err != nil {
 			return removed, err
 		}
-		if len(files) > 0 {
+		if ok {
 			removed = append(removed, n)
 		}
 	}
 	return removed, nil
 }
 
-// disableOne removes name's line from every selection holding it and returns
-// those files.
-func disableOne(h *Host, name string) ([]string, error) {
-	var files []string
+// disableOne removes name's line from every selection holding it and reports
+// whether any held it.
+func disableOne(h *Host, name string) (bool, error) {
+	held := false
 	for _, group := range [][]Selection{h.Selections, h.Users} {
 		for i := range group {
 			sel := &group[i]
 			kept := sel.Paths[:0]
-			removed := false
 			for _, p := range sel.Paths {
 				if NameFromPath(p) != name {
 					kept = append(kept, p)
 					continue
 				}
 				if err := nix.RemoveImport(sel.File, config.LineOf(sel.Scope, p)); err != nil {
-					return files, err
+					return held, err
 				}
-				removed = true
+				held = true
 			}
 			sel.Paths = kept
-			if removed {
-				files = append(files, sel.File)
-			}
 		}
 	}
-	return files, nil
+	return held, nil
 }

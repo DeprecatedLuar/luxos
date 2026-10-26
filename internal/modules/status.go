@@ -42,15 +42,8 @@ type Status struct {
 // running generation's selection (nil when unknown); baseline is the tree to
 // compare running modules against ("" for none).
 func StatusOf(h *Host, running []string, baseline string) ([]Status, error) {
-	selection := h.Selection()
-	enabled := make(map[string]bool, len(selection))
-	for _, path := range selection {
-		enabled[NameFromPath(path)] = true
-	}
-	runningNames := make(map[string]bool, len(running))
-	for _, path := range running {
-		runningNames[NameFromPath(path)] = true
-	}
+	enabled := namesOf(h.Selection())
+	runningNames := namesOf(running)
 	pulled, err := h.Closure()
 	if err != nil {
 		return nil, err

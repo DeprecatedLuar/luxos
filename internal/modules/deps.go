@@ -111,10 +111,7 @@ func (h *Host) walk(visit func(m Module, file string) []string) error {
 // reached or not.
 func (h *Host) Validate() ([]Violation, error) {
 	selection := h.Selection()
-	selected := make(map[string]bool, len(selection))
-	for _, sel := range selection {
-		selected[NameFromPath(sel)] = true
-	}
+	selected := namesOf(selection)
 
 	var violations []Violation
 	for _, sel := range selection {
@@ -147,21 +144,17 @@ func (h *Host) Validate() ([]Violation, error) {
 			violations = append(violations, Violation{File: rel, Message: fmt.Sprintf(format, args...)})
 		}
 
-		static, dynamic, perr := nix.PathsAndDynamic(file)
+		refs, perr := nix.ReadRefs(file)
 		if perr != nil {
 			report("failed to parse")
 			return nil
 		}
-		names, callViolations, perr := nix.ModuleNames(file)
-		if perr != nil {
-			report("failed to parse")
-			return nil
-		}
+		names := refs.Names
 
 		owner := Owner(root, file)
 		ownerModules := filepath.Join(owner, bundleModulesDir)
 		bundle := bundleOf(root, file)
-		for _, p := range static {
+		for _, p := range refs.Paths {
 			if bundle != "" && p == bundle {
 				continue
 			}
@@ -173,10 +166,10 @@ func (h *Host) Validate() ([]Violation, error) {
 				report("references %s inside its bundle's modules/ (submodules are selected in the selection)", p)
 			}
 		}
-		for _, p := range dynamic {
+		for _, p := range refs.Dynamic {
 			report("uses a dynamic path (%s)", p)
 		}
-		for _, v := range callViolations {
+		for _, v := range refs.Violations {
 			report("%s", v)
 		}
 
@@ -312,10 +305,7 @@ func (h *Host) Built() ([]Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]bool{}
-	for _, sel := range h.Selection() {
-		names[NameFromPath(sel)] = true
-	}
+	names := namesOf(h.Selection())
 	for name := range pulled {
 		names[name] = true
 	}
@@ -372,9 +362,8 @@ func (h *Host) InputFiles() (UnitFiles, error) {
 // dependents returns every module file under modulesDir (its reserved root
 // entries skipped) plus every unitDirs entry (its selection skipped), whose
 // luxos.modules list contains name. Read-only. A file mentioning luxos and
-// name that fails to parse is an error naming it; a file whose luxos.modules
-// use isn't the recognized shape is skipped, since it can't be a hit. A
-// missing unitDirs entry is skipped.
+// name that fails to parse is an error naming it, as is a hit that also uses
+// luxos in an unrecognized shape. A missing unitDirs entry is skipped.
 func dependents(modulesDir string, unitDirs []string, name string) ([]string, error) {
 	root := strings.TrimSuffix(modulesDir, "/")
 	files, err := findAllNix(root, reservedRoot)
@@ -405,16 +394,17 @@ func dependents(modulesDir string, unitDirs []string, name string) ([]string, er
 		if !strings.Contains(string(raw), referenceMarker) || !strings.Contains(string(raw), name) {
 			continue
 		}
-		names, _, err := nix.ModuleNames(file)
+		names, violations, err := nix.ModuleNames(file)
 		if err != nil {
 			return nil, fmt.Errorf("%s: failed to parse: %w", file, err)
 		}
-		for _, n := range names {
-			if n == name {
-				out = append(out, file)
-				break
-			}
+		if !slices.Contains(names, name) {
+			continue
 		}
+		if len(violations) > 0 {
+			return nil, fmt.Errorf("%s: %s", file, violations[0])
+		}
+		out = append(out, file)
 	}
 	return out, nil
 }

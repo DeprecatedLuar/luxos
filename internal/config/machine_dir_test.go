@@ -61,7 +61,7 @@ func TestSeedSelectionOnlyWhenMissing(t *testing.T) {
 
 func TestValidateHost_HardwareEntryRejected(t *testing.T) {
 	dir := t.TempDir()
-	writeFiles(t, dir, plsDontTouchFile, HostFile, filepath.Join(ScopeModulesDir, DefaultFile))
+	writeFiles(t, dir, PlsDontTouchFile, HostFile, filepath.Join(ScopeModulesDir, DefaultFile))
 	if err := os.Symlink("../../hardware/x", filepath.Join(dir, "hardware")); err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,10 @@
 package nix
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -56,13 +58,8 @@ func TestReadLock(t *testing.T) {
 	}
 
 	wantRoot := []string{"ambxst", "luxos", "nixpkgs"}
-	if len(g.Root) != len(wantRoot) {
-		t.Fatalf("Root = %v, want %v", g.Root, wantRoot)
-	}
-	for i := range wantRoot {
-		if g.Root[i] != wantRoot[i] {
-			t.Errorf("Root = %v, want %v", g.Root, wantRoot)
-		}
+	if got := slices.Sorted(maps.Keys(g.Nodes[LockRootNode].Inputs)); !slices.Equal(got, wantRoot) {
+		t.Errorf("root inputs = %v, want %v", got, wantRoot)
 	}
 
 	if got := g.Nodes["ambxst"].Inputs; got["axctl"] != "axctl" || got["nixpkgs"] != "nixpkgs" {
@@ -87,7 +84,7 @@ func TestReadLockMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Root) != 0 || len(g.Nodes) != 0 {
+	if len(g.Nodes) != 0 {
 		t.Errorf("want empty graph, got %+v", g)
 	}
 }

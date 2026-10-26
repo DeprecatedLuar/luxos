@@ -177,19 +177,9 @@ func AppendSettings(file string, settings []Setting) error {
 
 // CommentSettings comments out the assignments of file at paths drop: each
 // one from its first line up to the line before the next assignment, or
-// before the closing "}".
-func CommentSettings(file string, depth int, drop [][]string) error {
-	read, broken, err := ReadSettings([]SettingsRequest{{File: file, Depth: depth}})
-	if err != nil {
-		return err
-	}
-	for f, msg := range broken {
-		return fmt.Errorf("%s: %s", f, msg)
-	}
-	var leaves []SettingLeaf
-	for _, l := range read {
-		leaves = l
-	}
+// before the closing "}". leaves are file's assignments, as ReadSettings
+// returns them.
+func CommentSettings(file string, leaves []SettingLeaf, drop [][]string) error {
 	lines, err := readLines(file)
 	if err != nil {
 		return err

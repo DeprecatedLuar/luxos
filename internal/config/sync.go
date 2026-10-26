@@ -13,8 +13,10 @@ import (
 const (
 	modulesSrcDir = "modules"
 
-	// entryTemplate is modules/default.nix, which imports both selections.
-	entryTemplate = "entry/default.nix"
+	// EntryTemplate is modules/default.nix, which imports both selections.
+	EntryTemplate = "entry/default.nix"
+	// SelectionTemplate renders a scope's modules/default.nix from its lines.
+	SelectionTemplate = "modules.nix.tmpl"
 
 	lockedMode = 0444
 
@@ -186,7 +188,7 @@ func removeExtrasWalk(dst, rel string, srcFiles, dirSet map[string]bool, changes
 // or differs, and locks it to 0444. A symlink there is removed first, never
 // written through. Returns the action taken, "" when it already matched.
 func SyncEntry(modulesDir string) (string, error) {
-	want, err := templates.File(entryTemplate)
+	want, err := templates.File(EntryTemplate)
 	if err != nil {
 		return "", err
 	}

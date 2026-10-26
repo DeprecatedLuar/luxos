@@ -36,11 +36,10 @@ const (
 )
 
 const (
-	packagesLabel    = "packages/"
-	packagesEmpty    = "(no packages)\n"
-	packageBaseInput = "nixpkgs" // the base channel, by convention
-	packageUnknown   = "unknown"
-	packagePathSep   = "/"
+	packagesLabel  = "packages/"
+	packagesEmpty  = "(no packages)\n"
+	packageUnknown = "unknown"
+	packagePathSep = "/"
 
 	packageNoBaseline = "no luxos system for %s in %s — nothing to compare against; every package shows as staged"
 )
@@ -171,7 +170,7 @@ func packageMarker(s packages.State) string {
 func packageRow(pkg packages.Package) ui.Row {
 	marker := packageMarker(pkg.State)
 	row := ui.Row{Name: pkg.Label(), Marker: marker, Color: markerColor(marker), Rank: moduleMarkerRank(marker)}
-	if pkg.Source != "" && pkg.Source != packageBaseInput {
+	if pkg.Source != "" && pkg.Source != nix.BaseChannelInput {
 		row.Marks = []ui.Mark{{Glyph: flakeMark, Color: ui.ColorNix}}
 	}
 	return row

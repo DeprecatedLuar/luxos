@@ -154,16 +154,25 @@ func Users(keysDir string) ([]string, error) {
 	return users, nil
 }
 
-// Check is the rebuild preflight for one user whose unit is unitDir: the
-// password file exists and user's key is valid and decrypts it. Each error
-// names the fixing command.
-func Check(unitDir, keysDir, user string, uid int) error {
-	file := filepath.Join(unitDir, File)
-	if _, err := os.Stat(file); os.IsNotExist(err) {
+// RequireFile fails, naming the fixing command, when the user unit unitDir
+// has no password file.
+func RequireFile(unitDir, user string) error {
+	if _, err := os.Stat(filepath.Join(unitDir, File)); os.IsNotExist(err) {
 		return fmt.Errorf("user %s has no password: luxos user passwd %s", user, user)
 	} else if err != nil {
 		return err
 	}
+	return nil
+}
+
+// Check is the rebuild preflight for one user whose unit is unitDir: the
+// password file exists and user's key is valid and decrypts it. Each error
+// names the fixing command.
+func Check(unitDir, keysDir, user string, uid int) error {
+	if err := RequireFile(unitDir, user); err != nil {
+		return err
+	}
+	file := filepath.Join(unitDir, File)
 	if err := CheckKey(keysDir, user, uid); err != nil {
 		if shell.NotFound(err) {
 			return fmt.Errorf("user %s: %w", user, err)

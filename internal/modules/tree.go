@@ -277,7 +277,7 @@ func (h *Host) BootSelected() bool {
 			if NameFromPath(p) != bootName {
 				continue
 			}
-			if s.Scope == config.ScopeMachine || strings.HasPrefix(p, config.ScopeMachine+nameSep) {
+			if s.Scope == config.ScopeMachine || strings.HasPrefix(p, MachinePrefix) {
 				return true
 			}
 		}
@@ -307,7 +307,6 @@ func walkScope(dir, scope string) ([]Module, error) {
 		return nil, err
 	}
 	for i := range raw {
-		raw[i].Abs = filepath.Join(dir, raw[i].Path)
 		raw[i].Scope = scope
 		if scope != config.ScopeShared {
 			raw[i].Path = scope + nameSep + raw[i].Path
@@ -615,4 +614,13 @@ func NameFromPath(path string) string {
 		}
 	}
 	return strings.Join(append(parts, segs[last]), nameSep)
+}
+
+// namesOf is the set of unit names the import paths name.
+func namesOf(paths []string) map[string]bool {
+	names := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		names[NameFromPath(p)] = true
+	}
+	return names
 }

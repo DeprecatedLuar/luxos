@@ -78,7 +78,6 @@ const (
 // bundleModulesDir is the folder of a bundle's submodules.
 const bundleModulesDir = "modules"
 
-// nameSep separates a submodule's name from its bundle's.
 const moduleCommand = "module"
 
 var (
@@ -87,6 +86,7 @@ var (
 	errRenameArgs   = errors.New("want <old> <new>")
 )
 
+// nameSep separates a submodule's name from its bundle's.
 const nameSep = "/"
 
 const plainInputsSep = " "
@@ -939,9 +939,7 @@ func printReferencedBy(label string, files []string, emptyMsg string) {
 	}
 	ui.Text(os.Stdout, label)
 	for _, f := range files {
-		if f != "" {
-			ui.Text(os.Stdout, "  "+f)
-		}
+		ui.Text(os.Stdout, "  "+f)
 	}
 }
 

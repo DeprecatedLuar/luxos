@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/nix"
 )
 
 // errBootUnit refuses remove and rename of the machine's boot unit.
@@ -166,11 +165,6 @@ func plan(h *Host, hostsDir, machinesDir, name string) (Plan, error) {
 	deps, err := dependents(h.ModulesDir, r.UnitDirs, m.Name)
 	if err != nil {
 		return Plan{}, err
-	}
-	for _, file := range deps {
-		if _, err := nix.Names(file); err != nil {
-			return Plan{}, err
-		}
 	}
 	return Plan{Unit: m, Importers: imp, Dependents: deps, Skipped: r.Skipped, modulesDir: h.ModulesDir, reach: r}, nil
 }

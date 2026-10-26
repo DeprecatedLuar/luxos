@@ -14,7 +14,6 @@ import (
 
 func testLockGraph() nix.Lock {
 	return nix.Lock{
-		Root: []string{"ambxst", "luxos", "old", "shared"},
 		Nodes: map[string]nix.LockNode{
 			nix.LockRootNode: {Inputs: map[string]string{
 				"ambxst": "ambxst", "luxos": "luxos", "old": "old", "shared": "shared_2",
@@ -175,7 +174,6 @@ func showGraph() nix.Lock {
 		return nix.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst", Rev: rev}
 	}
 	return nix.Lock{
-		Root: []string{"ambxst", "old", "unstable"},
 		Nodes: map[string]nix.LockNode{
 			nix.LockRootNode: {Inputs: map[string]string{"ambxst": "ambxst", "old": "old", "unstable": "unstable"}},
 			"ambxst":         {Inputs: map[string]string{"nixpkgs": "nixpkgs_2", "axctl": "axctl"}, Original: nix.LockRef{Type: "github", Owner: "Axenide", Repo: "Ambxst"}, Locked: gh(showLocked)},

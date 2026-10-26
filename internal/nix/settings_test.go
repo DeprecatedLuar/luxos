@@ -2,6 +2,7 @@ package nix
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -127,7 +128,15 @@ func TestCommentSettings_MultiLineValue(t *testing.T) {
 	skipIfNoNix(t)
 	dir := t.TempDir()
 	f := writeNix(t, dir, "s.nix", "{\n  laptop.list = [\n    1\n  ];\n  laptop.mode = \"a\";\n  laptop.old = {\n    x = 1;\n  };\n}\n")
-	if err := CommentSettings(f, 2, [][]string{{"laptop", "list"}, {"laptop", "old"}}); err != nil {
+	read, broken, err := ReadSettings([]SettingsRequest{{File: f, Depth: 2}})
+	if err != nil || len(broken) > 0 {
+		t.Fatalf("ReadSettings: %v %v", err, broken)
+	}
+	abs, err := filepath.Abs(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommentSettings(f, read[abs], [][]string{{"laptop", "list"}, {"laptop", "old"}}); err != nil {
 		t.Fatalf("CommentSettings: %v", err)
 	}
 	got, _ := os.ReadFile(f)

@@ -13,7 +13,6 @@ const (
 	starterModulesDir    = "starters/modules"
 	localPackagesStarter = "starters/local-packages.nix"
 	plsDontTouchTemplate = "plsdonttouch.nix.tmpl"
-	selectionTemplate    = "modules.nix.tmpl"
 	localPackagesFile    = "packages.nix"
 	parseCheckPattern    = "luxos-setup-*.nix"
 )
@@ -123,7 +122,7 @@ func hostFiles(m HostSpec) ([]hostFile, error) {
 	for i, p := range m.Selection {
 		lines[i] = LineOf(ScopeHost, p)
 	}
-	selection, err := templates.Render(selectionTemplate, lines)
+	selection, err := templates.Render(SelectionTemplate, lines)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +131,7 @@ func hostFiles(m HostSpec) ([]hostFile, error) {
 		return nil, err
 	}
 	return []hostFile{
-		{plsDontTouchFile, stateVersion},
+		{PlsDontTouchFile, stateVersion},
 		{HostFile, host},
 		{filepath.Join(ScopeModulesDir, DefaultFile), selection},
 		{filepath.Join(ScopeModulesDir, localPackagesFile), packages},

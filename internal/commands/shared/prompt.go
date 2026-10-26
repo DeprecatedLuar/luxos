@@ -41,7 +41,8 @@ const (
 	ansiReset      = "\x1b[0m"
 )
 
-const bootOffPrompt = "Proceed? [y/N] "
+// ProceedPrompt asks a yes/no question that defaults to no.
+const ProceedPrompt = "Proceed? [y/N] "
 
 // ConfirmBootOff asks before a build that leaves the boot loader module out.
 func ConfirmBootOff() (bool, error) {
@@ -52,7 +53,7 @@ func ConfirmBootOff() (bool, error) {
 		warning = warningLead + ansiRed + ansiUnderline + warningHighlighted + ansiReset +
 			warningTail + warningAside
 	}
-	reply, err := ui.Ask(os.Stderr, warning+"\n\n"+art+"\n\n"+bootOffPrompt)
+	reply, err := ui.Ask(os.Stderr, warning+"\n\n"+art+"\n\n"+ProceedPrompt)
 	if err != nil {
 		return false, err
 	}

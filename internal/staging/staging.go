@@ -41,14 +41,7 @@ const (
 	configurationNix  = "configuration.nix"
 	stagedEnvironment = "environment"
 
-	stagedModulesDir     = "modules"
-	selectionTemplate    = "modules.nix.tmpl"
-	entryTemplate        = "entry/default.nix"
-	stagedHardwareConfig = config.HardwareConfigFile
-	stagedHostNix        = config.HostFile
-	stagedPlsdonttouch   = ".plsdonttouch.nix"
-
-	lockFileName = "flake.lock"
+	stagedModulesDir = "modules"
 
 	frameworkTemplateDir = "framework/"
 	flakeTemplate        = "flake.nix.tmpl"
@@ -139,10 +132,10 @@ func Materialize(stagingDir string, h *modules.Host, environmentFile string, inp
 	if err := stageModules(h, filepath.Join(cfgDir, stagedModulesDir)); err != nil {
 		return err
 	}
-	if err := copyFile(filepath.Join(h.MachineDir, config.HardwareConfigFile), filepath.Join(cfgDir, stagedHardwareConfig)); err != nil {
+	if err := copyFile(filepath.Join(h.MachineDir, config.HardwareConfigFile), filepath.Join(cfgDir, config.HardwareConfigFile)); err != nil {
 		return err
 	}
-	for _, name := range []string{stagedHostNix, stagedPlsdonttouch} {
+	for _, name := range []string{config.HostFile, config.PlsDontTouchFile} {
 		if err := copyFile(filepath.Join(h.HostDir, name), filepath.Join(cfgDir, name)); err != nil {
 			return err
 		}
@@ -159,9 +152,9 @@ func Materialize(stagingDir string, h *modules.Host, environmentFile string, inp
 		return err
 	}
 
-	lockFile := filepath.Join(h.HostDir, lockFileName)
+	lockFile := filepath.Join(h.HostDir, config.LockFile)
 	if _, err := os.Stat(lockFile); err == nil {
-		if err := copyFile(lockFile, filepath.Join(stagingDir, lockFileName)); err != nil {
+		if err := copyFile(lockFile, filepath.Join(stagingDir, config.LockFile)); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {
@@ -218,7 +211,7 @@ func stageModules(h *modules.Host, dst string) error {
 		}
 	}
 
-	entry, err := templates.File(entryTemplate)
+	entry, err := templates.File(config.EntryTemplate)
 	if err != nil {
 		return err
 	}
@@ -233,7 +226,7 @@ func stageModules(h *modules.Host, dst string) error {
 				lines = append(lines, config.LineOf(sel.Scope, up))
 			}
 		}
-		rendered, err := templates.Render(selectionTemplate, lines)
+		rendered, err := templates.Render(config.SelectionTemplate, lines)
 		if err != nil {
 			return err
 		}

@@ -49,11 +49,11 @@ const (
 	StatusUnknown Status = "unknown"
 )
 
-// StatusOf is unknown when offline, not locked, or the check failed; behind
-// or current otherwise.
-func StatusOf(locked, online bool, note Note) Status {
+// StatusOf is unknown when the input was not checked upstream (offline or not
+// locked) or the check failed; behind or current otherwise.
+func StatusOf(checked bool, note Note) Status {
 	switch {
-	case !locked || !online || note == NoteUnknown:
+	case !checked || note == NoteUnknown:
 		return StatusUnknown
 	case note == NoteBehind:
 		return StatusBehind
@@ -212,8 +212,12 @@ func Version(up Upstream, node nix.LockNode) VersionInfo {
 		return VersionInfo{Current: shortRev(rev)}
 	}
 
+	var tags map[string]string
+	var tagsErr error
+	var wg sync.WaitGroup
+	wg.Go(func() { tags, tagsErr = up.Tags(node.Original) })
 	tip, note, tipErr := check(up, node)
-	tags, tagsErr := up.Tags(node.Original)
+	wg.Wait()
 
 	info := VersionInfo{Current: shortRev(rev), Checked: true, Note: note}
 	if tag, ok := tags[rev]; ok {

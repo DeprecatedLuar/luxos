@@ -52,6 +52,28 @@ func ModuleNames(file string) (names, violations []string, err error) {
 	return names, violations, nil
 }
 
+// Refs is what a module file references: PathsAndDynamic and ModuleNames.
+type Refs struct {
+	Paths, Dynamic    []string
+	Names, Violations []string
+}
+
+// ReadRefs returns file's Refs from one parse. err is a parse failure only.
+func ReadRefs(file string) (Refs, error) {
+	parsed, err := parse(file)
+	if err != nil {
+		return Refs{}, err
+	}
+	stripped := stripStrings(parsed)
+	names, violations := scanLuxosUses(stripFormals(parsed))
+	return Refs{
+		Paths:      pathRe.FindAllString(stripped, -1),
+		Dynamic:    extractDynamicPaths(stripped),
+		Names:      names,
+		Violations: violations,
+	}, nil
+}
+
 // Names is ModuleNames with the first violation returned as an error naming
 // file. It errors, naming file, on any other use of "luxos" or on a parse
 // failure.
