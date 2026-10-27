@@ -1,8 +1,10 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,7 +21,12 @@ import (
 const (
 	sourcePrompt  = "Do you already have a luxos config in a git repo? [y/N] "
 	repoPrompt    = "Repo URL: "
-	cloneFixHint  = "use an https URL, or add an SSH key and run luxos setup again"
+	cloneFixHint  = "use an https URL, or add an SSH key"
+	urlHint       = "use a full URL: https://…, ssh://… or git@host:owner/repo"
+	cloneFailed   = "clone %s: %s"
+	notLuxos      = "%s is not a luxos config: it has no host (.local/hosts/<name>/modules/default.nix)"
+	putConfigHint = "put your config at %s yourself (a symlink works), or pass --config <dir>"
+	clonePrefix   = ".luxos-clone-"
 	hostsTitle    = "Hosts in your config:"
 	newHostKey    = "n"
 	hostPrompt    = "Pick a host: "
@@ -99,14 +106,66 @@ func (w *Wizard) Fresh() (string, error) {
 	if !ui.IsYes(reply) {
 		return w.freshConfig()
 	}
-	url, err := w.askNonEmpty(repoPrompt)
-	if err != nil {
+	if err := w.cloneRepo(); err != nil {
 		return "", err
 	}
-	if err := w.Clone(url, w.Paths.Config); err != nil {
-		return "", fmt.Errorf("clone %s: %w\n  %s", url, err, cloneFixHint)
-	}
 	return w.HostScreen()
+}
+
+// cloneRepo asks for a repo URL until one clones into a luxos config, then
+// moves it to the config directory. A clone is made beside it, so a failed or
+// foreign repo leaves nothing behind.
+func (w *Wizard) cloneRepo() error {
+	parent := filepath.Dir(w.Paths.Config)
+	hostsRel, err := filepath.Rel(w.Paths.Config, w.Paths.Hosts)
+	if err != nil {
+		return err
+	}
+	for {
+		url, err := w.askNonEmpty(repoPrompt)
+		if err != nil {
+			return err
+		}
+		if !isRemoteURL(url) {
+			ui.Warn(w.Out, urlHint)
+			continue
+		}
+		if err := config.MkdirAll(parent); err != nil {
+			return err
+		}
+		tmp, err := os.MkdirTemp(parent, clonePrefix)
+		if err != nil {
+			return err
+		}
+		if cloneErr := w.Clone(url, tmp); cloneErr != nil {
+			if err := os.RemoveAll(tmp); err != nil {
+				return errors.Join(cloneErr, err)
+			}
+			ui.Warn(w.Out, fmt.Sprintf(cloneFailed, url, cloneErr))
+			ui.Text(w.Out, "  "+cloneFixHint)
+			continue
+		}
+		hosts, err := config.Hosts(filepath.Join(tmp, hostsRel))
+		if err != nil {
+			return errors.Join(err, os.RemoveAll(tmp))
+		}
+		if len(hosts) == 0 {
+			if err := os.RemoveAll(tmp); err != nil {
+				return err
+			}
+			ui.Warn(w.Out, fmt.Sprintf(notLuxos, url))
+			ui.Text(w.Out, "  "+fmt.Sprintf(putConfigHint, w.Paths.Config))
+			continue
+		}
+		// os.Rename will not replace a directory; Remove takes only an empty one.
+		if err := os.Remove(w.Paths.Config); err != nil && !os.IsNotExist(err) {
+			return errors.Join(err, os.RemoveAll(tmp))
+		}
+		if err := os.Rename(tmp, w.Paths.Config); err != nil {
+			return errors.Join(err, os.RemoveAll(tmp))
+		}
+		return nil
+	}
 }
 
 // HostScreen lets the user pick a host of the config or create one.

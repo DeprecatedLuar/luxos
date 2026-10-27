@@ -158,16 +158,6 @@ func TestFresh_EndOfInputWritesNothing(t *testing.T) {
 	}
 }
 
-func TestFresh_CloneFailureNamesFix(t *testing.T) {
-	p := testPaths(t)
-	failing := func(string, string) error { return errors.New("exit status 128") }
-	w, _ := newWizard(t, p, "y\ngit@example.com:ana/config.git\n", failing)
-	_, err := w.Fresh()
-	if err == nil || !strings.Contains(err.Error(), "use an https URL, or add an SSH key and run luxos setup again") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 // cloneConfig fakes a clone holding one host and, when withUser, ana's unit.
 func cloneConfig(t *testing.T, withUser bool) func(url, dir string) error {
 	return func(url, dir string) error {
@@ -494,5 +484,104 @@ func TestReview_ChannelRowOpensMenu(t *testing.T) {
 	host, err := os.ReadFile(filepath.Join(p.Hosts, "cathode/host.nix"))
 	if err != nil || !strings.Contains(string(host), "github:NixOS/nixpkgs/nixos-unstable") {
 		t.Errorf("host.nix: %v\n%s", err, host)
+	}
+}
+
+func TestIsRemoteURL(t *testing.T) {
+	cases := map[string]bool{
+		"https://github.com/ana/config.git":    true,
+		"ssh://git@example.com/ana/config.git": true,
+		"git@github.com:ana/config.git":        true,
+		"ana/config":                           false,
+		"http://github.com/ana/config":         false,
+		"file:///tmp/config":                   false,
+		"/tmp/config":                          false,
+		"":                                     false,
+	}
+	for s, want := range cases {
+		if got := isRemoteURL(s); got != want {
+			t.Errorf("isRemoteURL(%q) = %v, want %v", s, got, want)
+		}
+	}
+}
+
+func cloneLeftovers(t *testing.T, p paths.Paths) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(filepath.Dir(p.Config), ".luxos-clone-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestFresh_ShorthandURLReasked(t *testing.T) {
+	p := testPaths(t)
+	w, out := newWizard(t, p, "y\ndeprecatedluar/luxos-dots\n", noClone)
+	if _, err := w.Fresh(); !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v, want io.EOF", err)
+	}
+	if !strings.Contains(out.String(), "use a full URL: https://…, ssh://… or git@host:owner/repo") {
+		t.Errorf("full-URL warning missing:\n%s", out)
+	}
+}
+
+func TestFresh_CloneFailureReasks(t *testing.T) {
+	p := testPaths(t)
+	failing := func(string, string) error { return errors.New("exit status 128") }
+	w, out := newWizard(t, p, "y\nhttps://x/y.git\n", failing)
+	if _, err := w.Fresh(); !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v, want io.EOF", err)
+	}
+	if !strings.Contains(out.String(), "use an https URL, or add an SSH key") {
+		t.Errorf("clone hint missing:\n%s", out)
+	}
+	if left := cloneLeftovers(t, p); len(left) != 0 {
+		t.Errorf("temporary clone left: %v", left)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config created after a failed clone: %v", err)
+	}
+}
+
+func TestFresh_NotLuxosConfigReasks(t *testing.T) {
+	p := testPaths(t)
+	readmeOnly := func(_, dir string) error { return os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi\n"), 0644) }
+	w, out := newWizard(t, p, "y\nhttps://x/y.git\n", readmeOnly)
+	if _, err := w.Fresh(); !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v, want io.EOF", err)
+	}
+	for _, s := range []string{"https://x/y.git is not a luxos config: it has no host", "or pass --config <dir>"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("output missing %q:\n%s", s, out)
+		}
+	}
+	if left := cloneLeftovers(t, p); len(left) != 0 {
+		t.Errorf("temporary clone left: %v", left)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config created from a non-luxos repo: %v", err)
+	}
+}
+
+func TestFresh_CloneMovedIntoPlace(t *testing.T) {
+	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
+	for _, preexisting := range []bool{false, true} {
+		p := testPaths(t)
+		if preexisting {
+			if err := os.MkdirAll(p.Config, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w, out := newWizard(t, p, "y\nhttps://x/y.git\n1\n", cloneConfig(t, false))
+		if name, err := w.Fresh(); err != nil || name != "nuremberg" {
+			t.Fatalf("empty dir %v: Fresh = %q, %v\n%s", preexisting, name, err, out)
+		}
+		if _, err := os.Stat(filepath.Join(p.Hosts, "nuremberg")); err != nil {
+			t.Errorf("clone not moved into place: %v", err)
+		}
+		if left := cloneLeftovers(t, p); len(left) != 0 {
+			t.Errorf("temporary clone left: %v", left)
+		}
 	}
 }
