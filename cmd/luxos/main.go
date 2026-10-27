@@ -10,10 +10,15 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/setup"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
+	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
 func main() {
+	if err := shell.PrependBundledPath(); err != nil {
+		ui.Error(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := run(os.Args[1:]); err != nil {
 		var code shared.ExitCode
 		if errors.As(err, &code) {

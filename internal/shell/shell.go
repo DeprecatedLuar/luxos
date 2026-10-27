@@ -14,6 +14,22 @@ import (
 	"syscall"
 )
 
+// Set by the flake with -ldflags -X; empty outside a flake build.
+var bundledPath string
+
+// PrependBundledPath puts the bundled tools' directory first on PATH. It is
+// idempotent, since a re-exec through sudo runs it again.
+func PrependBundledPath() error {
+	if bundledPath == "" {
+		return nil
+	}
+	old := os.Getenv("PATH")
+	if list := filepath.SplitList(old); len(list) > 0 && list[0] == bundledPath {
+		return nil
+	}
+	return os.Setenv("PATH", bundledPath+string(os.PathListSeparator)+old)
+}
+
 // Cmd is one program invocation. An empty Dir runs in the current directory;
 // a nil Env inherits this process's environment; a nil Stdin reads nothing.
 type Cmd struct {

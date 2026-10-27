@@ -22,6 +22,7 @@
           "-X github.com/DeprecatedLuar/luxos/internal/password.ageBin=${pkgs.age}/bin/age"
           "-X github.com/DeprecatedLuar/luxos/internal/password.ageKeygenBin=${pkgs.age}/bin/age-keygen"
           "-X github.com/DeprecatedLuar/luxos/internal/password.mkpasswdBin=${pkgs.mkpasswd}/bin/mkpasswd"
+          "-X github.com/DeprecatedLuar/luxos/internal/shell.bundledPath=${pkgs.gitMinimal}/bin"
         ];
 
         # `lux` is a second name for the same binary, so every host that
