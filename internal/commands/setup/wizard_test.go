@@ -228,6 +228,7 @@ func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 }
 
 func TestHostScreen_NewHost(t *testing.T) {
+	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	if err := cloneConfig(t, true)("", p.Config); err != nil {
 		t.Fatal(err)
