@@ -35,6 +35,16 @@ const (
 	menuLine      = "  %s  %s"
 	reviewLine    = "  %d  %-10s %s"
 
+	channelTitle    = "Channel:"
+	channelPrompt   = "Pick one: "
+	customPrompt    = "Channel (YY.MM): "
+	channelRow      = "channel"
+	latestLabel     = "%s (latest)"
+	currentLabel    = "%s (current)"
+	customLabel     = "custom"
+	latestFailed    = "could not fetch the latest NixOS channel: %s"
+	unstableChannel = "nixos-unstable"
+
 	setupPasswordPrompt = "Password for %s: "
 	setupAgainPrompt    = "Retype password for %s: "
 	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos user key add %s"
@@ -72,6 +82,12 @@ type Wizard struct {
 	Secret func(prompt string) (string, error)
 	// StoreKey keeps the user's key on this computer.
 	StoreKey func(user, secret string) error
+	// Latest returns the newest stable channel.
+	Latest func() (string, error)
+
+	latest      string
+	latestErr   error
+	latestAsked bool
 }
 
 // Fresh runs the whole wizard on an empty config and returns the host to build.
@@ -130,6 +146,9 @@ func (w *Wizard) freshConfig() (string, error) {
 		return "", err
 	}
 	values := w.System.Values
+	if values.Channel, err = w.askChannel(); err != nil {
+		return "", err
+	}
 	if err := w.review(&values, &d); err != nil {
 		return "", err
 	}
@@ -170,6 +189,9 @@ func (w *Wizard) newHost(existing []string) (string, error) {
 		return "", err
 	}
 	values := w.System.Values
+	if values.Channel, err = w.askChannel(); err != nil {
+		return "", err
+	}
 	if err := w.review(&values, nil); err != nil {
 		return "", err
 	}
@@ -338,6 +360,81 @@ func (w *Wizard) askDesktop() (desktop, error) {
 	}
 }
 
+// latestChannel asks Latest once; a failure is warned about once and kept.
+func (w *Wizard) latestChannel() (string, error) {
+	if !w.latestAsked {
+		w.latestAsked = true
+		w.latest, w.latestErr = w.Latest()
+		if w.latestErr != nil {
+			ui.Warn(w.Out, fmt.Sprintf(latestFailed, w.latestErr))
+		}
+	}
+	return w.latest, w.latestErr
+}
+
+type channelOption struct {
+	label, value string
+	preferred    bool // Enter picks it
+}
+
+// channelOptions lists the channels on offer: the latest stable, the
+// running release, unstable; custom is the caller's last row.
+func (w *Wizard) channelOptions() []channelOption {
+	var opts []channelOption
+	latest, err := w.latestChannel()
+	if err == nil {
+		opts = append(opts, channelOption{fmt.Sprintf(latestLabel, latest), latest, true})
+	}
+	if current, perr := config.ParseChannel(w.System.Release); perr == nil && !(err == nil && current == latest) {
+		opts = append(opts, channelOption{fmt.Sprintf(currentLabel, current), current, true})
+	}
+	return append(opts, channelOption{unstableChannel, unstableChannel, false})
+}
+
+// askChannel asks the base channel: Enter takes the first row when it is the
+// latest or the running release.
+func (w *Wizard) askChannel() (string, error) {
+	opts := w.channelOptions()
+	ui.Text(w.Out, "")
+	ui.Text(w.Out, channelTitle)
+	for i, o := range opts {
+		ui.Text(w.Out, fmt.Sprintf(menuLine, strconv.Itoa(i+1), o.label))
+	}
+	custom := len(opts) + 1
+	ui.Text(w.Out, fmt.Sprintf(menuLine, strconv.Itoa(custom), customLabel))
+	for {
+		reply, err := w.Ask.Ask(channelPrompt)
+		if err != nil {
+			return "", err
+		}
+		if reply == "" && opts[0].preferred {
+			return opts[0].value, nil
+		}
+		i, err := strconv.Atoi(reply)
+		switch {
+		case err != nil:
+		case i >= 1 && i <= len(opts):
+			return opts[i-1].value, nil
+		case i == custom:
+			return w.askCustomChannel()
+		}
+	}
+}
+
+func (w *Wizard) askCustomChannel() (string, error) {
+	for {
+		reply, err := w.askNonEmpty(customPrompt)
+		if err != nil {
+			return "", err
+		}
+		channel, err := config.ParseChannel(reply)
+		if err == nil {
+			return channel, nil
+		}
+		ui.Warn(w.Out, err.Error())
+	}
+}
+
 func (w *Wizard) askNonEmpty(prompt string) (string, error) {
 	for {
 		reply, err := w.Ask.Ask(prompt)
@@ -359,15 +456,17 @@ func (w *Wizard) review(v *config.HostValues, d *desktop) error {
 		{"timezone", &v.Timezone},
 		{"locale", &v.Locale},
 		{"keyboard", &v.Keyboard},
-		{"channel", &v.Channel},
 	}
+	channelAt := len(rows) + 1
+	desktopAt := channelAt + 1
 	for {
 		ui.Text(w.Out, "")
 		for i, r := range rows {
 			ui.Text(w.Out, fmt.Sprintf(reviewLine, i+1, r.label, *r.value))
 		}
+		ui.Text(w.Out, fmt.Sprintf(reviewLine, channelAt, channelRow, v.Channel))
 		if d != nil {
-			ui.Text(w.Out, fmt.Sprintf(reviewLine, len(rows)+1, desktopRow, d.name))
+			ui.Text(w.Out, fmt.Sprintf(reviewLine, desktopAt, desktopRow, d.name))
 		}
 		ui.Text(w.Out, "")
 
@@ -387,7 +486,11 @@ func (w *Wizard) review(v *config.HostValues, d *desktop) error {
 				return err
 			}
 			*rows[i-1].value = value
-		case d != nil && i == len(rows)+1:
+		case i == channelAt:
+			if v.Channel, err = w.askChannel(); err != nil {
+				return err
+			}
+		case d != nil && i == desktopAt:
 			chosen, err := w.askDesktop()
 			if err != nil {
 				return err

@@ -77,6 +77,7 @@ func newWizard(t *testing.T, p paths.Paths, input string, clone func(url, dir st
 		Clone:    clone,
 		Secret:   answers("pw", "pw", "pw", "pw"),
 		StoreKey: func(string, string) error { return nil },
+		Latest:   func() (string, error) { return "nixos-26.05", nil },
 	}, &out
 }
 
@@ -95,7 +96,7 @@ func TestFresh_NewConfig(t *testing.T) {
 	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	// no repo, bad name, good name, hyprland, change keyboard, keep, write
-	w, out := newWizard(t, p, "\n-bad\ncathode\n3\n3\nus\ny\n", noClone)
+	w, out := newWizard(t, p, "\n-bad\ncathode\n3\n\n3\nus\ny\n", noClone)
 
 	name, err := w.Fresh()
 	if err != nil {
@@ -134,7 +135,7 @@ func TestFresh_NewConfig(t *testing.T) {
 func TestFresh_ConsoleSelectsNoDesktop(t *testing.T) {
 	skipIfNoPasswordTools(t)
 	p := testPaths(t)
-	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n4\n\ny\n", noClone)
 	if _, err := w.Fresh(); err != nil {
 		t.Fatalf("Fresh: %v\n%s", err, out)
 	}
@@ -148,7 +149,7 @@ func TestFresh_ConsoleSelectsNoDesktop(t *testing.T) {
 
 func TestFresh_EndOfInputWritesNothing(t *testing.T) {
 	p := testPaths(t)
-	w, _ := newWizard(t, p, "\ncathode\n1\n", noClone) // input ends at the review screen
+	w, _ := newWizard(t, p, "\ncathode\n1\n\n", noClone) // input ends at the review screen
 	if _, err := w.Fresh(); !errors.Is(err, io.EOF) {
 		t.Fatalf("err = %v, want io.EOF", err)
 	}
@@ -237,7 +238,7 @@ func TestHostScreen_NewHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	// new, taken name, new name, write
-	w, out := newWizard(t, p, "n\nnuremberg\ncathode\ny\n", noClone)
+	w, out := newWizard(t, p, "n\nnuremberg\ncathode\n\ny\n", noClone)
 	name, err := w.HostScreen()
 	if err != nil {
 		t.Fatalf("HostScreen: %v\n%s", err, out)
@@ -260,7 +261,7 @@ func TestFresh_UnparsableValueWritesNothing(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
 	// no repo, name, console, change timezone to a bad value, write
-	w, out := newWizard(t, p, "n\ncathode\n4\n1\nEurope/\"Lisbon\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n4\n\n1\nEurope/\"Lisbon\ny\n", noClone)
 	if _, err := w.Fresh(); err == nil || !strings.Contains(err.Error(), "host.nix") {
 		t.Fatalf("err = %v, want a parse error naming host.nix\n%s", err, out)
 	}
@@ -275,7 +276,7 @@ func TestHostScreen_UnparsableValueWritesNothing(t *testing.T) {
 	if err := cloneConfig(t, false)("", p.Config); err != nil {
 		t.Fatal(err)
 	}
-	w, out := newWizard(t, p, "n\ncathode\n1\nEurope/\"Lisbon\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n\n1\nEurope/\"Lisbon\ny\n", noClone)
 	if _, err := w.HostScreen(); err == nil {
 		t.Fatalf("want a parse error\n%s", out)
 	}
@@ -287,7 +288,7 @@ func TestHostScreen_UnparsableValueWritesNothing(t *testing.T) {
 func TestFresh_UserGetsPasswordKeyAndGroups(t *testing.T) {
 	skipIfNoPasswordTools(t)
 	p := testPaths(t)
-	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n4\n\ny\n", noClone)
 	stored := map[string]string{}
 	w.StoreKey = func(user, secret string) error { stored[user] = secret; return nil }
 	if _, err := w.Fresh(); err != nil {
@@ -351,7 +352,7 @@ func TestHostScreen_ExistingUserUnitKeepsPassword(t *testing.T) {
 func TestFresh_PasswordMismatchWritesNoPassword(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
-	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n4\n\ny\n", noClone)
 	w.Secret = answers("a", "b")
 	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
 	if _, err := w.Fresh(); !errors.Is(err, shared.ErrPasswordMismatch) {
@@ -365,7 +366,7 @@ func TestFresh_PasswordMismatchWritesNoPassword(t *testing.T) {
 func TestFresh_EmptyPasswordWritesNothing(t *testing.T) {
 	skipIfNoNix(t)
 	p := testPaths(t)
-	w, out := newWizard(t, p, "n\ncathode\n4\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n4\n\ny\n", noClone)
 	w.Secret = answers("")
 	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
 	_, err := w.Fresh()
@@ -406,12 +407,92 @@ func TestHostScreen_NonUserUnitNamedLikeUserFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	// new host, name, write
-	w, out := newWizard(t, p, "n\ncathode\ny\n", noClone)
+	w, out := newWizard(t, p, "n\ncathode\n\ny\n", noClone)
 	_, err := w.HostScreen()
 	if err == nil || !strings.Contains(err.Error(), "modules/services/ana.nix") {
 		t.Fatalf("HostScreen err = %v, want one naming modules/services/ana.nix\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(p.Modules, "users", "ana")); !os.IsNotExist(err) {
 		t.Errorf("a user unit was written despite the clash: %v", err)
+	}
+}
+
+func TestAskChannel_EnterPicksLatest(t *testing.T) {
+	w, out := newWizard(t, testPaths(t), "\n", noClone)
+	if got, err := w.askChannel(); err != nil || got != "nixos-26.05" {
+		t.Fatalf("got %q, %v\n%s", got, err, out)
+	}
+}
+
+func TestAskChannel_CurrentRow(t *testing.T) {
+	for release, shown := range map[string]bool{"25.11": true, "26.05": false, "25.05": false} {
+		w, out := newWizard(t, testPaths(t), "\n", noClone)
+		w.System.Release = release
+		if _, err := w.askChannel(); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "(current)"); got != shown {
+			t.Errorf("release %s: current row shown = %v, want %v\n%s", release, got, shown, out)
+		}
+	}
+}
+
+func TestAskChannel_FetchFails(t *testing.T) {
+	const warning = "could not fetch the latest NixOS channel: offline"
+	w, out := newWizard(t, testPaths(t), "\n\n", noClone)
+	w.Latest = func() (string, error) { return "", errors.New("offline") }
+	w.System.Release = "26.05"
+	for range 2 {
+		if got, err := w.askChannel(); err != nil || got != "nixos-26.05" {
+			t.Fatalf("got %q, %v\n%s", got, err, out)
+		}
+	}
+	if n := strings.Count(out.String(), warning); n != 1 {
+		t.Errorf("warning shown %d times, want once\n%s", n, out)
+	}
+
+	w, out = newWizard(t, testPaths(t), "\n1\n", noClone)
+	w.Latest = func() (string, error) { return "", errors.New("offline") }
+	w.System.Release = "25.05"
+	if got, err := w.askChannel(); err != nil || got != "nixos-unstable" {
+		t.Errorf("old release, offline: got %q, %v\n%s", got, err, out)
+	}
+}
+
+func TestAskChannel_Custom(t *testing.T) {
+	w, out := newWizard(t, testPaths(t), "4\n25.05\n26.11\n", noClone)
+	if got, err := w.askChannel(); err != nil || got != "nixos-26.11" {
+		t.Fatalf("got %q, %v\n%s", got, err, out)
+	}
+	if !strings.Contains(out.String(), "a channel is YY.MM or nixos-YY.MM, nixos-25.11 or newer") {
+		t.Errorf("floor message missing:\n%s", out)
+	}
+}
+
+func TestFresh_ChannelWritten(t *testing.T) {
+	skipIfNoPasswordTools(t)
+	p := testPaths(t)
+	// no repo, name, console, latest channel, write
+	w, out := newWizard(t, p, "\ncathode\n4\n\ny\n", noClone)
+	if _, err := w.Fresh(); err != nil {
+		t.Fatalf("Fresh: %v\n%s", err, out)
+	}
+	host, err := os.ReadFile(filepath.Join(p.Hosts, "cathode/host.nix"))
+	if err != nil || !strings.Contains(string(host), "github:NixOS/nixpkgs/nixos-26.05") {
+		t.Errorf("host.nix: %v\n%s", err, host)
+	}
+}
+
+func TestReview_ChannelRowOpensMenu(t *testing.T) {
+	skipIfNoPasswordTools(t)
+	p := testPaths(t)
+	// no repo, name, console, latest, review row 4, unstable, write
+	w, out := newWizard(t, p, "\ncathode\n4\n\n4\n3\ny\n", noClone)
+	if _, err := w.Fresh(); err != nil {
+		t.Fatalf("Fresh: %v\n%s", err, out)
+	}
+	host, err := os.ReadFile(filepath.Join(p.Hosts, "cathode/host.nix"))
+	if err != nil || !strings.Contains(string(host), "github:NixOS/nixpkgs/nixos-unstable") {
+		t.Errorf("host.nix: %v\n%s", err, host)
 	}
 }

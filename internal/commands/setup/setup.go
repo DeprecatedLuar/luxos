@@ -10,6 +10,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/flake"
 	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
@@ -64,6 +65,7 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 	w := &Wizard{Ask: ask, Out: out, Paths: p, System: sys, Clone: Clone,
 		Secret:   func(prompt string) (string, error) { return ui.AskSecret(os.Stdin, out, prompt) },
 		StoreKey: func(u, s string) error { return StoreKey(p.Config, u, s) },
+		Latest:   flake.LatestChannel,
 	}
 
 	var name string
