@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -27,7 +28,25 @@ const (
 	plsDontTouchMode = 0444
 
 	hostTemplate = "host.nix.tmpl"
+
+	// ChannelFloor is the oldest base channel a new host may use.
+	ChannelFloor  = "nixos-25.11"
+	channelPrefix = "nixos-"
 )
+
+var channelRe = regexp.MustCompile(`^(?:nixos-)?(\d{2}\.\d{2})$`)
+
+// ParseChannel turns YY.MM or nixos-YY.MM into nixos-YY.MM. Anything else,
+// or a channel below ChannelFloor, is an error.
+func ParseChannel(s string) (string, error) {
+	m := channelRe.FindStringSubmatch(strings.TrimSpace(s))
+	if m != nil {
+		if channel := channelPrefix + m[1]; channel >= ChannelFloor {
+			return channel, nil
+		}
+	}
+	return "", fmt.Errorf("a channel is YY.MM or nixos-YY.MM, %s or newer", ChannelFloor)
+}
 
 // HostValues fill the host.nix template.
 type HostValues struct {
@@ -36,7 +55,7 @@ type HostValues struct {
 
 // HostDefaults fill a host.nix rebuild creates, and stand in for values
 // setup cannot detect.
-var HostDefaults = HostValues{Channel: "nixos-25.11", Timezone: "UTC", Locale: "en_US.UTF-8", Keyboard: "us"}
+var HostDefaults = HostValues{Channel: ChannelFloor, Timezone: "UTC", Locale: "en_US.UTF-8", Keyboard: "us"}
 
 func RenderHost(v HostValues) ([]byte, error) {
 	return templates.Render(hostTemplate, v)

@@ -2,9 +2,12 @@ package flake
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/DeprecatedLuar/luxos/internal/nix"
@@ -165,5 +168,63 @@ func TestCompareErrors(t *testing.T) {
 	serveAPI(t, ``, 429)
 	if _, _, err := gh.Compare(nix.LockRef{Type: "github", Owner: "o", Repo: "r"}, "a", "b"); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func serveChannels(t *testing.T, status int, body string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	old := channelsURL
+	channelsURL = srv.URL
+	t.Cleanup(func() { channelsURL = old; srv.Close() })
+}
+
+func channelsBody(metrics ...[3]string) string {
+	var rows []string
+	for _, m := range metrics {
+		rows = append(rows, fmt.Sprintf(`{"metric":{"channel":%q,"status":%q,"variant":%q}}`, m[0], m[1], m[2]))
+	}
+	return `{"data":{"result":[` + strings.Join(rows, ",") + `]}}`
+}
+
+func TestLatestChannel_Fixture(t *testing.T) {
+	body, err := os.ReadFile("testdata/channels.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveChannels(t, http.StatusOK, string(body))
+	if got, err := LatestChannel(); err != nil || got != "nixos-26.05" {
+		t.Errorf("LatestChannel = %q, %v, want nixos-26.05", got, err)
+	}
+}
+
+func TestLatestChannel_HighestStable(t *testing.T) {
+	serveChannels(t, http.StatusOK, channelsBody(
+		[3]string{"nixos-26.05", "stable", "primary"},
+		[3]string{"nixos-26.11", "stable", "primary"},
+		[3]string{"nixos-27.05", "beta", "primary"},
+	))
+	if got, err := LatestChannel(); err != nil || got != "nixos-26.11" {
+		t.Errorf("LatestChannel = %q, %v, want nixos-26.11", got, err)
+	}
+}
+
+func TestLatestChannel_NoneStable(t *testing.T) {
+	serveChannels(t, http.StatusOK, channelsBody(
+		[3]string{"nixos-unstable", "rolling", "primary"},
+		[3]string{"nixos-25.11", "unmaintained", "primary"},
+	))
+	if _, err := LatestChannel(); err == nil || !strings.Contains(err.Error(), "no stable NixOS channel") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestLatestChannel_HTTPError(t *testing.T) {
+	serveChannels(t, http.StatusInternalServerError, "")
+	if _, err := LatestChannel(); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Errorf("err = %v", err)
 	}
 }

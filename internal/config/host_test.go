@@ -261,3 +261,23 @@ func TestSettingsPath(t *testing.T) {
 		t.Errorf("SettingsFolder = %s", got)
 	}
 }
+
+func TestParseChannel(t *testing.T) {
+	good := map[string]string{
+		"26.05":       "nixos-26.05",
+		"nixos-26.05": "nixos-26.05",
+		"25.11":       "nixos-25.11",
+		" 26.11 ":     "nixos-26.11",
+	}
+	for in, want := range good {
+		if got, err := ParseChannel(in); err != nil || got != want {
+			t.Errorf("ParseChannel(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	const wantErr = "a channel is YY.MM or nixos-YY.MM, nixos-25.11 or newer"
+	for _, in := range []string{"25.05", "nixos-25.05", "nixos-26.05-small", "nixos-unstable", "26.5", "abc", ""} {
+		if _, err := ParseChannel(in); err == nil || err.Error() != wantErr {
+			t.Errorf("ParseChannel(%q) err = %v, want %q", in, err, wantErr)
+		}
+	}
+}

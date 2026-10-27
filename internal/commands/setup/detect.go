@@ -23,7 +23,6 @@ const (
 	langKey         = "LANG="
 	zoneinfoMarker  = "zoneinfo/"
 	xkbLayoutOption = `Option "XkbLayout"`
-	channelPrefix   = "nixos-"
 	quoteChars      = `"'`
 )
 
@@ -45,7 +44,6 @@ func Detect(root string) (System, error) {
 	}
 
 	v := config.HostDefaults
-	v.Channel = channelPrefix + release
 	if tz := timezone(filepath.Join(root, localtimeFile)); tz != "" {
 		v.Timezone = tz
 	}

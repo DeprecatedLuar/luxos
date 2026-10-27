@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 )
@@ -47,6 +48,14 @@ var ErrUnsupported = errors.New("flake: unsupported input type")
 
 // Matches a 40-character commit hash in a GitHub feed.
 var feedCommitRe = regexp.MustCompile(`Commit/([0-9a-f]{40})`)
+
+// A variable so tests can point it at a local server.
+var channelsURL = "https://prometheus.nixos.org/api/v1/query?query=channel_revision"
+
+const (
+	primaryVariant = "primary"
+	stableStatus   = "stable"
+)
 
 var httpClient = &http.Client{Timeout: requestTimeout}
 
@@ -229,4 +238,44 @@ func compare(ref nix.LockRef, base, head string) (ahead int, shas []string, err 
 		shas = append(shas, c.SHA)
 	}
 	return cmp.AheadBy, shas, nil
+}
+
+// LatestChannel is the newest stable primary NixOS channel, as status.nixos.org
+// lists them.
+func LatestChannel() (latest string, err error) {
+	resp, err := httpClient.Get(channelsURL)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("flake: GET %s: %s", channelsURL, resp.Status)
+	}
+	var body struct {
+		Data struct {
+			Result []struct {
+				Metric struct {
+					Channel string `json:"channel"`
+					Status  string `json:"status"`
+					Variant string `json:"variant"`
+				} `json:"metric"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("flake: decode %s: %w", channelsURL, err)
+	}
+	for _, r := range body.Data.Result {
+		m := r.Metric
+		if m.Variant != primaryVariant || m.Status != stableStatus {
+			continue
+		}
+		if channel, perr := config.ParseChannel(m.Channel); perr == nil && channel == m.Channel && channel > latest {
+			latest = channel
+		}
+	}
+	if latest == "" {
+		return "", fmt.Errorf("flake: no stable NixOS channel in %s", channelsURL)
+	}
+	return latest, nil
 }

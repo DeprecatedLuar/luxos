@@ -1,0 +1,8 @@
+{"status":"success","data":{"resultType":"vector","result":[
+{"metric":{"__name__":"channel_revision","channel":"nixos-25.11","current":"0","status":"unmaintained","variant":"primary"},"value":[1793097422.803,"1"]},
+{"metric":{"__name__":"channel_revision","channel":"nixos-unstable","current":"1","status":"rolling","variant":"primary"},"value":[1793097422.803,"1"]},
+{"metric":{"__name__":"channel_revision","channel":"nixpkgs-unstable","current":"1","status":"rolling"},"value":[1793097422.803,"1"]},
+{"metric":{"__name__":"channel_revision","channel":"nixpkgs-26.05-darwin","current":"1","status":"stable","variant":"darwin"},"value":[1793097422.803,"1"]},
+{"metric":{"__name__":"channel_revision","channel":"nixos-26.05","current":"1","status":"stable","variant":"primary"},"value":[1793097422.803,"1"]},
+{"metric":{"__name__":"channel_revision","channel":"nixos-26.05-small","current":"1","status":"stable","variant":"small"},"value":[1793097422.803,"1"]}
+]}}

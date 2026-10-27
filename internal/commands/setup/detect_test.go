@@ -21,7 +21,7 @@ func mustWrite(t *testing.T, path, content string) {
 
 func TestDetect_ReadsSystem(t *testing.T) {
 	root := t.TempDir()
-	mustWrite(t, filepath.Join(root, "etc/os-release"), "NAME=NixOS\nVERSION_ID=\"25.11\"\nBUILD_ID=\"25.11.20260630.b6018f8\"\n")
+	mustWrite(t, filepath.Join(root, "etc/os-release"), "NAME=NixOS\nVERSION_ID=\"26.05\"\nBUILD_ID=\"26.05.20260630.b6018f8\"\n")
 	mustWrite(t, filepath.Join(root, "etc/locale.conf"), "LANG=pt_PT.UTF-8\n")
 	mustWrite(t, filepath.Join(root, "etc/X11/xorg.conf.d/00-keyboard.conf"),
 		"Section \"InputClass\"\n  Option \"XkbModel\" \"pc104\"\n  Option \"XkbLayout\" \"pt\"\n  Option \"XkbVariant\" \"\"\nEndSection\n")
@@ -34,8 +34,8 @@ func TestDetect_ReadsSystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := System{
-		Values:  config.HostValues{Channel: "nixos-25.11", Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
-		Release: "25.11",
+		Values:  config.HostValues{Channel: config.HostDefaults.Channel, Timezone: "Europe/Lisbon", Locale: "pt_PT.UTF-8", Keyboard: "pt"},
+		Release: "26.05",
 	}
 	if got != want {
 		t.Errorf("Detect = %+v\nwant %+v", got, want)
