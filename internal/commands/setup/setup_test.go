@@ -10,6 +10,7 @@ import (
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -105,5 +106,23 @@ func TestStoreKeyArgs_PassConfigDir(t *testing.T) {
 	want := []string{"LUXOS_CONFIG_DIR=/c", "/bin/luxos", "key", "add", "ana"}
 	if !slices.Equal(got, want) {
 		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
+func TestLaunch_LiveBootRefused(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("runs as a normal user")
+	}
+	p := testPaths(t)
+	mustWrite(t, p.Mounts, "/dev/loop0 /nix/.ro-store squashfs ro 0 0\n")
+	defer func(f func(*os.File) bool) { isTerminal = f }(isTerminal)
+	isTerminal = func(*os.File) bool { return true }
+
+	_, err := Launch(ui.NewPrompter(strings.NewReader("n\n"), io.Discard), io.Discard, p, "nixos", config.StateNoConfig)
+	if !errors.Is(err, hardware.ErrLiveSystem) {
+		t.Fatalf("err = %v, want ErrLiveSystem", err)
+	}
+	if _, err := os.Stat(p.Config); !os.IsNotExist(err) {
+		t.Errorf("config written on a live boot: %v", err)
 	}
 }

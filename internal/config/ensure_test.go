@@ -2,6 +2,8 @@ package config
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,5 +289,38 @@ func TestRenderHost_FillsValues(t *testing.T) {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("host.nix missing %q:\n%s", want, out)
 		}
+	}
+}
+
+const liveMounts = "/dev/loop0 /nix/.ro-store squashfs ro 0 0\n"
+
+func TestEnsureMachine_LiveBootCreatesNothing(t *testing.T) {
+	p := machineFixture(t)
+	dir, err := MachineDir(p.Sys, p.Machines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []string{HardwareConfigFile, filepath.Join(ScopeModulesDir, BootFile)}
+	for _, f := range files {
+		if err := os.Remove(filepath.Join(dir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, p.Mounts, liveMounts)
+	if _, err := EnsureMachine(ui.NewProgress(io.Discard), p); !errors.Is(err, hardware.ErrLiveSystem) {
+		t.Fatalf("err = %v, want ErrLiveSystem", err)
+	}
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s created on a live boot: %v", f, err)
+		}
+	}
+}
+
+func TestEnsureMachine_CompleteFolderSkipsLiveCheck(t *testing.T) {
+	p := machineFixture(t)
+	writeFile(t, p.Mounts, liveMounts)
+	if _, err := EnsureMachine(ui.NewProgress(io.Discard), p); errors.Is(err, hardware.ErrLiveSystem) {
+		t.Errorf("complete machine folder refused on a live boot: %v", err)
 	}
 }

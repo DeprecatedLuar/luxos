@@ -52,12 +52,18 @@ var testSystem = System{
 }
 
 func testPaths(t *testing.T) paths.Paths {
-	cfg := filepath.Join(t.TempDir(), "luxos")
+	root := t.TempDir()
+	cfg := filepath.Join(root, "luxos")
+	mounts := filepath.Join(root, "mounts")
+	if err := os.WriteFile(mounts, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
 	return paths.Paths{
 		User:    "ana",
 		Config:  cfg,
 		Hosts:   filepath.Join(cfg, ".local/hosts"),
 		Modules: filepath.Join(cfg, "modules"),
+		Mounts:  mounts,
 	}
 }
 

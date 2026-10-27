@@ -10,6 +10,7 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
@@ -50,6 +51,10 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 	}
 	if !isTerminal(os.Stdin) {
 		return "", stateErr
+	}
+
+	if err := hardware.CheckInstalled(p.Mounts); err != nil {
+		return "", err
 	}
 
 	sys, err := detect(systemRoot)

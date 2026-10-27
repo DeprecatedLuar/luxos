@@ -77,6 +77,15 @@ func EnsureMachine(out Reporter, d Dirs) (string, error) {
 	}
 
 	hwConfig := filepath.Join(dir, HardwareConfigFile)
+	bootPath := filepath.Join(dir, ScopeModulesDir, BootFile)
+	if missing, err := anyMissing(hwConfig, bootPath); err != nil {
+		return "", err
+	} else if missing {
+		if err := hardware.CheckInstalled(d.Mounts); err != nil {
+			return "", err
+		}
+	}
+
 	created, err := ensureHardwareConfig(hwConfig)
 	if err != nil {
 		return "", err
@@ -85,7 +94,6 @@ func EnsureMachine(out Reporter, d Dirs) (string, error) {
 		out.Changef("  created: %s%s", hwConfig, hardwareConfigNote)
 	}
 
-	bootPath := filepath.Join(dir, ScopeModulesDir, BootFile)
 	if created, err = ensureBoot(bootPath, d.Sys, d.Dev, d.Mounts); err != nil {
 		return "", err
 	}
@@ -104,6 +112,18 @@ func EnsureMachine(out Reporter, d Dirs) (string, error) {
 		return "", err
 	}
 	return dir, out.Err()
+}
+
+// anyMissing reports whether any of files does not exist.
+func anyMissing(files ...string) (bool, error) {
+	for _, f := range files {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			return true, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // ensureMachineSelection writes the seed selection when dir has none.
