@@ -57,7 +57,7 @@ $ luxos user passwd <user>
 
 ## setup
 $ luxos setup [--config <dir>]
-> Create a config, or add this computer to one. rebuild runs it when there is no config.
+> Create a config, or add this computer to one. rebuild runs it when there is no config. Setup configures the user you are logged in as: log in as the user you want first.
 
 ## key
 $ luxos user key <verb> <user>

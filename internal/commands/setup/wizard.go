@@ -53,6 +53,11 @@ const (
 	latestFailed    = "could not fetch the latest NixOS channel: %s"
 	unstableChannel = "nixos-unstable"
 
+	foundUser     = "Found user %s in your config."
+	keyPrompt     = "Key for %s (empty to set a new password): "
+	rekeyWarning  = "a new password re-encrypts %[1]s's password file to a new key:"
+	rekeyFollowup = "  every other computer needs `luxos key add %s` with the new key after pulling"
+
 	setupPasswordPrompt = "Password for %s: "
 	setupAgainPrompt    = "Retype password for %s: "
 	setupStoreKeyFailed = "%s's password file is written but its key was not stored on this computer: %w\n  the key is shown above; store it with: luxos user key add %s"
@@ -287,11 +292,15 @@ func (w *Wizard) enableUser(host string) error {
 	if err != nil {
 		return err
 	}
-	_, ok, err := modules.FindUser(h.Modules, w.Paths.User)
+	m, ok, err := modules.FindUser(h.Modules, w.Paths.User)
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if ok {
+		if err := w.adoptUser(m); err != nil {
+			return err
+		}
+	} else {
 		pw, err := w.askPassword()
 		if err != nil {
 			return err
@@ -325,7 +334,7 @@ func (w *Wizard) ensureUserUnit() ([]string, error) {
 		return nil, err
 	}
 	if ok {
-		return []string{m.Path}, nil
+		return []string{m.Path}, w.adoptUser(m)
 	}
 	pw, err := w.askPassword()
 	if err != nil {
@@ -349,31 +358,97 @@ func (w *Wizard) askPassword() (string, error) {
 	return shared.AskNewPassword(w.Secret, fmt.Sprintf(setupPasswordPrompt, user), fmt.Sprintf(setupAgainPrompt, user))
 }
 
-// writeUser creates the user unit with pw as its password: the encrypted
-// hash goes into the unit; the new key is shown once, then handed to StoreKey.
-func (w *Wizard) writeUser(pw string) error {
+// adoptUser takes over a user unit the config already has: its key is stored
+// on this computer, or, when the user has no key to give, a new password is set.
+func (w *Wizard) adoptUser(m modules.Module) error {
 	user := w.Paths.User
-	hash, err := password.Hash(pw)
+	ui.Text(w.Out, fmt.Sprintf(foundUser, user))
+	if _, err := os.Stat(filepath.Join(m.Abs, password.File)); os.IsNotExist(err) {
+		return w.setPassword(m.Abs)
+	} else if err != nil {
+		return err
+	}
+	for {
+		secret, err := w.Secret(fmt.Sprintf(keyPrompt, user))
+		if err != nil {
+			return err
+		}
+		if secret == "" {
+			ui.Warn(w.Out, fmt.Sprintf(rekeyWarning, user))
+			ui.Text(w.Out, fmt.Sprintf(rekeyFollowup, user))
+			return w.setPassword(m.Abs)
+		}
+		if err := w.StoreKey(user, secret); err != nil {
+			ui.Warn(w.Out, err.Error())
+			continue
+		}
+		return nil
+	}
+}
+
+// setPassword asks a new password and writes it into the unit at dir.
+func (w *Wizard) setPassword(dir string) error {
+	pw, err := w.askPassword()
 	if err != nil {
 		return err
+	}
+	return w.writePassword(dir, pw)
+}
+
+// sealedPassword is a password hash encrypted to a new key.
+type sealedPassword struct {
+	enc    []byte
+	secret string
+}
+
+func sealPassword(pw string) (sealedPassword, error) {
+	hash, err := password.Hash(pw)
+	if err != nil {
+		return sealedPassword{}, err
 	}
 	secret, err := password.NewKey()
 	if err != nil {
-		return err
+		return sealedPassword{}, err
 	}
 	enc, err := password.Seal(hash, secret)
 	if err != nil {
+		return sealedPassword{}, err
+	}
+	return sealedPassword{enc: enc, secret: secret}, nil
+}
+
+// writeUser creates the user unit with pw as its password. Nothing is written
+// when the password cannot be sealed.
+func (w *Wizard) writeUser(pw string) error {
+	sealed, err := sealPassword(pw)
+	if err != nil {
 		return err
 	}
-	dir := filepath.Join(w.Paths.Modules, modules.UserPath(user))
+	dir := filepath.Join(w.Paths.Modules, modules.UserPath(w.Paths.User))
 	if err := config.WriteUser(dir); err != nil {
 		return err
 	}
-	if err := config.WriteFile(filepath.Join(dir, password.File), enc); err != nil {
+	return w.storePassword(dir, sealed)
+}
+
+// writePassword puts pw's encrypted hash into the unit at dir.
+func (w *Wizard) writePassword(dir, pw string) error {
+	sealed, err := sealPassword(pw)
+	if err != nil {
 		return err
 	}
-	shared.KeyNotice(w.Out, user, secret)
-	if err := w.StoreKey(user, secret); err != nil {
+	return w.storePassword(dir, sealed)
+}
+
+// storePassword writes the sealed password into dir; the new key is shown
+// once, then handed to StoreKey.
+func (w *Wizard) storePassword(dir string, sealed sealedPassword) error {
+	user := w.Paths.User
+	if err := config.WriteFile(filepath.Join(dir, password.File), sealed.enc); err != nil {
+		return err
+	}
+	shared.KeyNotice(w.Out, user, sealed.secret)
+	if err := w.StoreKey(user, sealed.secret); err != nil {
 		return fmt.Errorf(setupStoreKeyFailed, user, err, user)
 	}
 	return nil

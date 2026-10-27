@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -199,6 +200,7 @@ func TestHostScreen_ExistingHostGetsUser(t *testing.T) {
 
 func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
 	p := testPaths(t)
 	if err := cloneConfig(t, true)("", p.Config); err != nil {
 		t.Fatal(err)
@@ -208,8 +210,11 @@ func TestHostScreen_ExistingUserUnitReused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 2 {
+	for i := range 2 {
 		w, out := newWizard(t, p, "1\n", noClone)
+		if i == 1 {
+			w.Secret = answers("AGE-SECRET-KEY-1X")
+		}
 		if _, err := w.HostScreen(); err != nil {
 			t.Fatalf("HostScreen: %v\n%s", err, out)
 		}
@@ -301,41 +306,6 @@ func TestFresh_UserGetsPasswordKeyAndGroups(t *testing.T) {
 	}
 	if !bytes.Equal(groups, config.UserGroups("ana")) || !strings.Contains(string(groups), "wheel") {
 		t.Errorf("groups file:\n%s", groups)
-	}
-}
-
-func TestHostScreen_ExistingUserUnitKeepsPassword(t *testing.T) {
-	skipIfNoNix(t)
-	p := testPaths(t)
-	if err := cloneConfig(t, true)("", p.Config); err != nil {
-		t.Fatal(err)
-	}
-	pwFile := filepath.Join(p.Modules, "users/ana", password.File)
-	if err := os.WriteFile(pwFile, []byte("enc\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	groupsPath := filepath.Join(p.Hosts, "nuremberg/settings/ana.nix")
-	w, out := newWizard(t, p, "1\n", noClone)
-	w.StoreKey = func(string, string) error { t.Error("StoreKey called"); return nil }
-	w.Secret = func(string) (string, error) { t.Error("Secret asked"); return "", io.EOF }
-	if _, err := w.HostScreen(); err != nil {
-		t.Fatalf("HostScreen: %v\n%s", err, out)
-	}
-	if got, _ := os.ReadFile(pwFile); string(got) != "enc\n" {
-		t.Errorf("password file rewritten: %q", got)
-	}
-	if got, _ := os.ReadFile(groupsPath); !bytes.Equal(got, config.UserGroups("ana")) {
-		t.Errorf("groups file not created: %q", got)
-	}
-	if err := os.WriteFile(groupsPath, []byte("{ }\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	w, _ = newWizard(t, p, "1\n", noClone)
-	if _, err := w.HostScreen(); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(groupsPath); string(got) != "{ }\n" {
-		t.Errorf("existing groups file overwritten: %q", got)
 	}
 }
 
@@ -612,5 +582,121 @@ func TestHostScreen_InvalidWarns(t *testing.T) {
 	}
 	if n := strings.Count(out.String(), "pick a number or a host name from the list"); n != 2 {
 		t.Errorf("warnings = %d, want 2\n%s", n, out)
+	}
+}
+
+// existingUser clones a config holding ana's unit, with a password file when withPassword.
+func existingUser(t *testing.T, withPassword bool) (paths.Paths, string) {
+	t.Helper()
+	p := testPaths(t)
+	if err := cloneConfig(t, true)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	pwFile := filepath.Join(p.Modules, "users/ana", password.File)
+	if withPassword {
+		if err := os.WriteFile(pwFile, []byte("enc\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return p, pwFile
+}
+
+func TestHostScreen_ExistingUserKeyStored(t *testing.T) {
+	skipIfNoNix(t)
+	p, pwFile := existingUser(t, true)
+	w, out := newWizard(t, p, "1\n", noClone)
+	w.Secret = answers("AGE-SECRET-KEY-1X")
+	var stored []string
+	w.StoreKey = func(user, secret string) error { stored = append(stored, user+"="+secret); return nil }
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatalf("HostScreen: %v\n%s", err, out)
+	}
+	if !slices.Equal(stored, []string{"ana=AGE-SECRET-KEY-1X"}) {
+		t.Errorf("stored = %q", stored)
+	}
+	if got, _ := os.ReadFile(pwFile); string(got) != "enc\n" {
+		t.Errorf("password file rewritten: %q", got)
+	}
+	if !strings.Contains(out.String(), "Found user ana in your config.") {
+		t.Errorf("found message missing:\n%s", out)
+	}
+	groupsPath := filepath.Join(p.Hosts, "nuremberg/settings/ana.nix")
+	if got, _ := os.ReadFile(groupsPath); !bytes.Equal(got, config.UserGroups("ana")) {
+		t.Errorf("groups file not created: %q", got)
+	}
+	if err := os.WriteFile(groupsPath, []byte("{ }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w, _ = newWizard(t, p, "1\n", noClone)
+	w.Secret = answers("AGE-SECRET-KEY-1X")
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(groupsPath); string(got) != "{ }\n" {
+		t.Errorf("existing groups file overwritten: %q", got)
+	}
+}
+
+func TestHostScreen_ExistingUserBadKeyReasked(t *testing.T) {
+	skipIfNoNix(t)
+	p, _ := existingUser(t, true)
+	w, out := newWizard(t, p, "1\n", noClone)
+	w.Secret = answers("AGE-SECRET-KEY-1A", "AGE-SECRET-KEY-1B")
+	var stored []string
+	w.StoreKey = func(user, secret string) error {
+		if len(stored) == 0 {
+			stored = append(stored, "")
+			return errors.New("the key on this computer does not decrypt")
+		}
+		stored = append(stored, secret)
+		return nil
+	}
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatalf("HostScreen: %v\n%s", err, out)
+	}
+	if stored[len(stored)-1] != "AGE-SECRET-KEY-1B" || !strings.Contains(out.String(), "does not decrypt") {
+		t.Errorf("stored = %q\n%s", stored, out)
+	}
+}
+
+func TestHostScreen_ExistingUserEmptyKeyNewPassword(t *testing.T) {
+	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
+	p, pwFile := existingUser(t, true)
+	w, out := newWizard(t, p, "1\n", noClone)
+	w.Secret = answers("", "pw", "pw")
+	var stored []string
+	w.StoreKey = func(_, secret string) error { stored = append(stored, secret); return nil }
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatalf("HostScreen: %v\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), "every other computer needs `luxos key add ana` with the new key after pulling") {
+		t.Errorf("re-key warning missing:\n%s", out)
+	}
+	if got, _ := os.ReadFile(pwFile); !strings.HasPrefix(string(got), "-----BEGIN AGE ENCRYPTED FILE-----") {
+		t.Errorf("password file not re-encrypted: %q", got)
+	}
+	if len(stored) != 1 || !strings.HasPrefix(stored[0], "AGE-SECRET-KEY-1") {
+		t.Errorf("stored = %q", stored)
+	}
+}
+
+func TestHostScreen_ExistingUserNoPasswordFile(t *testing.T) {
+	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
+	p, pwFile := existingUser(t, false)
+	w, out := newWizard(t, p, "1\n", noClone)
+	var prompts []string
+	w.Secret = func(prompt string) (string, error) { prompts = append(prompts, prompt); return "pw", nil }
+	if _, err := w.HostScreen(); err != nil {
+		t.Fatalf("HostScreen: %v\n%s", err, out)
+	}
+	for _, pr := range prompts {
+		if strings.HasPrefix(pr, "Key for") {
+			t.Errorf("key asked for a user without a password file: %q", pr)
+		}
+	}
+	if _, err := os.Stat(pwFile); err != nil {
+		t.Errorf("password file not created: %v", err)
 	}
 }
