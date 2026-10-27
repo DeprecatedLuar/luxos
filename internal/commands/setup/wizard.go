@@ -30,6 +30,7 @@ const (
 	hostsTitle    = "Hosts in your config:"
 	newHostKey    = "n"
 	hostPrompt    = "Pick a host: "
+	hostInvalid   = "pick a number or a host name from the list"
 	namePrompt    = "Host name: "
 	desktopTitle  = "Desktop:"
 	desktopPrompt = "Pick one: "
@@ -192,6 +193,10 @@ func (w *Wizard) HostScreen() (string, error) {
 		if i, err := strconv.Atoi(reply); err == nil && i >= 1 && i <= len(names) {
 			return names[i-1], w.enableUser(names[i-1])
 		}
+		if slices.Contains(names, reply) {
+			return reply, w.enableUser(reply)
+		}
+		ui.Warn(w.Out, hostInvalid)
 	}
 }
 

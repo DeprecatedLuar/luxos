@@ -585,3 +585,32 @@ func TestFresh_CloneMovedIntoPlace(t *testing.T) {
 		}
 	}
 }
+
+func TestHostScreen_PickByName(t *testing.T) {
+	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
+	p := testPaths(t)
+	if err := cloneConfig(t, false)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	w, out := newWizard(t, p, "nuremberg\n", noClone)
+	if name, err := w.HostScreen(); err != nil || name != "nuremberg" {
+		t.Fatalf("HostScreen = %q, %v\n%s", name, err, out)
+	}
+}
+
+func TestHostScreen_InvalidWarns(t *testing.T) {
+	skipIfNoNix(t)
+	skipIfNoPasswordTools(t)
+	p := testPaths(t)
+	if err := cloneConfig(t, false)("", p.Config); err != nil {
+		t.Fatal(err)
+	}
+	w, out := newWizard(t, p, "9\nfoo\n1\n", noClone)
+	if name, err := w.HostScreen(); err != nil || name != "nuremberg" {
+		t.Fatalf("HostScreen = %q, %v\n%s", name, err, out)
+	}
+	if n := strings.Count(out.String(), "pick a number or a host name from the list"); n != 2 {
+		t.Errorf("warnings = %d, want 2\n%s", n, out)
+	}
+}
