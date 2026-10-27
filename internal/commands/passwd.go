@@ -10,7 +10,6 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
-	"github.com/DeprecatedLuar/luxos/internal/modules"
 	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
@@ -45,11 +44,7 @@ func Passwd(args []string) error {
 		return err
 	}
 	name := args[0]
-	h, err := loadActive(p)
-	if err != nil {
-		return err
-	}
-	m, ok, err := modules.FindUser(h.Modules, name)
+	m, ok, err := findUserUnit(p.Modules, name)
 	if err != nil {
 		return err
 	}

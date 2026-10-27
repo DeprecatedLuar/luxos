@@ -4,9 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
-	"slices"
+	"path/filepath"
 	"strings"
 
 	"github.com/DeprecatedLuar/luxos/internal/commands/help"
@@ -17,11 +16,10 @@ import (
 )
 
 const (
-	keyCommand    = "key"
-	keyPrompt     = "Age secret key (AGE-SECRET-KEY-1…): "
-	keyRemoveAsk  = "Remove the key of %s from this computer? The account %s is locked at the next boot or rebuild on this computer, and older generations stop accepting that password. [y/N] "
-	keyStatusHas  = "key"
-	keyStatusNone = "missing"
+	keyCommand   = "key"
+	keyPrompt    = "Age secret key (AGE-SECRET-KEY-1…): "
+	keyRemoveAsk = "Remove the key of %s from this computer? The account %s is locked at the next boot or rebuild on this computer, and older generations stop accepting that password. [y/N] "
+	keyNotStored = "%w\n  the key was not stored"
 )
 
 var errWantOneUser = errors.New("want exactly one user")
@@ -48,7 +46,7 @@ func Key(args []string) error {
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "ls", "list":
-		return keyList(p)
+		return keyList(p.Keys, os.Stdout)
 	case "add":
 		return keyAdd(p, rest)
 	case "get":
@@ -82,12 +80,34 @@ func keyAdd(p paths.Paths, args []string) error {
 	if err != nil {
 		return err
 	}
+	return storeKey(p, user, secret, keyOwnerUID)
+}
+
+// storeKey stores secret as user's key. When user's unit holds a password
+// file, the key must decrypt it, or it is removed again.
+func storeKey(p paths.Paths, user, secret string, uid int) error {
 	pub, err := password.PublicKey(secret)
 	if err != nil {
 		return fmt.Errorf("not a valid age key: %w", err)
 	}
 	if err := password.WriteKey(p.Keys, user, secret); err != nil {
 		return err
+	}
+	m, ok, err := findUserUnit(p.Modules, user)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if _, err := os.Stat(filepath.Join(m.Abs, password.File)); err == nil {
+			if checkErr := password.Check(m.Abs, p.Keys, user, uid); checkErr != nil {
+				if rmErr := password.RemoveKey(p.Keys, user); rmErr != nil {
+					checkErr = errors.Join(checkErr, rmErr)
+				}
+				return fmt.Errorf(keyNotStored, checkErr)
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	ui.Done(os.Stdout, fmt.Sprintf("stored the key of %s (%s) in %s", user, pub, password.KeyPath(p.Keys, user)))
 	return nil
@@ -156,35 +176,14 @@ func keyRemove(p paths.Paths, args []string) error {
 	return nil
 }
 
-// keyList prints every user with a key here, then users in the build without one.
-func keyList(p paths.Paths) error {
-	have, err := password.Users(p.Keys)
+// keyList prints every user with a key in keysDir, one per line.
+func keyList(keysDir string, out io.Writer) error {
+	have, err := password.Users(keysDir)
 	if err != nil {
 		return err
 	}
-	status := map[string]string{}
 	for _, u := range have {
-		status[u] = keyStatusHas
+		ui.Text(out, u)
 	}
-	h, err := loadActive(p)
-	if err != nil {
-		return err
-	}
-	users, err := builtUsers(h)
-	if err != nil {
-		return err
-	}
-	for _, m := range users {
-		if status[m.Name] == "" {
-			status[m.Name] = keyStatusNone
-		}
-	}
-	var lines [][]string
-	for _, u := range slices.Sorted(maps.Keys(status)) {
-		lines = append(lines, []string{u, status[u]})
-	}
-	var b strings.Builder
-	ui.Plain(&b, lines)
-	ui.Print(os.Stdout, b.String())
 	return nil
 }

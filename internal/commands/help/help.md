@@ -62,7 +62,7 @@ $ luxos setup [--config <dir>]
 ## key
 $ luxos user key <verb> <user>
 - list | List keys on this computer | luxos user key list
-- add <user> | Store a key, typed or piped in | pass show alice-key | luxos user key add alice
+- add <user> | Store a key, typed or piped in; checked against the user's password file | pass show alice-key | luxos user key add alice
 - get <user> | Print a key | luxos user key get alice
 - remove <user> | Delete a key | luxos user key remove alice -y
 - -y, --yes | remove: skip the confirmation

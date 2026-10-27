@@ -58,7 +58,7 @@ func Launch(ask *ui.Prompter, out io.Writer, p paths.Paths, host string, state c
 	}
 	w := &Wizard{Ask: ask, Out: out, Paths: p, System: sys, Clone: Clone,
 		Secret:   func(prompt string) (string, error) { return ui.AskSecret(os.Stdin, out, prompt) },
-		StoreKey: StoreKey,
+		StoreKey: func(u, s string) error { return StoreKey(p.Config, u, s) },
 	}
 
 	var name string
@@ -121,12 +121,19 @@ func Run(args []string) error {
 	return shell.Exec(exe, []string{rebuildCmd, rebuildAction, hostFlag, name})
 }
 
-// StoreKey hands secret to `luxos key add user` under sudo, on stdin. sudo
-// reads its own password from the terminal, not from stdin.
-func StoreKey(user, secret string) error {
+// StoreKey hands secret to `luxos key add user` under sudo, on stdin, with
+// configDir as the config directory. sudo reads its own password from the
+// terminal, not from stdin.
+func StoreKey(configDir, user, secret string) error {
 	self, err := shell.Self()
 	if err != nil {
 		return err
 	}
-	return shell.Run(shell.Cmd{Bin: sudoBin, Args: []string{self, "key", "add", user}, Stdin: strings.NewReader(secret + "\n")})
+	return shell.Run(shell.Cmd{Bin: sudoBin, Args: storeKeyArgs(configDir, self, user), Stdin: strings.NewReader(secret + "\n")})
+}
+
+// storeKeyArgs is the sudo command line for StoreKey; the config directory is
+// set so key add finds the user's unit.
+func storeKeyArgs(configDir, self, user string) []string {
+	return []string{paths.ConfigDirEnv + "=" + configDir, self, "key", "add", user}
 }

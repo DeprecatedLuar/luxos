@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -96,5 +97,13 @@ func TestRun_ExtraArgument(t *testing.T) {
 	}
 	if stdout != "" || !strings.Contains(stderr, `unexpected argument "extra"`) || !strings.Contains(stderr, "luxos setup") {
 		t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestStoreKeyArgs_PassConfigDir(t *testing.T) {
+	got := storeKeyArgs("/c", "/bin/luxos", "ana")
+	want := []string{"LUXOS_CONFIG_DIR=/c", "/bin/luxos", "key", "add", "ana"}
+	if !slices.Equal(got, want) {
+		t.Errorf("args = %q, want %q", got, want)
 	}
 }

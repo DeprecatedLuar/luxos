@@ -5,8 +5,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/password"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 )
@@ -91,4 +94,91 @@ func TestKeyBare(t *testing.T) {
 
 func TestKeyHelpFlag(t *testing.T) {
 	assertHelp(t, func() error { return Key([]string{"--help"}) }, "luxos user key <verb> <user>")
+}
+
+func TestFindUserUnit(t *testing.T) {
+	modulesDir := filepath.Join(t.TempDir(), "modules")
+	if _, ok, err := findUserUnit(modulesDir, testKeyUser); ok || err != nil {
+		t.Fatalf("missing modules dir: ok=%v err=%v, want false, nil", ok, err)
+	}
+	if err := config.WriteUser(filepath.Join(modulesDir, "users", testKeyUser)); err != nil {
+		t.Fatal(err)
+	}
+	m, ok, err := findUserUnit(modulesDir, testKeyUser)
+	if err != nil || !ok || !strings.HasSuffix(m.Abs, filepath.Join("users", testKeyUser)) {
+		t.Errorf("found = %v, %v, %q", ok, err, m.Abs)
+	}
+}
+
+func TestStoreKey_ChecksPasswordFile(t *testing.T) {
+	skipIfNoAge(t)
+	root := t.TempDir()
+	p := paths.Paths{Modules: filepath.Join(root, "modules"), Keys: filepath.Join(root, "keys")}
+	unit := filepath.Join(p.Modules, "users", testKeyUser)
+	if err := config.WriteUser(unit); err != nil {
+		t.Fatal(err)
+	}
+	right, err := password.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong, err := password.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := password.Seal("hash", right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteFile(filepath.Join(unit, password.File), enc); err != nil {
+		t.Fatal(err)
+	}
+	uid := os.Getuid()
+	keyFile := password.KeyPath(p.Keys, testKeyUser)
+
+	err = storeKey(p, testKeyUser, wrong, uid)
+	if err == nil || !strings.Contains(err.Error(), "does not decrypt") || !strings.Contains(err.Error(), "the key was not stored") {
+		t.Fatalf("wrong key: err = %v", err)
+	}
+	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
+		t.Errorf("wrong key left on disk: %v", err)
+	}
+	if err := storeKey(p, testKeyUser, right, uid); err != nil {
+		t.Fatalf("right key: %v", err)
+	}
+	if _, err := os.Stat(keyFile); err != nil {
+		t.Errorf("right key not stored: %v", err)
+	}
+}
+
+func TestStoreKey_NoUnitStoresUnchecked(t *testing.T) {
+	skipIfNoAge(t)
+	root := t.TempDir()
+	p := paths.Paths{Modules: filepath.Join(root, "modules"), Keys: filepath.Join(root, "keys")}
+	secret, err := password.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storeKey(p, testKeyUser, secret, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(password.KeyPath(p.Keys, testKeyUser)); err != nil {
+		t.Errorf("key not stored: %v", err)
+	}
+}
+
+func TestKeyList_NamesOnly(t *testing.T) {
+	keys := t.TempDir()
+	for _, u := range []string{"luar", "alice"} {
+		if err := password.WriteKey(keys, u, secretKeyPrefix+"X"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := keyList(keys, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "alice\nluar\n" {
+		t.Errorf("key list = %q, want %q", out.String(), "alice\nluar\n")
+	}
 }

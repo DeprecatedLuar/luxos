@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/luxos/internal/config"
@@ -72,4 +73,20 @@ func requirePassword(m modules.Module) error {
 		return nil
 	}
 	return password.RequireFile(m.Abs, m.Name)
+}
+
+// findUserUnit finds the user unit called name in the shared tree at
+// modulesDir, which needs no host: a user is never shadowed. ok is false,
+// without an error, when the tree does not exist or holds no such user.
+func findUserUnit(modulesDir, name string) (modules.Module, bool, error) {
+	if _, err := os.Stat(modulesDir); os.IsNotExist(err) {
+		return modules.Module{}, false, nil
+	} else if err != nil {
+		return modules.Module{}, false, err
+	}
+	ms, _, err := modules.Walk(modulesDir, "", "")
+	if err != nil {
+		return modules.Module{}, false, err
+	}
+	return modules.FindUser(ms, name)
 }
