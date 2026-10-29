@@ -30,6 +30,7 @@ const (
 	staging           = "/etc/nixos"
 	keysDir           = "/var/lib/luxos/keys"
 	sysDir            = "/sys"
+	procDir           = "/proc"
 	devDir            = "/dev"
 	mountsFile        = "/proc/mounts"
 	runningSelections = "/run/current-system/luxos/modules"
@@ -48,6 +49,7 @@ type Paths struct {
 	Keys              string // /var/lib/luxos/keys, the root-only folder of user age keys
 	Machines          string // <Config>/.local/machines
 	Sys               string // /sys
+	Proc              string // /proc
 	Dev               string // /dev
 	Mounts            string // /proc/mounts
 	RunningSelections string // the running generation's copy of modules/host/default.nix and modules/machine/default.nix
@@ -88,6 +90,7 @@ func Resolve() (Paths, error) {
 		Keys:              keysDir,
 		Machines:          filepath.Join(config, machinesRel),
 		Sys:               sysDir,
+		Proc:              procDir,
 		Dev:               devDir,
 		Mounts:            mountsFile,
 		RunningSelections: runningSelections,

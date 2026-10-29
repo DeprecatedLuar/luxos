@@ -14,10 +14,12 @@ import (
 	"github.com/DeprecatedLuar/luxos/internal/commands/shared"
 	"github.com/DeprecatedLuar/luxos/internal/config"
 	"github.com/DeprecatedLuar/luxos/internal/flake"
+	"github.com/DeprecatedLuar/luxos/internal/hardware"
 	"github.com/DeprecatedLuar/luxos/internal/nix"
 	"github.com/DeprecatedLuar/luxos/internal/paths"
 	"github.com/DeprecatedLuar/luxos/internal/shell"
 	"github.com/DeprecatedLuar/luxos/internal/staging"
+	"github.com/DeprecatedLuar/luxos/internal/swap"
 	"github.com/DeprecatedLuar/luxos/internal/ui"
 )
 
@@ -46,6 +48,17 @@ const nixStorePrefix = "/nix/store/"
 const luxosBinRelpath = "bin/luxos"
 
 const selfUpdateNotice = "luxos updated, rebuilding with the new version"
+
+// Share of RAM a temporary zram swap device takes, as zramSwap does by default.
+const tempSwapPercent = 50
+
+const tempSwapNotice = "temporary zram swap for this build"
+
+// nixos-rebuild's exit status when nix died by SIGKILL, usually the OOM
+// killer: 247 from nixos-rebuild-ng (exit(-9)), 137 from the shell version.
+var rebuildKilledCodes = map[int]bool{137: true, 247: true}
+
+const rebuildKilledTip = "build killed, likely out of memory: retry with --cores 2 --max-jobs 1"
 
 func printLogo() {
 	ui.Print(os.Stdout, ui.Logo(os.Stdout))
@@ -213,6 +226,10 @@ func stagedRebuild(p paths.Paths, host string, prune bool, rest []string) error 
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 
+	if zram, ok := tempSwap(p); ok {
+		defer stopTempSwap(zram)
+	}
+
 	runErr := runStaged(p, host, prune, rest, sigs)
 
 	if runErr == nil && rebuildActivatingActions[rebuildAction(rest)] {
@@ -296,9 +313,44 @@ func runStaged(p paths.Paths, host string, prune bool, rest []string, sigs <-cha
 	// already printed its error. Any other failure keeps its message.
 	err = shell.Run(shell.Cmd{Bin: rebuildBin, Args: flakeArgs})
 	if code, ok := shell.ExitCode(err); ok {
+		if rebuildKilledCodes[code] {
+			out.Warnf("%s", rebuildKilledTip)
+		}
 		return shared.ExitCode(code)
 	}
 	return err
+}
+
+// tempSwap adds a zram swap device for this build when the running system has
+// none, as on a stock NixOS box before its first luxos generation. A failure
+// is a warning: the build may still fit in RAM.
+func tempSwap(p paths.Paths) (swap.Zram, bool) {
+	active, err := swap.Active(p.Proc)
+	if err != nil {
+		ui.Warn(os.Stderr, err.Error())
+		return swap.Zram{}, false
+	}
+	if active {
+		return swap.Zram{}, false
+	}
+	mem, err := hardware.DetectMemory(p.Proc)
+	if err != nil {
+		ui.Warn(os.Stderr, err.Error())
+		return swap.Zram{}, false
+	}
+	zram, err := swap.StartZram(p.Sys, p.Dev, mem*tempSwapPercent/100)
+	if err != nil {
+		ui.Warn(os.Stderr, fmt.Sprintf("no temporary zram swap: %v", err))
+		return swap.Zram{}, false
+	}
+	ui.Done(os.Stdout, tempSwapNotice)
+	return zram, true
+}
+
+func stopTempSwap(zram swap.Zram) {
+	if err := zram.Stop(); err != nil {
+		ui.Warn(os.Stderr, fmt.Sprintf("%s stays until reboot: %v", zram.Device(), err))
+	}
 }
 
 // interrupted reports a SIGINT or SIGTERM received while Go-side staging ran.
