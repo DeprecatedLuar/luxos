@@ -48,11 +48,11 @@ in
   # on a Wayland-only machine.
 
   environment.systemPackages = with pkgs; [
-    xorg.libXext
-    xorg.libX11
-    xorg.libXrender
-    xorg.libXtst
-    xorg.libXi
+    libxext
+    libx11
+    libxrender
+    libxtst
+    libxi
 
     # Audio & Bluetooth GUI companions (pipewire/bluetooth enabled below)
     pavucontrol
