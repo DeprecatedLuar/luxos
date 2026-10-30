@@ -85,15 +85,15 @@ func TestKeyGet(t *testing.T) {
 }
 
 func TestOneUserMisuse(t *testing.T) {
-	assertMisuse(t, func() error { _, err := oneUser(nil); return err }, "want exactly one user", "luxos user key <verb> <user>")
+	assertMisuse(t, func() error { _, err := oneUser(nil); return err }, "want exactly one user", "key add <user>")
 }
 
 func TestKeyBare(t *testing.T) {
-	assertMisuse(t, func() error { return Key(nil) }, "luxos user key <verb> <user>")
+	assertMisuse(t, func() error { return Key(nil) }, "key add <user>")
 }
 
 func TestKeyHelpFlag(t *testing.T) {
-	assertHelp(t, func() error { return Key([]string{"--help"}) }, "luxos user key <verb> <user>")
+	assertHelp(t, func() error { return Key([]string{"--help"}) }, "key add <user>")
 }
 
 func TestFindUserUnit(t *testing.T) {

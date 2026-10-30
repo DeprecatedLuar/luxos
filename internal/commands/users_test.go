@@ -247,7 +247,7 @@ func TestUserAddMissingName(t *testing.T) {
 }
 
 func TestUserKeyRoutesToKey(t *testing.T) {
-	assertMisuse(t, func() error { return User([]string{"key"}) }, "luxos user key <verb> <user>")
+	assertMisuse(t, func() error { return User([]string{"key"}) }, "key add <user>")
 }
 
 func TestUserPasswordAliasRemoved(t *testing.T) {

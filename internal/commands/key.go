@@ -17,6 +17,7 @@ import (
 
 const (
 	keyCommand   = "key"
+	keyHelp      = "user"
 	keyPrompt    = "Age secret key (AGE-SECRET-KEY-1…): "
 	keyRemoveAsk = "Remove the key of %s from this computer? The account %s is locked at the next boot or rebuild on this computer, and older generations stop accepting that password. [y/N] "
 	keyNotStored = "%w\n  the key was not stored"
@@ -31,10 +32,10 @@ var errKeyRemoveAborted = errors.New("aborted: nothing changed\n  confirm with: 
 // Key runs `luxos key ls|add|get|rm`.
 func Key(args []string) error {
 	if len(args) == 0 {
-		return help.Misuse(os.Stderr, keyCommand, nil)
+		return help.Misuse(os.Stderr, keyHelp, nil)
 	}
 	if isHelpFlag(args[0]) {
-		return help.Command(os.Stdout, keyCommand)
+		return help.Command(os.Stdout, keyHelp)
 	}
 	if err := shared.EnsureRoot(append([]string{keyCommand}, args...)); err != nil {
 		return err
@@ -54,7 +55,7 @@ func Key(args []string) error {
 	case "rm", "remove":
 		return keyRemove(p, rest)
 	default:
-		return help.Misuse(os.Stderr, keyCommand, fmt.Errorf(unknownVerbFormat, verb))
+		return help.Misuse(os.Stderr, keyHelp, fmt.Errorf(unknownVerbFormat, verb))
 	}
 }
 
@@ -62,7 +63,7 @@ func Key(args []string) error {
 // becomes a file name in the keys folder.
 func oneUser(rest []string) (string, error) {
 	if len(rest) != 1 {
-		return "", help.Misuse(os.Stderr, keyCommand, errWantOneUser)
+		return "", help.Misuse(os.Stderr, keyHelp, errWantOneUser)
 	}
 	user := rest[0]
 	if user == "" || user == "." || user == ".." || strings.Contains(user, "/") {

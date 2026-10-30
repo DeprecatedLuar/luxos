@@ -25,9 +25,11 @@ $ luxos module <verb> <name>
 - --machine | enable, configure: only on this computer
 - --flat | list: a flat list instead of a tree
 - -y, --yes | Skip confirmations
+> Some modules have a ⚙ glyph. They can be configured per host or machine. More info on the settings help page.
 
 ## package
 $ luxos package <list|package...> [flags]
+> Packages is pretty basic and unoptimised so far, I want to update it to be much more useful.
 - list | List the packages your config installs | luxos package list --flat
 - <package>... | Show one or more packages | luxos package git curl
 - --host <name> | Use another host
@@ -46,26 +48,18 @@ $ luxos flake <list|input...|update> [flags]
 ## user
 $ luxos user <verb> <name>
 > Same verbs as module, for users.
-- add <name> | Create a user | luxos user add alice --enable
-- passwd <user> | Set a user's password | luxos user passwd alice
-- key <verb> <user> | Manage a user's key on this computer | luxos user key add alice
+- add <name> | Create a user | luxos user add luar --enable
+- passwd <user> | Set a user's password | luxos user passwd luar
+- key list | List keys on this computer | luxos user key list
+- key add <user> | Store a key, typed or piped in; checked against the user's password file | pass show luar-key | luxos user key add luar
+- key get <user> | Print a key | luxos user key get luar
+- key remove <user> | Delete a key | luxos user key remove luar -y
 - --enable | add: enable it too
-
-## passwd
-$ luxos user passwd <user>
-> Set a user's password.
+- -y, --yes | key remove: skip the confirmation
 
 ## setup
 $ luxos setup [--config <dir>]
 > Create a config, or add this computer to one. rebuild runs it when there is no config. Setup configures the user you are logged in as: log in as the user you want first.
-
-## key
-$ luxos user key <verb> <user>
-- list | List keys on this computer | luxos user key list
-- add <user> | Store a key, typed or piped in; checked against the user's password file | pass show alice-key | luxos user key add alice
-- get <user> | Print a key | luxos user key get alice
-- remove <user> | Delete a key | luxos user key remove alice -y
-- -y, --yes | remove: skip the confirmation
 
 ## Flags
 - --deadlock | Update luxos first, then run the command with the new binary
@@ -73,6 +67,7 @@ $ luxos user key <verb> <user>
 - --raw | Lists and show commands: plain text, even on a terminal
 
 ## Aliases
+- lux | luxos
 - rb | rebuild
 - m, modules | module list
 - users | user list
@@ -221,9 +216,9 @@ $ luxos rebuild [flags] <action> [nixos-rebuild args]
 - modules/packages.nix | The user's packages, created with the user
 
 ## Example
-- luxos user add alice --enable | Creates modules/users/alice and enables it
-- luxos user passwd alice | Sets the password; the key is printed once
-- luxos user key add alice | On another computer: store the saved key
+- luxos user add luar --enable | Creates modules/users/luar and enables it
+- luxos user passwd luar | Sets the password; the key is printed once
+- luxos user key add luar | On another computer: store the saved key
 
 ## Passwords
 > luxos user passwd <user> asks the password twice and saves its hash, encrypted with the user's key, to .password.age. The first time it creates the key and prints it once: save it.

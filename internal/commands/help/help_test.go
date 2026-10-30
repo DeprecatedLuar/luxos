@@ -17,15 +17,12 @@ const (
 	wantExitCode    = 2
 	blockBarPrefix  = "──["
 	moduleUsage     = "luxos module <verb> <name>"
-	keyUsage        = "luxos user key <verb> <user>"
+	keyUsage        = "key add <user>"
 	causeText       = "want one user"
 	unknownName     = "nope"
 	topicHierarchy  = "hierarchy"
-	commandSections = "rebuild module package flake user passwd setup key"
+	commandSections = "rebuild module package flake user setup"
 )
-
-// userVerbSections are the command sections whose usage is a user verb.
-var userVerbSections = map[string]bool{"passwd": true, "key": true}
 
 var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
@@ -52,9 +49,6 @@ func TestCommandSectionsExist(t *testing.T) {
 			t.Fatalf("Command(%q) = %v", name, err)
 		}
 		want := "luxos " + name
-		if userVerbSections[name] {
-			want = "luxos user " + name
-		}
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("block for %q lacks %q:\n%s", name, want, buf.String())
 		}
@@ -86,7 +80,7 @@ func TestCommandUnknown(t *testing.T) {
 
 func TestMisuse(t *testing.T) {
 	var buf bytes.Buffer
-	assertExit2(t, Misuse(&buf, "key", errors.New(causeText)))
+	assertExit2(t, Misuse(&buf, "user", errors.New(causeText)))
 	out := plain(&buf)
 	cause, usage := strings.Index(out, causeText), strings.Index(out, keyUsage)
 	if cause < 0 || usage < 0 || cause > usage {

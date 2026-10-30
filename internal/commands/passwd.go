@@ -17,6 +17,7 @@ import (
 
 const (
 	passwdCommand  = "passwd"
+	passwdHelp     = "user"
 	passwordPrompt = "New password: "
 	againPrompt    = "Retype new password: "
 	badKeyNotice   = "key of %s is unusable, creating a new one"
@@ -31,10 +32,10 @@ const (
 // written until both answers are in and the hash is made.
 func Passwd(args []string) error {
 	if len(args) > 0 && isHelpFlag(args[0]) {
-		return help.Command(os.Stdout, passwdCommand)
+		return help.Command(os.Stdout, passwdHelp)
 	}
 	if len(args) != 1 {
-		return help.Misuse(os.Stderr, passwdCommand, errWantOneUser)
+		return help.Misuse(os.Stderr, passwdHelp, errWantOneUser)
 	}
 	if err := shared.EnsureRoot(append([]string{passwdCommand}, args...)); err != nil {
 		return err
